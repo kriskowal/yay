@@ -1,0 +1,1 @@
+{"message": "By Grabthar's hammer... what a savings.\n", "next": 1}

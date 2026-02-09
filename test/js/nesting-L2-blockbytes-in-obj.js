@@ -1,0 +1,1 @@
+({ "data": Uint8Array.from([0xb0, 0xb5]) })

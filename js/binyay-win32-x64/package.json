@@ -1,0 +1,13 @@
+{
+  "name": "binyay-win32-x64",
+  "version": "1.0.0",
+  "description": "Platform-specific binary for binyay (win32-x64)",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kriskowal/yay"
+  },
+  "os": ["win32"],
+  "cpu": ["x64"],
+  "files": ["bin"]
+}

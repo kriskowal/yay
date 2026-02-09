@@ -1,0 +1,4 @@
+defaults: {adapter: "postgres", host: "localhost"}
+development:
+  "<<": {adapter: "postgres", host: "localhost"}
+  database: "dev_db"

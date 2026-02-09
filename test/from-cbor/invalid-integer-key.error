@@ -1,0 +1,1 @@
+test/from-cbor/invalid-integer-key.cbor: CBOR map key must be a text string, got: Integer(Integer(1))

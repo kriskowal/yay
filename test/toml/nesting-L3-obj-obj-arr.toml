@@ -1,0 +1,2 @@
+[outer]
+inner = [42, "hello"]

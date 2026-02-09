@@ -1,0 +1,7 @@
+outer:
+  config:
+    name: "Alice"
+    age: 30
+    city: "New York"
+    country: "USA"
+    occupation: "Engineer"

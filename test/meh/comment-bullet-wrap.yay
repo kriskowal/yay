@@ -1,0 +1,4 @@
+config: >
+  00 11 22 33  # - This is a bullet item that is quite long and should wrap with
+               #   a hanging indent on continuation.
+  aa bb cc dd  # - Short bullet.

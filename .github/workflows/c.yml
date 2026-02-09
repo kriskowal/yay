@@ -1,0 +1,53 @@
+name: C
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'c/**'
+      - 'test/**'
+      - '.github/workflows/c.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'c/**'
+      - 'test/**'
+      - '.github/workflows/c.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: c
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Generate fixtures
+        run: python3 gen_fixtures.py
+
+      - name: Check for fixture changes
+        run: |
+          if ! git diff --quiet fixtures_gen.h; then
+            echo "::error::Generated fixtures are out of date. Run 'python3 gen_fixtures.py' in the c/ directory and commit the changes."
+            git diff fixtures_gen.h
+            exit 1
+          fi
+
+      - name: Build
+        run: make
+
+      - name: Run tests
+        run: make test

@@ -1,0 +1,10 @@
+Value::Object(HashMap::from([(
+    "outer".into(),
+    Value::Object(HashMap::from([(
+        "inner".into(),
+        Value::Array(vec![
+            Value::Integer(42.into()),
+            Value::String("hello".into()),
+        ]),
+    )])),
+)]))

@@ -1,0 +1,4 @@
+config: >
+  00 11 22 33  # This is the first
+               # sentence that continues.
+  aa bb cc dd  # Second sentence here.

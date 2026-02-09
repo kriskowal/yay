@@ -1,0 +1,33 @@
+roses-are-red: true      # There is no "yes" or "on".
+violets-are-blue: false  # Violets are violet.
+arrays:
+  - "may"
+  - "have"
+  - "many"
+  - "values"
+and-objects-too:
+  integers-are-distinct: 42
+  from-their-floating-friends: 6.283 185 307 179 586  # digit grouping
+inline:
+  string: "is concise"
+  array: [infinity, -infinity, nan]
+  object: {bigint: 1, float64: 2.0}
+  bytes: <f33d face>
+block:
+  string: `
+    This is a string.
+    There are many like it.
+  array:
+    - "But"
+    - "this"
+    - "one's"
+  object:
+    mine: null
+  bytes: >
+    b0 b5  c0 ff  # Bob's Coffee
+    fe fa  ca de  # Facade.
+concatenated:
+  "I'm not dead yet. "
+  "I feel happy!"
+unicode-code-point: "\u{1F600}"  # UTF-16 surrogates are inexpressible
+"name with spaces": 'works too'

@@ -1,0 +1,34 @@
+and-objects-too:
+  from-their-floating-friends: 6.283185307179586
+  integers-are-distinct: 42
+arrays:
+- may
+- have
+- many
+- values
+block:
+  array:
+  - But
+  - this
+  - one's
+  bytes: !binary sLXA//76yt4=
+  object:
+    mine: null
+  string: |
+    This is a string.
+    There are many like it.
+concatenated: I'm not dead yet. I feel happy!
+inline:
+  array:
+  - .inf
+  - -.inf
+  - .nan
+  bytes: !binary 8z36zg==
+  object:
+    bigint: 1
+    float64: 2.0
+  string: is concise
+name with spaces: works too
+roses-are-red: true
+unicode-code-point: 😀
+violets-are-blue: false

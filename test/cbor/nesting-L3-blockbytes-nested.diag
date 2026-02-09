@@ -1,0 +1,7 @@
+{
+  "outer": {
+    "inner": {
+      "data": h'cafe'
+    }
+  }
+}

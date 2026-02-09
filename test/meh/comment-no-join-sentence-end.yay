@@ -1,0 +1,4 @@
+config: >
+  00 11 22 33  # Contact Smith.
+               # he knows the details.
+  aa bb cc dd  # Done.

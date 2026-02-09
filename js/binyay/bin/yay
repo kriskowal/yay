@@ -1,0 +1,48 @@
+#!/usr/bin/env node
+
+const { execFileSync } = require('child_process');
+const path = require('path');
+const fs = require('fs');
+
+const PLATFORMS = {
+  'darwin-arm64': 'binyay-darwin-arm64',
+  'darwin-x64': 'binyay-darwin-x64',
+  'linux-arm64': 'binyay-linux-arm64',
+  'linux-x64': 'binyay-linux-x64',
+  'win32-x64': 'binyay-win32-x64',
+};
+
+function getBinaryPath() {
+  const platform = `${process.platform}-${process.arch}`;
+  const pkg = PLATFORMS[platform];
+  
+  if (!pkg) {
+    console.error(`Unsupported platform: ${platform}`);
+    console.error(`Supported platforms: ${Object.keys(PLATFORMS).join(', ')}`);
+    process.exit(1);
+  }
+
+  try {
+    const pkgPath = require.resolve(`${pkg}/package.json`);
+    const pkgDir = path.dirname(pkgPath);
+    const binName = process.platform === 'win32' ? 'yay.exe' : 'yay';
+    return path.join(pkgDir, 'bin', binName);
+  } catch (e) {
+    console.error(`Failed to find binary package: ${pkg}`);
+    console.error('Try reinstalling: npm install binyay');
+    process.exit(1);
+  }
+}
+
+const binary = getBinaryPath();
+
+try {
+  const result = execFileSync(binary, process.argv.slice(2), {
+    stdio: 'inherit',
+  });
+} catch (e) {
+  if (e.status !== undefined) {
+    process.exit(e.status);
+  }
+  throw e;
+}

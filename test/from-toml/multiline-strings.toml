@@ -1,0 +1,6 @@
+basic = """
+line one
+line two"""
+literal = '''
+line one
+line two'''

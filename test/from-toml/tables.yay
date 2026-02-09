@@ -1,0 +1,2 @@
+database: {max_connections: 100, url: "postgres:\/\/localhost\/mydb"}
+server: {host: "localhost", port: 8080}

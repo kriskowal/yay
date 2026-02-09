@@ -1,0 +1,3 @@
+data: >
+  ca fe ba be  # First sentence ends here. Second sentence starts fresh.
+  de ad be ef  # More data follows.

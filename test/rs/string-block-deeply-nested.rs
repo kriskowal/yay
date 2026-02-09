@@ -1,0 +1,10 @@
+Value::Object(HashMap::from([(
+    "level1".into(),
+    Value::Object(HashMap::from([(
+        "level2".into(),
+        Value::Object(HashMap::from([(
+            "text".into(),
+            Value::String("Hello\nWorld\n".into()),
+        )])),
+    )])),
+)]))

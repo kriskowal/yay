@@ -1,0 +1,5 @@
+scientific: 1.5e10
+negative-exp: 3.14e-5
+positive-exp: 2.71e+8
+no-decimal: 6e23
+leading-dot: .5e2

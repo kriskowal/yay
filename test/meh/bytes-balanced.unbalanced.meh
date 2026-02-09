@@ -1,0 +1,4 @@
+magic: >
+  ca fe ba be  # Java class file magic
+  de ad be ef
+  00 00 00 34  # Version 52.0

@@ -1,0 +1,8 @@
+{
+  "bool_false": false,
+  "bool_true": true,
+  "float": 3.14,
+  "integer": 42,
+  "null_val": null,
+  "string": "hello"
+}

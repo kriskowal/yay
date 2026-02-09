@@ -1,0 +1,4 @@
+server:
+  features: ["auth", "logging", "metrics"]
+  host: "localhost"
+  port: 8080

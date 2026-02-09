@@ -1,0 +1,1169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>YAY — Yet Another YAML</title>
+<style>
+@font-face {
+  font-family: 'Comic Mono';
+  src: url('ComicMono.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Comic Mono';
+  src: url('ComicMono-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --bg: #fafafa;
+  --fg: #2e3440;
+  --fg-dim: #7b8394;
+  --accent: #d946ef;        /* fuchsia */
+  --green: #16a34a;
+  --orange: #ea580c;
+  --red: #e11d48;
+  --purple: #9333ea;
+  --cyan: #0891b2;
+  --yellow: #ca8a04;
+  --teal: #0d9488;
+  --surface: #ffffff;
+  --border: #e5e7eb;
+  --bg-page: #ffffff;
+  --code-bg: #f4f4f5;
+  --party-pink: #ec4899;
+  --party-orange: #f97316;
+  --party-yellow: #eab308;
+  --party-green: #22c55e;
+  --party-blue: #3b82f6;
+  --party-purple: #a855f7;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'Comic Sans MS', 'Comic Sans', 'Chalkboard SE', 'Marker Felt',
+    cursive, fantasy, sans-serif;
+  background: var(--bg-page);
+  color: var(--fg);
+  font-size: 1.15rem;
+  line-height: 1.7;
+}
+
+#confetti {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: -1;
+}
+
+.container {
+  max-width: 52rem;
+  margin: 0 auto;
+  padding: 3rem 1.5rem;
+  position: relative;
+}
+
+h1 {
+  font-size: 4rem;
+  font-weight: 800;
+  margin-bottom: 0.25rem;
+  letter-spacing: -0.03em;
+  text-align: center;
+}
+
+.center {
+  text-align: center;
+}
+
+h1 .rainbow {
+  background: linear-gradient(135deg, var(--party-pink), var(--party-orange), var(--party-yellow), var(--party-green), var(--party-blue), var(--party-purple));
+  background-size: 200% 200%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: rainbow 4s ease infinite;
+}
+
+@keyframes rainbow {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+.subtitle {
+  color: var(--fg-dim);
+  font-size: 1.4rem;
+  margin-bottom: 2.5rem;
+  text-align: center;
+}
+
+h2 {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--fg);
+  margin-top: 2.5rem;
+  margin-bottom: 0.75rem;
+  letter-spacing: -0.01em;
+}
+
+h3, .h3 {
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: var(--fg);
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+p {
+  margin-bottom: 1rem;
+  color: var(--fg);
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+.features {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+  margin: 1.5rem 0 2.5rem;
+}
+
+@media (max-width: 32rem) {
+  .features { grid-template-columns: 1fr; }
+}
+
+.feature {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+
+.feature:hover {
+  border-color: var(--accent);
+  box-shadow: 0 4px 16px rgba(217, 70, 239, 0.1);
+}
+
+.feature:nth-child(1) h3 { color: var(--party-pink); }
+.feature:nth-child(2) h3 { color: var(--party-orange); }
+.feature:nth-child(3) h3 { color: var(--party-blue); }
+.feature:nth-child(4) h3 { color: var(--party-purple); }
+
+.feature h3 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin-bottom: 0.35rem;
+  margin-top: 0;
+}
+
+.feature p {
+  font-size: 1rem;
+  color: var(--fg-dim);
+  margin-bottom: 0;
+  line-height: 1.5;
+}
+
+pre {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 1.25rem 1.5rem;
+  overflow-x: auto;
+  font-size: 1rem;
+  line-height: 1.65;
+  margin-bottom: 1.5rem;
+  color: var(--fg);
+}
+
+code {
+  font-family: 'Comic Mono', 'SF Mono', 'Fira Code', 'Fira Mono',
+    'JetBrains Mono', 'Cascadia Code', Menlo, Monaco, Consolas, monospace;
+}
+
+p code, li code {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 0.25rem;
+  padding: 0.1em 0.35em;
+  font-size: 0.85em;
+  color: var(--purple);
+}
+
+/* Syntax highlighting — party palette */
+.k  { color: var(--purple); font-weight: 600; }   /* keyword */
+.n  { color: var(--orange); }                       /* number */
+.s  { color: var(--green); }                        /* string */
+.e  { color: var(--cyan); font-weight: 600; }       /* escape */
+.b  { color: var(--teal); }                         /* bytes */
+.p  { color: var(--fg-dim); }                       /* punctuation */
+.t  { color: var(--party-pink); }                   /* key / tag */
+.c  { color: var(--fg-dim); font-style: italic; }   /* comment */
+.d  { color: var(--red); font-weight: 600; }        /* delimiter */
+.m  { color: var(--red); font-weight: 700; }        /* list marker */
+
+.types {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.25rem 1.5rem;
+  margin: 1rem 0 1.5rem;
+  font-size: 1.05rem;
+}
+
+.types dt {
+  font-weight: 600;
+  color: var(--purple);
+  font-family: 'Comic Mono', 'SF Mono', 'Fira Code', Menlo, Monaco, Consolas, monospace;
+  font-size: 1rem;
+}
+
+.types dd {
+  color: var(--fg-dim);
+}
+
+footer {
+  margin-top: 3rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+  color: var(--fg-dim);
+  font-size: 0.85rem;
+}
+
+footer a { color: var(--fg-dim); }
+footer a:hover { color: var(--accent); }
+
+/* Tabs */
+.tabs {
+  margin-bottom: 1.5rem;
+}
+
+.tab-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  border-bottom: 2px solid var(--border);
+  margin-bottom: 0;
+}
+
+.tab-bar button {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  color: var(--fg-dim);
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 500;
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.tab-bar button:hover {
+  color: var(--fg);
+}
+
+.tab-bar button.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+.tab-panel {
+  display: none;
+}
+
+.tab-panel.active {
+  display: block;
+}
+
+.tab-panel pre {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  margin-bottom: 0;
+}
+
+/* Hex dump styling */
+.hd     { color: var(--fg-dim); }               /* offset */
+.hx     { color: var(--teal); }                 /* hex bytes */
+.ha     { color: var(--fg-dim); opacity: 0.4; } /* ASCII */
+
+/* SHON command/output examples */
+.shon-ex {
+  margin-bottom: 1.5rem;
+}
+.shon-ex .shon-cmd {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem 0.5rem 0 0;
+  padding: 0.75rem 1.25rem;
+  margin-bottom: 0;
+  font-size: 1rem;
+  line-height: 1.65;
+  overflow-x: auto;
+}
+.shon-ex .shon-cmd::before {
+  content: "$ ";
+  color: var(--fg-dim);
+  font-weight: 700;
+}
+.shon-ex .shon-out {
+  background: #f0f0f1;
+  border: 1px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 0.5rem 0.5rem;
+  padding: 0.75rem 1.25rem;
+  margin-bottom: 0;
+  font-size: 1rem;
+  line-height: 1.65;
+  overflow-x: auto;
+  color: var(--fg-dim);
+}
+</style>
+</head>
+<body>
+<canvas id="confetti"></canvas>
+<div class="container">
+
+<h1>🎉 <span class="rainbow">YAY</span> 🎉</h1>
+<p class="subtitle">Yet Another YAML: more than JSON, less than YAML, and better for it</p>
+
+<div class="features">
+  <div class="feature">
+    <h3>Ints don’t Float 🦆</h3>
+    <p>Arbitrary-precision integers are a first-class type, distinct from floats.</p>
+  </div>
+  <div class="feature">
+    <h3>Byte Arrays 📦</h3>
+    <p>Binary data with inline&nbsp;<code>&lt;c0fe&gt;</code> and block&nbsp;<code>&gt;&nbsp;c0fe</code> forms.</p>
+  </div>
+  <div class="feature">
+    <h3>Clean Diffs 🧹</h3>
+    <p>Changes to one value never cascade into adjacent lines.</p>
+  </div>
+  <div class="feature">
+    <h3>No Surprises 🚫</h3>
+    <p>No bare words. No surrogates or control codes. Strict whitespace.</p>
+  </div>
+</div>
+
+<p class="center">The <code>yay</code> formatter realigns your comments, wraps your
+sentences, and makes your data legit. It can also translate to lots of other
+formats and languages.*</p>
+
+<p class="center"><small>*Neither a floor wax nor a desert topping.</small></p>
+
+<h2>At a Glance 👀</h2>
+
+<div class="tabs" id="glance-tabs">
+<div class="tab-bar">
+<button class="active" data-tab="yay">YAY 🎉</button>
+<button data-tab="yaml">YAML 📄</button>
+<button data-tab="yson">JSON 🟡</button>
+<button data-tab="cbor-hex">CBOR ❄️</button>
+<button data-tab="cbor-diag">CBOR 🔎</button>
+<button data-tab="js">JS 🟨</button>
+<button data-tab="python">Python 🐍</button>
+<button data-tab="rust">Rust 🦀</button>
+<button data-tab="scheme">Scheme 🏸</button>
+<button data-tab="c">C 💣</button>
+<button data-tab="java">Java ☕</button>
+</div>
+
+<div class="tab-panel active" data-tab="yay">
+<pre><code><span class="t">roses-are-red</span><span class="p">:</span> <span class="k">true</span>      <span class="c"># There is no "yes" or "on".</span>
+<span class="t">violets-are-blue</span><span class="p">:</span> <span class="k">false</span>  <span class="c"># Violets are violet.</span>
+<span class="t">arrays</span><span class="p">:</span>
+  <span class="m">-</span> <span class="s">"may"</span>
+  <span class="m">-</span> <span class="s">"have"</span>
+  <span class="m">-</span> <span class="s">"many"</span>
+  <span class="m">-</span> <span class="s">"values"</span>
+<span class="t">and-objects-too</span><span class="p">:</span>
+  <span class="t">integers-are-distinct</span><span class="p">:</span> <span class="n">42</span>
+  <span class="t">from-their-floating-friends</span><span class="p">:</span> <span class="n">6.283 185 307 179 586</span>  <span class="c"># digit grouping</span>
+<span class="t">inline</span><span class="p">:</span>
+  <span class="t">string</span><span class="p">:</span> <span class="s">"is concise"</span>
+  <span class="t">array</span><span class="p">:</span> <span class="p">[</span><span class="n">infinity</span><span class="p">,</span> <span class="n">-infinity</span><span class="p">,</span> <span class="n">nan</span><span class="p">]</span>
+  <span class="t">object</span><span class="p">:</span> <span class="p">{</span><span class="t">bigint</span><span class="p">:</span> <span class="n">1</span><span class="p">,</span> <span class="t">float64</span><span class="p">:</span> <span class="n">2.0</span><span class="p">}</span>
+  <span class="t">bytes</span><span class="p">:</span> <span class="d">&lt;</span><span class="b">f33d face</span><span class="d">&gt;</span>
+<span class="t">block</span><span class="p">:</span>
+  <span class="t">string</span><span class="p">:</span> <span class="d">`</span>
+    <span class="s">This is a string.</span>
+    <span class="s">There are many like it.</span>
+  <span class="t">array</span><span class="p">:</span>
+    <span class="m">-</span> <span class="s">"But"</span>
+    <span class="m">-</span> <span class="s">"this"</span>
+    <span class="m">-</span> <span class="s">"one's"</span>
+  <span class="t">object</span><span class="p">:</span>
+    <span class="t">mine</span><span class="p">:</span> <span class="k">null</span>
+  <span class="t">bytes</span><span class="p">:</span> <span class="d">&gt;</span>
+    <span class="b">b0 b5  c0 ff</span>  <span class="c"># Bob's Coffee</span>
+    <span class="b">fe fa  ca de</span>  <span class="c"># Facade.</span>
+<span class="t">concatenated</span><span class="p">:</span>
+  <span class="s">"I'm not dead yet. "</span>
+  <span class="s">"I feel happy!"</span>
+<span class="t">unicode-code-point</span><span class="p">:</span> <span class="s">"<span class="e">\u{1F600}</span>"</span>  <span class="c"># UTF-16 surrogates are inexpressible</span>
+<span class="s">"name with spaces"</span><span class="p">:</span> <span class="s">'works too'</span></code></pre>
+</div>
+
+<div class="tab-panel" data-tab="yaml">
+<pre><code><span class="t">and-objects-too</span><span class="p">:</span>
+  <span class="t">from-their-floating-friends</span><span class="p">:</span> <span class="n">6.283185307179586</span>
+  <span class="t">integers-are-distinct</span><span class="p">:</span> <span class="n">42</span>
+<span class="t">arrays</span><span class="p">:</span>
+<span class="m">-</span> <span class="s">may</span>
+<span class="m">-</span> <span class="s">have</span>
+<span class="m">-</span> <span class="s">many</span>
+<span class="m">-</span> <span class="s">values</span>
+<span class="t">block</span><span class="p">:</span>
+  <span class="t">array</span><span class="p">:</span>
+  <span class="m">-</span> <span class="s">But</span>
+  <span class="m">-</span> <span class="s">this</span>
+  <span class="m">-</span> <span class="s">one's</span>
+  <span class="t">bytes</span><span class="p">:</span> <span class="d">!binary</span> <span class="b">sLXA//76yt4=</span>
+  <span class="t">object</span><span class="p">:</span>
+    <span class="t">mine</span><span class="p">:</span> <span class="k">null</span>
+  <span class="t">string</span><span class="p">:</span> <span class="d">|</span>
+    <span class="s">This is a string.</span>
+    <span class="s">There are many like it.</span>
+<span class="t">concatenated</span><span class="p">:</span> <span class="s">I'm not dead yet. I feel happy!</span>
+<span class="t">inline</span><span class="p">:</span>
+  <span class="t">array</span><span class="p">:</span>
+  <span class="m">-</span> <span class="n">.inf</span>
+  <span class="m">-</span> <span class="n">-.inf</span>
+  <span class="m">-</span> <span class="n">.nan</span>
+  <span class="t">bytes</span><span class="p">:</span> <span class="d">!binary</span> <span class="b">8z36zg==</span>
+  <span class="t">object</span><span class="p">:</span>
+    <span class="t">bigint</span><span class="p">:</span> <span class="n">1</span>
+    <span class="t">float64</span><span class="p">:</span> <span class="n">2.0</span>
+  <span class="t">string</span><span class="p">:</span> <span class="s">is concise</span>
+<span class="t">name with spaces</span><span class="p">:</span> <span class="s">works too</span>
+<span class="t">roses-are-red</span><span class="p">:</span> <span class="k">true</span>
+<span class="t">unicode-code-point</span><span class="p">:</span> <span class="s">&#x1f600;</span>
+<span class="t">violets-are-blue</span><span class="p">:</span> <span class="k">false</span></code></pre>
+</div>
+
+<div class="tab-panel" data-tab="yson">
+<pre><code><span class="p">{</span>
+  <span class="t">"and-objects-too"</span><span class="p">:</span> <span class="p">{</span>
+    <span class="t">"from-their-floating-friends"</span><span class="p">:</span> <span class="n">6.283185307179586</span><span class="p">,</span>
+    <span class="t">"integers-are-distinct"</span><span class="p">:</span> <span class="s">"#42"</span>
+  <span class="p">},</span>
+  <span class="t">"arrays"</span><span class="p">:</span> <span class="p">[</span>
+    <span class="s">"may"</span><span class="p">,</span>
+    <span class="s">"have"</span><span class="p">,</span>
+    <span class="s">"many"</span><span class="p">,</span>
+    <span class="s">"values"</span>
+  <span class="p">],</span>
+  <span class="t">"block"</span><span class="p">:</span> <span class="p">{</span>
+    <span class="t">"array"</span><span class="p">:</span> <span class="p">[</span>
+      <span class="s">"But"</span><span class="p">,</span>
+      <span class="s">"this"</span><span class="p">,</span>
+      <span class="s">"one's"</span>
+    <span class="p">],</span>
+    <span class="t">"bytes"</span><span class="p">:</span> <span class="s">"*b0b5c0fffefacade"</span><span class="p">,</span>
+    <span class="t">"object"</span><span class="p">:</span> <span class="p">{</span>
+      <span class="t">"mine"</span><span class="p">:</span> <span class="k">null</span>
+    <span class="p">},</span>
+    <span class="t">"string"</span><span class="p">:</span> <span class="s">"This is a string.\nThere are many like it.\n"</span>
+  <span class="p">},</span>
+  <span class="t">"concatenated"</span><span class="p">:</span> <span class="s">"I'm not dead yet. I feel happy!"</span><span class="p">,</span>
+  <span class="t">"inline"</span><span class="p">:</span> <span class="p">{</span>
+    <span class="t">"array"</span><span class="p">:</span> <span class="p">[</span>
+      <span class="s">"#Infinity"</span><span class="p">,</span>
+      <span class="s">"#-Infinity"</span><span class="p">,</span>
+      <span class="s">"#NaN"</span>
+    <span class="p">],</span>
+    <span class="t">"bytes"</span><span class="p">:</span> <span class="s">"*f33dface"</span><span class="p">,</span>
+    <span class="t">"object"</span><span class="p">:</span> <span class="p">{</span>
+      <span class="t">"bigint"</span><span class="p">:</span> <span class="s">"#1"</span><span class="p">,</span>
+      <span class="t">"float64"</span><span class="p">:</span> <span class="n">2</span>
+    <span class="p">},</span>
+    <span class="t">"string"</span><span class="p">:</span> <span class="s">"is concise"</span>
+  <span class="p">},</span>
+  <span class="t">"name with spaces"</span><span class="p">:</span> <span class="s">"works too"</span><span class="p">,</span>
+  <span class="t">"roses-are-red"</span><span class="p">:</span> <span class="k">true</span><span class="p">,</span>
+  <span class="t">"unicode-code-point"</span><span class="p">:</span> <span class="s">"&#x1f600;"</span><span class="p">,</span>
+  <span class="t">"violets-are-blue"</span><span class="p">:</span> <span class="k">false</span>
+<span class="p">}</span></code></pre>
+</div>
+
+<div class="tab-panel" data-tab="cbor-diag">
+<pre><code><span class="p">{</span>
+  <span class="s">"and-objects-too"</span><span class="p">:</span> <span class="p">{</span>
+    <span class="s">"from-their-floating-friends"</span><span class="p">:</span> <span class="n">6.283185307179586</span><span class="p">,</span>
+    <span class="s">"integers-are-distinct"</span><span class="p">:</span> <span class="n">42</span>
+  <span class="p">},</span>
+  <span class="s">"arrays"</span><span class="p">:</span> <span class="p">[</span><span class="s">"may"</span><span class="p">,</span> <span class="s">"have"</span><span class="p">,</span> <span class="s">"many"</span><span class="p">,</span> <span class="s">"values"</span><span class="p">],</span>
+  <span class="s">"block"</span><span class="p">:</span> <span class="p">{</span>
+    <span class="s">"array"</span><span class="p">:</span> <span class="p">[</span><span class="s">"But"</span><span class="p">,</span> <span class="s">"this"</span><span class="p">,</span> <span class="s">"one's"</span><span class="p">],</span>
+    <span class="s">"bytes"</span><span class="p">:</span> <span class="d">h'</span><span class="b">b0b5c0fffefacade</span><span class="d">'</span><span class="p">,</span>
+    <span class="s">"object"</span><span class="p">:</span> <span class="p">{</span>
+      <span class="s">"mine"</span><span class="p">:</span> <span class="k">null</span>
+    <span class="p">},</span>
+    <span class="s">"string"</span><span class="p">:</span> <span class="s">"This is a string.\nThere are many like it.\n"</span>
+  <span class="p">},</span>
+  <span class="s">"concatenated"</span><span class="p">:</span> <span class="s">"I'm not dead yet. I feel happy!"</span><span class="p">,</span>
+  <span class="s">"inline"</span><span class="p">:</span> <span class="p">{</span>
+    <span class="s">"array"</span><span class="p">:</span> <span class="p">[</span><span class="n">Infinity</span><span class="p">,</span> <span class="n">-Infinity</span><span class="p">,</span> <span class="n">NaN</span><span class="p">],</span>
+    <span class="s">"bytes"</span><span class="p">:</span> <span class="d">h'</span><span class="b">f33dface</span><span class="d">'</span><span class="p">,</span>
+    <span class="s">"object"</span><span class="p">:</span> <span class="p">{</span>
+      <span class="s">"bigint"</span><span class="p">:</span> <span class="n">1</span><span class="p">,</span>
+      <span class="s">"float64"</span><span class="p">:</span> <span class="n">2.0</span>
+    <span class="p">},</span>
+    <span class="s">"string"</span><span class="p">:</span> <span class="s">"is concise"</span>
+  <span class="p">},</span>
+  <span class="s">"name with spaces"</span><span class="p">:</span> <span class="s">"works too"</span><span class="p">,</span>
+  <span class="s">"roses-are-red"</span><span class="p">:</span> <span class="k">true</span><span class="p">,</span>
+  <span class="s">"unicode-code-point"</span><span class="p">:</span> <span class="s">"&#x1f600;"</span><span class="p">,</span>
+  <span class="s">"violets-are-blue"</span><span class="p">:</span> <span class="k">false</span>
+<span class="p">}</span></code></pre>
+</div>
+
+<div class="tab-panel" data-tab="cbor-hex">
+<pre><code><span class="hd">00000000</span>  <span class="hx">a9 6f 61 6e 64 2d 6f 62  6a 65 63 74 73 2d 74 6f</span>  <span class="ha">.oand-objects-to</span>
+<span class="hd">00000010</span>  <span class="hx">6f a2 78 1b 66 72 6f 6d  2d 74 68 65 69 72 2d 66</span>  <span class="ha">o.x.from-their-f</span>
+<span class="hd">00000020</span>  <span class="hx">6c 6f 61 74 69 6e 67 2d  66 72 69 65 6e 64 73 fb</span>  <span class="ha">loating-friends.</span>
+<span class="hd">00000030</span>  <span class="hx">40 19 21 fb 54 44 2d 18  75 69 6e 74 65 67 65 72</span>  <span class="ha">@.!.TD-.uinteger</span>
+<span class="hd">00000040</span>  <span class="hx">73 2d 61 72 65 2d 64 69  73 74 69 6e 63 74 18 2a</span>  <span class="ha">s-are-distinct.*</span>
+<span class="hd">00000050</span>  <span class="hx">66 61 72 72 61 79 73 84  63 6d 61 79 64 68 61 76</span>  <span class="ha">farrays.cmaydhav</span>
+<span class="hd">00000060</span>  <span class="hx">65 64 6d 61 6e 79 66 76  61 6c 75 65 73 65 62 6c</span>  <span class="ha">edmanyfvaluesebl</span>
+<span class="hd">00000070</span>  <span class="hx">6f 63 6b a4 65 61 72 72  61 79 83 63 42 75 74 64</span>  <span class="ha">ock.earray.cButd</span>
+<span class="hd">00000080</span>  <span class="hx">74 68 69 73 65 6f 6e 65  27 73 65 62 79 74 65 73</span>  <span class="ha">thiseone'sebytes</span>
+<span class="hd">00000090</span>  <span class="hx">48 b0 b5 c0 ff fe fa ca  de 66 6f 62 6a 65 63 74</span>  <span class="ha">H........fobject</span>
+<span class="hd">000000a0</span>  <span class="hx">a1 64 6d 69 6e 65 f6 66  73 74 72 69 6e 67 78 2a</span>  <span class="ha">.dmine.fstringx*</span>
+<span class="hd">000000b0</span>  <span class="hx">54 68 69 73 20 69 73 20  61 20 73 74 72 69 6e 67</span>  <span class="ha">This is a string</span>
+<span class="hd">000000c0</span>  <span class="hx">2e 0a 54 68 65 72 65 20  61 72 65 20 6d 61 6e 79</span>  <span class="ha">..There are many</span>
+<span class="hd">000000d0</span>  <span class="hx">20 6c 69 6b 65 20 69 74  2e 0a 6c 63 6f 6e 63 61</span>  <span class="ha"> like it..lconca</span>
+<span class="hd">000000e0</span>  <span class="hx">74 65 6e 61 74 65 64 78  1f 49 27 6d 20 6e 6f 74</span>  <span class="ha">tenatedx.I'm not</span>
+<span class="hd">000000f0</span>  <span class="hx">20 64 65 61 64 20 79 65  74 2e 20 49 20 66 65 65</span>  <span class="ha"> dead yet. I fee</span>
+<span class="hd">00000100</span>  <span class="hx">6c 20 68 61 70 70 79 21  66 69 6e 6c 69 6e 65 a4</span>  <span class="ha">l happy!finline.</span>
+<span class="hd">00000110</span>  <span class="hx">65 61 72 72 61 79 83 fb  7f f0 00 00 00 00 00 00</span>  <span class="ha">earray..........</span>
+<span class="hd">00000120</span>  <span class="hx">fb ff f0 00 00 00 00 00  00 fb 7f f8 00 00 00 00</span>  <span class="ha">................</span>
+<span class="hd">00000130</span>  <span class="hx">00 00 65 62 79 74 65 73  44 f3 3d fa ce 66 6f 62</span>  <span class="ha">..ebytesD.=..fob</span>
+<span class="hd">00000140</span>  <span class="hx">6a 65 63 74 a2 66 62 69  67 69 6e 74 01 67 66 6c</span>  <span class="ha">ject.fbigint.gfl</span>
+<span class="hd">00000150</span>  <span class="hx">6f 61 74 36 34 fb 40 00  00 00 00 00 00 00 66 73</span>  <span class="ha">oat64.@.......fs</span>
+<span class="hd">00000160</span>  <span class="hx">74 72 69 6e 67 6a 69 73  20 63 6f 6e 63 69 73 65</span>  <span class="ha">tringjis concise</span>
+<span class="hd">00000170</span>  <span class="hx">70 6e 61 6d 65 20 77 69  74 68 20 73 70 61 63 65</span>  <span class="ha">pname with space</span>
+<span class="hd">00000180</span>  <span class="hx">73 69 77 6f 72 6b 73 20  74 6f 6f 6d 72 6f 73 65</span>  <span class="ha">siworks toomrose</span>
+<span class="hd">00000190</span>  <span class="hx">73 2d 61 72 65 2d 72 65  64 f5 72 75 6e 69 63 6f</span>  <span class="ha">s-are-red.runico</span>
+<span class="hd">000001a0</span>  <span class="hx">64 65 2d 63 6f 64 65 2d  70 6f 69 6e 74 64 f0 9f</span>  <span class="ha">de-code-pointd..</span>
+<span class="hd">000001b0</span>  <span class="hx">98 80 70 76 69 6f 6c 65  74 73 2d 61 72 65 2d 62</span>  <span class="ha">..pviolets-are-b</span>
+<span class="hd">000001c0</span>  <span class="hx">6c 75 65 f4</span>                                      <span class="ha">lue.</span></code></pre>
+</div>
+
+<div class="tab-panel" data-tab="js">
+<pre><code><span class="p">(</span><span class="p">{</span>
+  <span class="t">"and-objects-too"</span><span class="p">:</span> <span class="p">{</span>
+    <span class="t">"from-their-floating-friends"</span><span class="p">:</span> <span class="n">6.283185307179586</span><span class="p">,</span>
+    <span class="t">"integers-are-distinct"</span><span class="p">:</span> <span class="n">42n</span><span class="p">,</span>
+  <span class="p">},</span>
+  <span class="t">"arrays"</span><span class="p">:</span> <span class="p">[</span><span class="s">"may"</span><span class="p">,</span> <span class="s">"have"</span><span class="p">,</span> <span class="s">"many"</span><span class="p">,</span> <span class="s">"values"</span><span class="p">],</span>
+  <span class="t">"block"</span><span class="p">:</span> <span class="p">{</span>
+    <span class="t">"array"</span><span class="p">:</span> <span class="p">[</span><span class="s">"But"</span><span class="p">,</span> <span class="s">"this"</span><span class="p">,</span> <span class="s">"one's"</span><span class="p">],</span>
+    <span class="t">"bytes"</span><span class="p">:</span> <span class="k">Uint8Array</span><span class="p">.</span><span class="k">from</span><span class="p">([</span><span class="b">0xb0</span><span class="p">,</span> <span class="b">0xb5</span><span class="p">,</span> <span class="b">0xc0</span><span class="p">,</span> <span class="b">0xff</span><span class="p">,</span> <span class="b">0xfe</span><span class="p">,</span> <span class="b">0xfa</span><span class="p">,</span> <span class="b">0xca</span><span class="p">,</span> <span class="b">0xde</span><span class="p">]),</span>
+    <span class="t">"object"</span><span class="p">:</span> <span class="p">{</span> <span class="t">"mine"</span><span class="p">:</span> <span class="k">null</span> <span class="p">},</span>
+    <span class="t">"string"</span><span class="p">:</span> <span class="s">"This is a string.<span class="e">\n</span>There are many like it.<span class="e">\n</span>"</span><span class="p">,</span>
+  <span class="p">},</span>
+  <span class="t">"concatenated"</span><span class="p">:</span> <span class="s">"I'm not dead yet. I feel happy!"</span><span class="p">,</span>
+  <span class="t">"inline"</span><span class="p">:</span> <span class="p">{</span>
+    <span class="t">"array"</span><span class="p">:</span> <span class="p">[</span><span class="n">Infinity</span><span class="p">,</span> <span class="n">-Infinity</span><span class="p">,</span> <span class="n">NaN</span><span class="p">],</span>
+    <span class="t">"bytes"</span><span class="p">:</span> <span class="k">Uint8Array</span><span class="p">.</span><span class="k">from</span><span class="p">([</span><span class="b">0xf3</span><span class="p">,</span> <span class="b">0x3d</span><span class="p">,</span> <span class="b">0xfa</span><span class="p">,</span> <span class="b">0xce</span><span class="p">]),</span>
+    <span class="t">"object"</span><span class="p">:</span> <span class="p">{</span> <span class="t">"bigint"</span><span class="p">:</span> <span class="n">1n</span><span class="p">,</span> <span class="t">"float64"</span><span class="p">:</span> <span class="n">2</span> <span class="p">},</span>
+    <span class="t">"string"</span><span class="p">:</span> <span class="s">"is concise"</span><span class="p">,</span>
+  <span class="p">},</span>
+  <span class="t">"name with spaces"</span><span class="p">:</span> <span class="s">"works too"</span><span class="p">,</span>
+  <span class="t">"roses-are-red"</span><span class="p">:</span> <span class="k">true</span><span class="p">,</span>
+  <span class="t">"unicode-code-point"</span><span class="p">:</span> <span class="s">"&#x1f600;"</span><span class="p">,</span>
+  <span class="t">"violets-are-blue"</span><span class="p">:</span> <span class="k">false</span><span class="p">,</span>
+<span class="p">})</span></code></pre>
+</div>
+
+<div class="tab-panel" data-tab="python">
+<pre><code><span class="p">{</span><span class="t">"and-objects-too"</span><span class="p">:</span> <span class="p">{</span><span class="t">"from-their-floating-friends"</span><span class="p">:</span> <span class="n">6.283185307179586</span><span class="p">,</span>
+<span class="t">"integers-are-distinct"</span><span class="p">:</span> <span class="n">42</span><span class="p">},</span> <span class="t">"arrays"</span><span class="p">:</span> <span class="p">[</span><span class="s">"may"</span><span class="p">,</span> <span class="s">"have"</span><span class="p">,</span> <span class="s">"many"</span><span class="p">,</span> <span class="s">"values"</span><span class="p">],</span>
+<span class="t">"block"</span><span class="p">:</span> <span class="p">{</span><span class="t">"array"</span><span class="p">:</span> <span class="p">[</span><span class="s">"But"</span><span class="p">,</span> <span class="s">"this"</span><span class="p">,</span> <span class="s">"one's"</span><span class="p">],</span>
+<span class="t">"bytes"</span><span class="p">:</span> <span class="k">bytes</span><span class="p">.</span><span class="k">fromhex</span><span class="p">(</span><span class="s">"b0b5c0fffefacade"</span><span class="p">),</span> <span class="t">"object"</span><span class="p">:</span> <span class="p">{</span><span class="t">"mine"</span><span class="p">:</span> <span class="k">None</span><span class="p">},</span>
+<span class="t">"string"</span><span class="p">:</span> <span class="s">"This is a string.<span class="e">\n</span>There are many like it.<span class="e">\n</span>"</span><span class="p">},</span>
+<span class="t">"concatenated"</span><span class="p">:</span> <span class="s">"I'm not dead yet. I feel happy!"</span><span class="p">,</span> <span class="t">"inline"</span><span class="p">:</span> <span class="p">{</span><span class="t">"array"</span><span class="p">:</span>
+<span class="p">[</span><span class="k">float</span><span class="p">(</span><span class="s">"inf"</span><span class="p">),</span> <span class="k">float</span><span class="p">(</span><span class="s">"-inf"</span><span class="p">),</span> <span class="k">float</span><span class="p">(</span><span class="s">"nan"</span><span class="p">)],</span>
+<span class="t">"bytes"</span><span class="p">:</span> <span class="k">bytes</span><span class="p">.</span><span class="k">fromhex</span><span class="p">(</span><span class="s">"f33dface"</span><span class="p">),</span> <span class="t">"object"</span><span class="p">:</span> <span class="p">{</span><span class="t">"bigint"</span><span class="p">:</span> <span class="n">1</span><span class="p">,</span> <span class="t">"float64"</span><span class="p">:</span> <span class="n">2.0</span><span class="p">},</span>
+<span class="t">"string"</span><span class="p">:</span> <span class="s">"is concise"</span><span class="p">},</span> <span class="t">"name with spaces"</span><span class="p">:</span> <span class="s">"works too"</span><span class="p">,</span>
+<span class="t">"roses-are-red"</span><span class="p">:</span> <span class="k">True</span><span class="p">,</span> <span class="t">"unicode-code-point"</span><span class="p">:</span> <span class="s">"&#x1f600;"</span><span class="p">,</span>
+<span class="t">"violets-are-blue"</span><span class="p">:</span> <span class="k">False</span><span class="p">}</span></code></pre>
+</div>
+
+<div class="tab-panel" data-tab="rust">
+<pre><code><span class="k">Value</span><span class="p">::</span><span class="k">Object</span><span class="p">(</span><span class="k">HashMap</span><span class="p">::</span><span class="k">from</span><span class="p">([</span>
+    <span class="p">(</span><span class="s">"and-objects-too"</span><span class="p">.</span><span class="k">into</span><span class="p">(),</span> <span class="k">Value</span><span class="p">::</span><span class="k">Object</span><span class="p">(</span><span class="k">HashMap</span><span class="p">::</span><span class="k">from</span><span class="p">([</span>
+        <span class="p">(</span><span class="s">"from-their-floating-friends"</span><span class="p">.</span><span class="k">into</span><span class="p">(),</span> <span class="k">Value</span><span class="p">::</span><span class="k">Float</span><span class="p">(</span><span class="n">6.283185307179586</span><span class="p">)),</span>
+        <span class="p">(</span><span class="s">"integers-are-distinct"</span><span class="p">.</span><span class="k">into</span><span class="p">(),</span> <span class="k">Value</span><span class="p">::</span><span class="k">Integer</span><span class="p">(</span><span class="n">42</span><span class="p">.</span><span class="k">into</span><span class="p">())),</span>
+    <span class="p">]))),</span>
+    <span class="p">(</span><span class="s">"arrays"</span><span class="p">.</span><span class="k">into</span><span class="p">(),</span> <span class="k">Value</span><span class="p">::</span><span class="k">Array</span><span class="p">(</span><span class="k">vec!</span><span class="p">[</span>
+        <span class="k">Value</span><span class="p">::</span><span class="k">String</span><span class="p">(</span><span class="s">"may"</span><span class="p">.</span><span class="k">into</span><span class="p">()),</span>
+        <span class="k">Value</span><span class="p">::</span><span class="k">String</span><span class="p">(</span><span class="s">"have"</span><span class="p">.</span><span class="k">into</span><span class="p">()),</span>
+        <span class="k">Value</span><span class="p">::</span><span class="k">String</span><span class="p">(</span><span class="s">"many"</span><span class="p">.</span><span class="k">into</span><span class="p">()),</span>
+        <span class="k">Value</span><span class="p">::</span><span class="k">String</span><span class="p">(</span><span class="s">"values"</span><span class="p">.</span><span class="k">into</span><span class="p">()),</span>
+    <span class="p">])),</span>
+    <span class="p">(</span><span class="s">"block"</span><span class="p">.</span><span class="k">into</span><span class="p">(),</span> <span class="k">Value</span><span class="p">::</span><span class="k">Object</span><span class="p">(</span><span class="k">HashMap</span><span class="p">::</span><span class="k">from</span><span class="p">([</span>
+        <span class="p">(</span><span class="s">"array"</span><span class="p">.</span><span class="k">into</span><span class="p">(),</span> <span class="k">Value</span><span class="p">::</span><span class="k">Array</span><span class="p">(</span><span class="k">vec!</span><span class="p">[</span>
+            <span class="k">Value</span><span class="p">::</span><span class="k">String</span><span class="p">(</span><span class="s">"But"</span><span class="p">.</span><span class="k">into</span><span class="p">()),</span>
+            <span class="k">Value</span><span class="p">::</span><span class="k">String</span><span class="p">(</span><span class="s">"this"</span><span class="p">.</span><span class="k">into</span><span class="p">()),</span>
+            <span class="k">Value</span><span class="p">::</span><span class="k">String</span><span class="p">(</span><span class="s">"one's"</span><span class="p">.</span><span class="k">into</span><span class="p">()),</span>
+        <span class="p">])),</span>
+        <span class="p">(</span><span class="s">"bytes"</span><span class="p">.</span><span class="k">into</span><span class="p">(),</span> <span class="k">Value</span><span class="p">::</span><span class="k">Bytes</span><span class="p">(</span><span class="k">vec!</span><span class="p">[</span><span class="b">0xb0</span><span class="p">,</span> <span class="b">0xb5</span><span class="p">,</span> <span class="b">0xc0</span><span class="p">,</span> <span class="b">0xff</span><span class="p">,</span> <span class="b">0xfe</span><span class="p">,</span> <span class="b">0xfa</span><span class="p">,</span> <span class="b">0xca</span><span class="p">,</span> <span class="b">0xde</span><span class="p">])),</span>
+        <span class="p">(</span><span class="s">"object"</span><span class="p">.</span><span class="k">into</span><span class="p">(),</span> <span class="k">Value</span><span class="p">::</span><span class="k">Object</span><span class="p">(</span><span class="k">HashMap</span><span class="p">::</span><span class="k">from</span><span class="p">([</span>
+            <span class="p">(</span><span class="s">"mine"</span><span class="p">.</span><span class="k">into</span><span class="p">(),</span> <span class="k">Value</span><span class="p">::</span><span class="k">Null</span><span class="p">),</span>
+        <span class="p">]))),</span>
+        <span class="p">(</span><span class="s">"string"</span><span class="p">.</span><span class="k">into</span><span class="p">(),</span> <span class="k">Value</span><span class="p">::</span><span class="k">String</span><span class="p">(</span><span class="s">"This is a string.<span class="e">\n</span>There are many like it.<span class="e">\n</span>"</span><span class="p">.</span><span class="k">into</span><span class="p">())),</span>
+    <span class="p">]))),</span>
+    <span class="p">(</span><span class="s">"concatenated"</span><span class="p">.</span><span class="k">into</span><span class="p">(),</span> <span class="k">Value</span><span class="p">::</span><span class="k">String</span><span class="p">(</span><span class="s">"I'm not dead yet. I feel happy!"</span><span class="p">.</span><span class="k">into</span><span class="p">())),</span>
+    <span class="p">(</span><span class="s">"inline"</span><span class="p">.</span><span class="k">into</span><span class="p">(),</span> <span class="k">Value</span><span class="p">::</span><span class="k">Object</span><span class="p">(</span><span class="k">HashMap</span><span class="p">::</span><span class="k">from</span><span class="p">([</span>
+        <span class="p">(</span><span class="s">"array"</span><span class="p">.</span><span class="k">into</span><span class="p">(),</span> <span class="k">Value</span><span class="p">::</span><span class="k">Array</span><span class="p">(</span><span class="k">vec!</span><span class="p">[</span>
+            <span class="k">Value</span><span class="p">::</span><span class="k">Float</span><span class="p">(</span><span class="n">f64</span><span class="p">::</span><span class="n">INFINITY</span><span class="p">),</span>
+            <span class="k">Value</span><span class="p">::</span><span class="k">Float</span><span class="p">(</span><span class="n">f64</span><span class="p">::</span><span class="n">NEG_INFINITY</span><span class="p">),</span>
+            <span class="k">Value</span><span class="p">::</span><span class="k">Float</span><span class="p">(</span><span class="n">f64</span><span class="p">::</span><span class="n">NAN</span><span class="p">),</span>
+        <span class="p">])),</span>
+        <span class="p">(</span><span class="s">"bytes"</span><span class="p">.</span><span class="k">into</span><span class="p">(),</span> <span class="k">Value</span><span class="p">::</span><span class="k">Bytes</span><span class="p">(</span><span class="k">vec!</span><span class="p">[</span><span class="b">0xf3</span><span class="p">,</span> <span class="b">0x3d</span><span class="p">,</span> <span class="b">0xfa</span><span class="p">,</span> <span class="b">0xce</span><span class="p">])),</span>
+        <span class="p">(</span><span class="s">"object"</span><span class="p">.</span><span class="k">into</span><span class="p">(),</span> <span class="k">Value</span><span class="p">::</span><span class="k">Object</span><span class="p">(</span><span class="k">HashMap</span><span class="p">::</span><span class="k">from</span><span class="p">([</span>
+            <span class="p">(</span><span class="s">"bigint"</span><span class="p">.</span><span class="k">into</span><span class="p">(),</span> <span class="k">Value</span><span class="p">::</span><span class="k">Integer</span><span class="p">(</span><span class="n">1</span><span class="p">.</span><span class="k">into</span><span class="p">())),</span>
+            <span class="p">(</span><span class="s">"float64"</span><span class="p">.</span><span class="k">into</span><span class="p">(),</span> <span class="k">Value</span><span class="p">::</span><span class="k">Float</span><span class="p">(</span><span class="n">2.0</span><span class="p">)),</span>
+        <span class="p">]))),</span>
+        <span class="p">(</span><span class="s">"string"</span><span class="p">.</span><span class="k">into</span><span class="p">(),</span> <span class="k">Value</span><span class="p">::</span><span class="k">String</span><span class="p">(</span><span class="s">"is concise"</span><span class="p">.</span><span class="k">into</span><span class="p">())),</span>
+    <span class="p">]))),</span>
+    <span class="p">(</span><span class="s">"name with spaces"</span><span class="p">.</span><span class="k">into</span><span class="p">(),</span> <span class="k">Value</span><span class="p">::</span><span class="k">String</span><span class="p">(</span><span class="s">"works too"</span><span class="p">.</span><span class="k">into</span><span class="p">())),</span>
+    <span class="p">(</span><span class="s">"roses-are-red"</span><span class="p">.</span><span class="k">into</span><span class="p">(),</span> <span class="k">Value</span><span class="p">::</span><span class="k">Bool</span><span class="p">(</span><span class="k">true</span><span class="p">)),</span>
+    <span class="p">(</span><span class="s">"unicode-code-point"</span><span class="p">.</span><span class="k">into</span><span class="p">(),</span> <span class="k">Value</span><span class="p">::</span><span class="k">String</span><span class="p">(</span><span class="s">"&#x1f600;"</span><span class="p">.</span><span class="k">into</span><span class="p">())),</span>
+    <span class="p">(</span><span class="s">"violets-are-blue"</span><span class="p">.</span><span class="k">into</span><span class="p">(),</span> <span class="k">Value</span><span class="p">::</span><span class="k">Bool</span><span class="p">(</span><span class="k">false</span><span class="p">)),</span>
+<span class="p">]))</span></code></pre>
+</div>
+
+<div class="tab-panel" data-tab="c">
+<pre><code><span class="k">YAY_OBJECT</span><span class="p">(</span>
+    <span class="s">"and-objects-too"</span><span class="p">,</span> <span class="k">YAY_OBJECT</span><span class="p">(</span>
+        <span class="s">"from-their-floating-friends"</span><span class="p">,</span> <span class="k">yay_float</span><span class="p">(</span><span class="n">6.283185307179586</span><span class="p">),</span>
+        <span class="s">"integers-are-distinct"</span><span class="p">,</span> <span class="k">yay_int</span><span class="p">(</span><span class="n">42</span><span class="p">)</span>
+    <span class="p">),</span>
+    <span class="s">"arrays"</span><span class="p">,</span> <span class="k">YAY_ARRAY</span><span class="p">(</span>
+        <span class="k">yay_string</span><span class="p">(</span><span class="s">"may"</span><span class="p">),</span>
+        <span class="k">yay_string</span><span class="p">(</span><span class="s">"have"</span><span class="p">),</span>
+        <span class="k">yay_string</span><span class="p">(</span><span class="s">"many"</span><span class="p">),</span>
+        <span class="k">yay_string</span><span class="p">(</span><span class="s">"values"</span><span class="p">)</span>
+    <span class="p">),</span>
+    <span class="s">"block"</span><span class="p">,</span> <span class="k">YAY_OBJECT</span><span class="p">(</span>
+        <span class="s">"array"</span><span class="p">,</span> <span class="k">YAY_ARRAY</span><span class="p">(</span>
+            <span class="k">yay_string</span><span class="p">(</span><span class="s">"But"</span><span class="p">),</span>
+            <span class="k">yay_string</span><span class="p">(</span><span class="s">"this"</span><span class="p">),</span>
+            <span class="k">yay_string</span><span class="p">(</span><span class="s">"one's"</span><span class="p">)</span>
+        <span class="p">),</span>
+        <span class="s">"bytes"</span><span class="p">,</span> <span class="k">yay_bytes_from_hex</span><span class="p">(</span><span class="s">"b0b5c0fffefacade"</span><span class="p">),</span>
+        <span class="s">"object"</span><span class="p">,</span> <span class="k">YAY_OBJECT</span><span class="p">(</span><span class="s">"mine"</span><span class="p">,</span> <span class="k">yay_null</span><span class="p">()),</span>
+        <span class="s">"string"</span><span class="p">,</span> <span class="k">yay_string</span><span class="p">(</span><span class="s">"This is a string.<span class="e">\n</span>There are many like it.<span class="e">\n</span>"</span><span class="p">)</span>
+    <span class="p">),</span>
+    <span class="s">"concatenated"</span><span class="p">,</span> <span class="k">yay_string</span><span class="p">(</span><span class="s">"I'm not dead yet. I feel happy!"</span><span class="p">),</span>
+    <span class="s">"inline"</span><span class="p">,</span> <span class="k">YAY_OBJECT</span><span class="p">(</span>
+        <span class="s">"array"</span><span class="p">,</span> <span class="k">YAY_ARRAY</span><span class="p">(</span>
+            <span class="k">yay_float</span><span class="p">(</span><span class="n">INFINITY</span><span class="p">),</span>
+            <span class="k">yay_float</span><span class="p">(</span><span class="n">-INFINITY</span><span class="p">),</span>
+            <span class="k">yay_float</span><span class="p">(</span><span class="n">NAN</span><span class="p">)</span>
+        <span class="p">),</span>
+        <span class="s">"bytes"</span><span class="p">,</span> <span class="k">yay_bytes_from_hex</span><span class="p">(</span><span class="s">"f33dface"</span><span class="p">),</span>
+        <span class="s">"object"</span><span class="p">,</span> <span class="k">YAY_OBJECT</span><span class="p">(</span><span class="s">"bigint"</span><span class="p">,</span> <span class="k">yay_int</span><span class="p">(</span><span class="n">1</span><span class="p">),</span> <span class="s">"float64"</span><span class="p">,</span> <span class="k">yay_float</span><span class="p">(</span><span class="n">2.0</span><span class="p">)),</span>
+        <span class="s">"string"</span><span class="p">,</span> <span class="k">yay_string</span><span class="p">(</span><span class="s">"is concise"</span><span class="p">)</span>
+    <span class="p">),</span>
+    <span class="s">"name with spaces"</span><span class="p">,</span> <span class="k">yay_string</span><span class="p">(</span><span class="s">"works too"</span><span class="p">),</span>
+    <span class="s">"roses-are-red"</span><span class="p">,</span> <span class="k">yay_bool</span><span class="p">(</span><span class="k">true</span><span class="p">),</span>
+    <span class="s">"unicode-code-point"</span><span class="p">,</span> <span class="k">yay_string</span><span class="p">(</span><span class="s">"&#x1f600;"</span><span class="p">),</span>
+    <span class="s">"violets-are-blue"</span><span class="p">,</span> <span class="k">yay_bool</span><span class="p">(</span><span class="k">false</span><span class="p">)</span>
+<span class="p">)</span></code></pre>
+</div>
+
+<div class="tab-panel" data-tab="scheme">
+<pre><code><span class="p">((</span><span class="s">"and-objects-too"</span> <span class="p">.</span> <span class="p">((</span><span class="s">"from-their-floating-friends"</span> <span class="p">.</span> <span class="n">6.283185307179586</span><span class="p">)</span>
+  <span class="p">(</span><span class="s">"integers-are-distinct"</span> <span class="p">.</span> <span class="n">42</span><span class="p">)))</span>
+ <span class="p">(</span><span class="s">"arrays"</span> <span class="p">.</span> <span class="k">#</span><span class="p">(</span><span class="s">"may"</span> <span class="s">"have"</span> <span class="s">"many"</span> <span class="s">"values"</span><span class="p">))</span>
+ <span class="p">(</span><span class="s">"block"</span> <span class="p">.</span> <span class="p">((</span><span class="s">"array"</span> <span class="p">.</span> <span class="k">#</span><span class="p">(</span><span class="s">"But"</span> <span class="s">"this"</span> <span class="s">"one's"</span><span class="p">))</span>
+  <span class="p">(</span><span class="s">"bytes"</span> <span class="p">.</span> <span class="p">(</span><span class="k">bytevector</span> <span class="b">176</span> <span class="b">181</span> <span class="b">192</span> <span class="b">255</span> <span class="b">254</span> <span class="b">250</span> <span class="b">202</span> <span class="b">222</span><span class="p">))</span>
+  <span class="p">(</span><span class="s">"object"</span> <span class="p">.</span> <span class="p">((</span><span class="s">"mine"</span> <span class="p">.</span> <span class="k">'null</span><span class="p">)))</span>
+  <span class="p">(</span><span class="s">"string"</span> <span class="p">.</span> <span class="s">"This is a string.<span class="e">\n</span>There are many like it.<span class="e">\n</span>"</span><span class="p">)))</span>
+ <span class="p">(</span><span class="s">"concatenated"</span> <span class="p">.</span> <span class="s">"I'm not dead yet. I feel happy!"</span><span class="p">)</span>
+ <span class="p">(</span><span class="s">"inline"</span> <span class="p">.</span> <span class="p">((</span><span class="s">"array"</span> <span class="p">.</span> <span class="k">#</span><span class="p">(</span><span class="n">+inf.0</span> <span class="n">-inf.0</span> <span class="n">+nan.0</span><span class="p">))</span>
+  <span class="p">(</span><span class="s">"bytes"</span> <span class="p">.</span> <span class="p">(</span><span class="k">bytevector</span> <span class="b">243</span> <span class="b">61</span> <span class="b">250</span> <span class="b">206</span><span class="p">))</span>
+  <span class="p">(</span><span class="s">"object"</span> <span class="p">.</span> <span class="p">((</span><span class="s">"bigint"</span> <span class="p">.</span> <span class="n">1</span><span class="p">)</span> <span class="p">(</span><span class="s">"float64"</span> <span class="p">.</span> <span class="n">2.0</span><span class="p">)))</span>
+  <span class="p">(</span><span class="s">"string"</span> <span class="p">.</span> <span class="s">"is concise"</span><span class="p">)))</span>
+ <span class="p">(</span><span class="s">"name with spaces"</span> <span class="p">.</span> <span class="s">"works too"</span><span class="p">)</span>
+ <span class="p">(</span><span class="s">"roses-are-red"</span> <span class="p">.</span> <span class="k">#t</span><span class="p">)</span>
+ <span class="p">(</span><span class="s">"unicode-code-point"</span> <span class="p">.</span> <span class="s">"&#x1f600;"</span><span class="p">)</span>
+ <span class="p">(</span><span class="s">"violets-are-blue"</span> <span class="p">.</span> <span class="k">#f</span><span class="p">))</span></code></pre>
+</div>
+
+<div class="tab-panel" data-tab="java">
+<pre><code><span class="k">Map</span><span class="p">.</span><span class="k">of</span><span class="p">(</span>
+  <span class="s">"and-objects-too"</span><span class="p">,</span> <span class="k">Map</span><span class="p">.</span><span class="k">of</span><span class="p">(</span>
+    <span class="s">"from-their-floating-friends"</span><span class="p">,</span> <span class="n">6.283185307179586</span><span class="p">,</span>
+    <span class="s">"integers-are-distinct"</span><span class="p">,</span> <span class="k">BigInteger</span><span class="p">.</span><span class="k">valueOf</span><span class="p">(</span><span class="n">42</span><span class="p">)),</span>
+  <span class="s">"arrays"</span><span class="p">,</span> <span class="k">List</span><span class="p">.</span><span class="k">of</span><span class="p">(</span><span class="s">"may"</span><span class="p">,</span> <span class="s">"have"</span><span class="p">,</span> <span class="s">"many"</span><span class="p">,</span> <span class="s">"values"</span><span class="p">),</span>
+  <span class="s">"block"</span><span class="p">,</span> <span class="k">Map</span><span class="p">.</span><span class="k">of</span><span class="p">(</span>
+    <span class="s">"array"</span><span class="p">,</span> <span class="k">List</span><span class="p">.</span><span class="k">of</span><span class="p">(</span><span class="s">"But"</span><span class="p">,</span> <span class="s">"this"</span><span class="p">,</span> <span class="s">"one's"</span><span class="p">),</span>
+    <span class="s">"bytes"</span><span class="p">,</span> <span class="k">new</span> <span class="k">byte</span><span class="p">[]</span> <span class="p">{</span>
+      <span class="p">(</span><span class="k">byte</span><span class="p">)</span> <span class="b">0xb0</span><span class="p">,</span> <span class="p">(</span><span class="k">byte</span><span class="p">)</span> <span class="b">0xb5</span><span class="p">,</span> <span class="p">(</span><span class="k">byte</span><span class="p">)</span> <span class="b">0xc0</span><span class="p">,</span> <span class="p">(</span><span class="k">byte</span><span class="p">)</span> <span class="b">0xff</span><span class="p">,</span>
+      <span class="p">(</span><span class="k">byte</span><span class="p">)</span> <span class="b">0xfe</span><span class="p">,</span> <span class="p">(</span><span class="k">byte</span><span class="p">)</span> <span class="b">0xfa</span><span class="p">,</span> <span class="p">(</span><span class="k">byte</span><span class="p">)</span> <span class="b">0xca</span><span class="p">,</span> <span class="p">(</span><span class="k">byte</span><span class="p">)</span> <span class="b">0xde</span><span class="p">},</span>
+    <span class="s">"object"</span><span class="p">,</span> <span class="k">Map</span><span class="p">.</span><span class="k">of</span><span class="p">(</span><span class="s">"mine"</span><span class="p">,</span> <span class="k">null</span><span class="p">),</span>
+    <span class="s">"string"</span><span class="p">,</span> <span class="s">"This is a string.<span class="e">\n</span>There are many like it.<span class="e">\n</span>"</span><span class="p">),</span>
+  <span class="s">"concatenated"</span><span class="p">,</span> <span class="s">"I'm not dead yet. I feel happy!"</span><span class="p">,</span>
+  <span class="s">"inline"</span><span class="p">,</span> <span class="k">Map</span><span class="p">.</span><span class="k">of</span><span class="p">(</span>
+    <span class="s">"array"</span><span class="p">,</span> <span class="k">List</span><span class="p">.</span><span class="k">of</span><span class="p">(</span>
+      <span class="k">Double</span><span class="p">.</span><span class="n">POSITIVE_INFINITY</span><span class="p">,</span> <span class="k">Double</span><span class="p">.</span><span class="n">NEGATIVE_INFINITY</span><span class="p">,</span> <span class="k">Double</span><span class="p">.</span><span class="n">NaN</span><span class="p">),</span>
+    <span class="s">"bytes"</span><span class="p">,</span> <span class="k">new</span> <span class="k">byte</span><span class="p">[]</span> <span class="p">{(</span><span class="k">byte</span><span class="p">)</span> <span class="b">0xf3</span><span class="p">,</span> <span class="p">(</span><span class="k">byte</span><span class="p">)</span> <span class="b">0x3d</span><span class="p">,</span> <span class="p">(</span><span class="k">byte</span><span class="p">)</span> <span class="b">0xfa</span><span class="p">,</span> <span class="p">(</span><span class="k">byte</span><span class="p">)</span> <span class="b">0xce</span><span class="p">},</span>
+    <span class="s">"object"</span><span class="p">,</span> <span class="k">Map</span><span class="p">.</span><span class="k">of</span><span class="p">(</span><span class="s">"bigint"</span><span class="p">,</span> <span class="k">BigInteger</span><span class="p">.</span><span class="k">valueOf</span><span class="p">(</span><span class="n">1</span><span class="p">),</span> <span class="s">"float64"</span><span class="p">,</span> <span class="n">2.0</span><span class="p">),</span>
+    <span class="s">"string"</span><span class="p">,</span> <span class="s">"is concise"</span><span class="p">),</span>
+  <span class="s">"name with spaces"</span><span class="p">,</span> <span class="s">"works too"</span><span class="p">,</span>
+  <span class="s">"roses-are-red"</span><span class="p">,</span> <span class="k">true</span><span class="p">,</span>
+  <span class="s">"unicode-code-point"</span><span class="p">,</span> <span class="s">"&#x1f600;"</span><span class="p">,</span>
+  <span class="s">"violets-are-blue"</span><span class="p">,</span> <span class="k">false</span>
+<span class="p">)</span></code></pre>
+</div>
+
+</div>
+
+
+<h1>YOUR SPONSORSHIP COULD BE RIGHT HERE!</h1>
+<p class="center">
+  THE SOFTWARE IS <a href="#license">FREE<sup>†</sup></a>, BUT AIN'T CHEAP!<br>
+  inquire within: <a href="mailto:agile.lion63541@fastmail.com">agile.lion63541@fastmail.com</a>
+</p>
+
+<h2>Command Line Tool 🪖</h2>
+
+<p>The <code>yay</code> CLI parses, validates, formats, and converts YAY files.
+It reads any supported format and writes to any supported target.
+Available as <code>binyay</code> on
+<a href="https://www.npmjs.com/package/binyay">npm</a> and
+<a href="https://crates.io/crates/binyay">crates.io</a>,
+or via Homebrew from the <code>kriskowal/yippee</code> tap.</p>
+
+<pre><code>yay [OPTIONS] [FILE|DIR]</code></pre>
+
+<h3 class="h3">Format &amp; Validate ✨</h3>
+
+<pre><code><span class="c"># Reformat a file to canonical YAY</span>
+yay config.yay
+
+<span class="c"># Validate without output</span>
+yay --check config.yay
+
+<span class="c"># Validate all .yay files in a directory</span>
+yay --check .</code></pre>
+
+<h3 class="h3">Convert Between Formats 🔄</h3>
+
+<pre><code><span class="c"># JSON to YAY</span>
+echo '{"a": 1, "b": 2}' | yay -f json
+<span class="c"># a: 1.0</span>
+<span class="c"># b: 2.0</span>
+
+<span class="c"># YAY to YAML</span>
+yay -t yaml config.yay
+
+<span class="c"># YAY to CBOR (binary)</span>
+yay -t cbor config.yay -o config.cbor
+
+<span class="c"># CBOR to YAY</span>
+yay -f cbor config.cbor
+
+<span class="c"># YAY to CBOR diagnostic notation</span>
+yay -t diag config.yay</code></pre>
+
+<h3 class="h3">Code Generation 🏗️</h3>
+
+<pre><code>yay -t js config.yay      <span class="c"># JS 🟨</span>
+yay -t python config.yay  <span class="c"># Python 🐍</span>
+yay -t rust config.yay    <span class="c"># Rust 🦀</span>
+yay -t c config.yay       <span class="c"># C 🪚</span>
+yay -t scheme config.yay  <span class="c"># Scheme 😛</span>
+yay -t java config.yay    <span class="c"># Java ☕</span></code></pre>
+
+<h3 class="h3">Pipe &amp; Stdin ↔️</h3>
+
+<pre><code><span class="c"># Read from stdin (any format)</span>
+echo '42' | yay -t js
+<span class="c"># 42n</span>
+
+<span class="c"># Explicit stdin with -</span>
+yay -f json - &lt; data.json
+
+<span class="c"># <a href="#yson">YSON</a> preserves big integers and bytes</span>
+echo '&lt;cafe&gt;' | yay -t yson
+<span class="c"># "*cafe"</span></code></pre>
+
+<h2>Data Model 🤖</h2>
+
+<p>YAY defines eight value types.</p>
+
+<dl class="types">
+  <dt>null</dt>
+  <dd>The <code>null</code> keyword</dd>
+  <dt>boolean</dt>
+  <dd><code>true</code> or <code>false</code> — no "yes", "no", "on", "off"</dd>
+  <dt>integer</dt>
+  <dd>Arbitrary-precision big integer</dd>
+  <dt>float</dt>
+  <dd>IEEE 754 binary64, including <code>nan</code>, <code>infinity</code>, <code>-infinity</code></dd>
+  <dt>string</dt>
+  <dd>Double-quoted (with escapes), single-quoted (literal), or block (backtick)</dd>
+  <dt>bytes</dt>
+  <dd>Inline <code>&lt;hex&gt;</code> or block <code>&gt;</code> with hex lines</dd>
+  <dt>array</dt>
+  <dd>Inline <code>[a, b]</code> or block with <code>-</code> items</dd>
+  <dt>object</dt>
+  <dd>Inline <code>{k: v}</code> or block with <code>key: value</code> properties</dd>
+</dl>
+
+<h2>Scalars 🐟</h2>
+
+<pre><code><span class="c"># Null</span>
+<span class="k">null</span>
+
+<span class="c"># Booleans</span>
+<span class="k">true</span>
+<span class="k">false</span>
+
+<span class="c"># Big integers (arbitrary precision)</span>
+<span class="n">42</span>
+<span class="n">-10</span>
+<span class="n">867 5309</span>                       <span class="c"># digit grouping with spaces</span>
+
+<span class="c"># Floats (IEEE 754 binary64)</span>
+<span class="n">6.283185307179586</span>
+<span class="n">.5</span>
+<span class="n">1.</span>
+<span class="n">-0.0</span>
+<span class="n">6.022e23</span>
+<span class="n">nan</span>
+<span class="n">infinity</span>
+<span class="n">-infinity</span></code></pre>
+
+<h2>Strings 🧵</h2>
+
+<pre><code><span class="c"># Double-quoted (with escape sequences)</span>
+<span class="s">"Hello, world<span class="e">\n</span>"</span>
+<span class="s">"<span class="e">\"</span><span class="e">\\</span><span class="e">\/</span><span class="e">\b</span><span class="e">\f</span><span class="e">\n</span><span class="e">\r</span><span class="e">\t</span><span class="e">\u{263A}</span>"</span>
+
+<span class="c"># Single-quoted (literal, no escapes)</span>
+<span class="s">'Are you suggesting coconuts migrate?'</span>
+
+<span class="c"># Block string (backtick introducer)</span>
+<span class="t">message</span><span class="p">:</span> <span class="d">`</span>
+  <span class="s">By Grabthar's hammer,</span>
+  <span class="s">we live to tell the tale.</span>
+
+<span class="c"># Concatenated quoted strings</span>
+<span class="t">confession</span><span class="p">:</span>
+  <span class="s">"I'm not dead yet. "</span>
+  <span class="s">"I feel happy!"</span></code></pre>
+
+<h2>Objects 🎁</h2>
+
+<pre><code><span class="c"># Inline</span>
+<span class="p">{</span><span class="t">name</span><span class="p">:</span> <span class="s">'Marvin'</span><span class="p">,</span> <span class="t">mood</span><span class="p">:</span> <span class="s">'depressed'</span><span class="p">}</span>
+
+<span class="c"># Block (the root document is an object)</span>
+<span class="t">parrot</span><span class="p">:</span>
+  <span class="t">status</span><span class="p">:</span> <span class="s">"pining for the fjords"</span>
+  <span class="t">plumage</span><span class="p">:</span> <span class="s">"beautiful"</span>
+
+<span class="c"># Quoted keys</span>
+<span class="s">"key name"</span><span class="p">:</span> <span class="n">1</span>
+<span class="t">empty</span><span class="p">:</span> <span class="p">{}</span></code></pre>
+
+<h2>Arrays 📚</h2>
+
+<pre><code><span class="c"># Inline</span>
+<span class="p">[</span><span class="n">42</span><span class="p">,</span> <span class="n">404</span><span class="p">,</span> <span class="n">418</span><span class="p">]</span>
+<span class="p">[</span><span class="s">"And there was much rejoicing."</span><span class="p">,</span> <span class="s">"yay."</span><span class="p">]</span>
+
+<span class="c"># Block</span>
+<span class="t">complaints</span><span class="p">:</span>
+<span class="m">-</span> <span class="s">"I didn't vote for you."</span>
+<span class="m">-</span> <span class="s">"Help, help, I'm being repressed!"</span>
+
+<span class="c"># Nested</span>
+<span class="m">-</span> <span class="m">-</span> <span class="s">"a"</span>
+  <span class="m">-</span> <span class="s">"b"</span>
+<span class="m">-</span> <span class="m">-</span> <span class="n">1</span>
+  <span class="m">-</span> <span class="n">2</span></code></pre>
+
+<h2>Byte Arrays 🌈</h2>
+
+<pre><code><span class="c"># Inline</span>
+<span class="d">&lt;</span><span class="b">f33d face</span><span class="d">&gt;</span>
+<span class="d">&lt;&gt;</span>                              <span class="c"># empty</span>
+
+<span class="c"># Block (with comments)</span>
+<span class="t">data</span><span class="p">:</span> <span class="d">&gt;</span>
+  <span class="b">b0 b5  c0 ff</span>  <span class="c"># Bob's Coffee</span>
+  <span class="b">fe fa  ca de</span>  <span class="c"># Facade.</span></code></pre>
+
+<h2>Comments 💬</h2>
+
+<pre><code><span class="c"># Top-level comments appear before the root value.</span>
+<span class="c"># They extend to the end of the line.</span>
+<span class="t">answer</span><span class="p">:</span> <span class="n">42</span>  <span class="c"># inline comments work too</span></code></pre>
+
+<a name="yson"></a>
+<h2>YSON 🟡</h2>
+
+<p>YSON is a strict superset of JSON that preserves all YAY value types.
+Standard JSON cannot represent big integers, byte arrays, or the special float
+values <code>infinity</code>, <code>-infinity</code>, and <code>nan</code>.
+YSON fills the gap by encoding these as prefixed strings:</p>
+
+<pre><code><span class="c"># Big integers</span>
+<span class="s">"#42"</span>         <span class="c"># → 42 (big integer)</span>
+<span class="s">"#-7"</span>         <span class="c"># → -7</span>
+
+<span class="c"># Special floats</span>
+<span class="s">"#Infinity"</span>   <span class="c"># → infinity</span>
+<span class="s">"#-Infinity"</span>  <span class="c"># → -infinity</span>
+<span class="s">"#NaN"</span>        <span class="c"># → nan</span>
+
+<span class="c"># Byte arrays</span>
+<span class="s">"*cafe"</span>       <span class="c"># → &lt;cafe&gt;</span>
+<span class="s">"*"</span>           <span class="c"># → &lt;&gt; (empty)</span>
+
+<span class="c"># Strings starting with # or * are escaped with !</span>
+<span class="s">"!#hashtag"</span>   <span class="c"># → "#hashtag" (string)</span>
+<span class="s">"!*star"</span>      <span class="c"># → "*star" (string)</span></code></pre>
+
+<p>A YSON document is always valid JSON, so any JSON parser can read it.
+A YSON-aware reader recovers the original YAY types.
+YSON is itself a subset of the <a href="https://endojs.org">Endo SmallCaps</a> encoding.</p>
+
+<pre><code>yay -t yson config.yay        <span class="c"># YAY → YSON</span>
+yay -f yson config.yson       <span class="c"># YSON → YAY</span></code></pre>
+
+<a name="shon"></a>
+<h2>SHON 🐚</h2>
+
+<p>SHON (Shell Object Notation) lets you construct structured data directly from
+command-line arguments, without writing a file or piping stdin.</p>
+
+<h3 class="h3">Objects</h3>
+
+<div class="shon-ex">
+<pre class="shon-cmd"><code>yay <span class="p">[</span> <span class="t">--name</span> <span class="s">hello</span> <span class="t">--count</span> <span class="n">42</span> <span class="p">]</span></code></pre>
+<pre class="shon-out"><code><span class="p">{</span><span class="t">count</span><span class="p">:</span> <span class="n">42</span><span class="p">,</span> <span class="t">name</span><span class="p">:</span> <span class="s">"hello"</span><span class="p">}</span></code></pre>
+</div>
+
+<h3 class="h3">Arrays</h3>
+
+<div class="shon-ex">
+<pre class="shon-cmd"><code>yay <span class="p">[</span> <span class="n">1</span> <span class="n">2</span> <span class="n">3</span> <span class="p">]</span></code></pre>
+<pre class="shon-out"><code><span class="p">[</span><span class="n">1</span><span class="p">,</span> <span class="n">2</span><span class="p">,</span> <span class="n">3</span><span class="p">]</span></code></pre>
+</div>
+
+<h3 class="h3">Nesting</h3>
+
+<div class="shon-ex">
+<pre class="shon-cmd"><code>yay <span class="p">[</span> <span class="t">--servers</span> <span class="p">[</span> <span class="s">localhost:8080</span> <span class="s">localhost:8081</span> <span class="p">]</span> <span class="t">--options</span> <span class="p">[</span> <span class="t">--verbose</span> <span class="k">-t</span> <span class="p">]</span> <span class="p">]</span></code></pre>
+<pre class="shon-out"><code><span class="t">options</span><span class="p">:</span> <span class="p">{</span><span class="t">verbose</span><span class="p">:</span> <span class="k">true</span><span class="p">}</span>
+<span class="t">servers</span><span class="p">:</span> <span class="p">[</span><span class="s">"localhost:8080"</span><span class="p">,</span> <span class="s">"localhost:8081"</span><span class="p">]</span></code></pre>
+</div>
+
+<h3 class="h3">Convert to JSON</h3>
+
+<div class="shon-ex">
+<pre class="shon-cmd"><code>yay -t json <span class="p">[</span> <span class="t">--x</span> <span class="n">1.0</span> <span class="t">--y</span> <span class="n">2.0</span> <span class="p">]</span></code></pre>
+<pre class="shon-out"><code><span class="p">{</span>
+  <span class="t">"x"</span><span class="p">:</span> <span class="n">1</span><span class="p">,</span>
+  <span class="t">"y"</span><span class="p">:</span> <span class="n">2</span>
+<span class="p">}</span></code></pre>
+</div>
+
+<h3 class="h3">Convert to YSON</h3>
+
+<div class="shon-ex">
+<pre class="shon-cmd"><code>yay -t yson <span class="p">[</span> <span class="t">--name</span> <span class="s">hello</span> <span class="t">--values</span> <span class="p">[</span> <span class="n">1</span> <span class="n">2</span> <span class="n">3</span> <span class="p">]</span> <span class="p">]</span></code></pre>
+<pre class="shon-out"><code><span class="p">{</span>
+  <span class="t">"name"</span><span class="p">:</span> <span class="s">"hello"</span><span class="p">,</span>
+  <span class="t">"values"</span><span class="p">:</span> <span class="p">[</span>
+    <span class="s">"#1"</span><span class="p">,</span>
+    <span class="s">"#2"</span><span class="p">,</span>
+    <span class="s">"#3"</span>
+  <span class="p">]</span>
+<span class="p">}</span></code></pre>
+</div>
+
+<h3 class="h3">Hex Bytes</h3>
+
+<div class="shon-ex">
+<pre class="shon-cmd"><code>yay -t yson <span class="k">-x</span> <span class="s">cafe</span></code></pre>
+<pre class="shon-out"><code><span class="s">"*cafe"</span></code></pre>
+</div>
+
+<h3 class="h3">String Escaping</h3>
+
+<div class="shon-ex">
+<pre class="shon-cmd"><code>yay <span class="p">[</span> <span class="k">--</span> <span class="s">42</span> <span class="k">--</span> <span class="s">-t</span> <span class="k">--</span> <span class="s">[</span> <span class="p">]</span></code></pre>
+<pre class="shon-out"><code><span class="p">[</span><span class="s">"42"</span><span class="p">,</span> <span class="s">"-t"</span><span class="p">,</span> <span class="s">"["</span><span class="p">]</span></code></pre>
+</div>
+
+<p>Inside brackets, all YAY value types are available:
+<code>-n</code> (null), <code>-t</code> (true), <code>-f</code> (false),
+<code>-I</code> (∞), <code>-i</code> (−∞), <code>-N</code> (NaN),
+<code>-x</code> (hex bytes), <code>-b</code> (file→bytes),
+<code>-s</code> (file→string), <code>--</code> (string escape),
+and <code>--key</code> (object key).
+Bare words are strings. Bare numbers are integers or floats.
+See <a href="https://github.com/kriskowal/yay/blob/main/SHON.md">SHON.md</a>
+for the full specification.</p>
+
+<h2>Get Started 🚀</h2>
+
+<p>The file extension is <code>.yay</code>.</p>
+
+<p>
+  <a href="https://github.com/kriskowal/yay">GitHub</a> ·
+  Source, grammar, implementations in Rust 🦀, Go🐭, JS 🟨, Python 🐍, C 🌊, Scheme 🏓, and Java 🙄.
+</p>
+<p>
+  Install the CLI (<code>binyay</code>):
+</p>
+<pre><code>brew install kriskowal/yippee/yay  # Homebrew (via tap)
+npm install -g binyay              # npm
+cargo install binyay               # Rust</code></pre>
+<p>
+  Editor support:
+  <a href="https://github.com/kriskowal/yay/tree/main/vim">Vim</a> ·
+  <a href="https://github.com/kriskowal/yay/tree/main/vscode">VS Code</a>
+</p>
+
+<footer><a name="license">
+  †Apache 2.0 · Copyright &copy; 2026 <a href="https://kriskowal.com">Kris Kowal</a>
+</a></footer>
+
+</div>
+<script>
+document.querySelectorAll('.tabs').forEach(function(tabs) {
+  tabs.querySelector('.tab-bar').addEventListener('click', function(e) {
+    var btn = e.target.closest('button');
+    if (!btn) return;
+    var id = btn.getAttribute('data-tab');
+    tabs.querySelectorAll('.tab-bar button').forEach(function(b) {
+      b.classList.toggle('active', b.getAttribute('data-tab') === id);
+    });
+    tabs.querySelectorAll('.tab-panel').forEach(function(p) {
+      p.classList.toggle('active', p.getAttribute('data-tab') === id);
+    });
+  });
+});
+
+// Confetti
+(function() {
+  var canvas = document.getElementById('confetti');
+  var ctx = canvas.getContext('2d');
+  var pieces = [];
+  var colors = [
+    '#ec4899', '#f97316', '#eab308', '#22c55e',
+    '#3b82f6', '#a855f7', '#e11d48', '#0891b2',
+    '#d946ef', '#f43f5e', '#06b6d4', '#84cc16'
+  ];
+
+  var canvasHeight = 800;
+  function resize() {
+    canvas.width = document.documentElement.scrollWidth;
+    canvas.height = canvasHeight;
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  var maxFall = 600; // pixels before fully faded
+
+  function Piece() {
+    this.x = Math.random() * canvas.width;
+    this.y0 = -20;
+    this.y = this.y0;
+    this.w = 4 + Math.random() * 6;
+    this.h = 3 + Math.random() * 4;
+    this.color = colors[Math.floor(Math.random() * colors.length)];
+    this.vx = (Math.random() - 0.5) * 2;
+    this.vy = 1.5 + Math.random() * 2;
+    this.angle = Math.random() * Math.PI * 2;
+    this.va = (Math.random() - 0.5) * 0.15;
+    this.wobble = Math.random() * Math.PI * 2;
+    this.wobbleSpeed = 0.02 + Math.random() * 0.03;
+  }
+
+  // Spawn initial batch scattered across the top portion
+  for (var i = 0; i < 150; i++) {
+    var p = new Piece();
+    p.y0 = -20 - Math.random() * 200;
+    p.y = p.y0;
+    pieces.push(p);
+  }
+
+  // Continuously spawn a few per frame
+  var spawnRate = 2;
+
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Spawn new pieces
+    for (var s = 0; s < spawnRate; s++) {
+      var p = new Piece();
+      p.y = -20;
+      pieces.push(p);
+    }
+
+    // Cap total pieces
+    if (pieces.length > 300) {
+      pieces.splice(0, pieces.length - 300);
+    }
+
+    for (var i = pieces.length - 1; i >= 0; i--) {
+      var p = pieces[i];
+      p.wobble += p.wobbleSpeed;
+      p.x += p.vx + Math.sin(p.wobble) * 0.5;
+      p.y += p.vy;
+      p.angle += p.va;
+
+      var fallen = p.y - p.y0;
+      var alpha = Math.max(0, 1 - fallen / maxFall);
+
+      if (alpha <= 0) {
+        pieces.splice(i, 1);
+        continue;
+      }
+
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.angle);
+      ctx.fillStyle = p.color;
+      ctx.globalAlpha = alpha * 0.85;
+      ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+      ctx.restore();
+    }
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+</script>
+</body>
+</html>

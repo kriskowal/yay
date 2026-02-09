@@ -1,0 +1,4 @@
+config: >
+  00 11 22 33  # - First bullet that
+               #   spans lines.
+  aa bb cc dd  # - Second bullet.

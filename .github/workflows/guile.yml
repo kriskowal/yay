@@ -1,0 +1,38 @@
+name: Guile CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scm/**'
+      - 'test/**'
+      - '.github/workflows/guile.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scm/**'
+      - 'test/**'
+      - '.github/workflows/guile.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Guile
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y guile-3.0
+
+      - name: Verify Guile installation
+        run: guile --version
+
+      - name: Run YAY parser tests
+        working-directory: scm
+        run: guile --no-auto-compile run-tests.scm

@@ -1,0 +1,4 @@
+data: >
+  ca fe ba be  # This is a short comment
+  de ad be ef  # Another comment here that is very long and should wrap to the
+               # next line properly

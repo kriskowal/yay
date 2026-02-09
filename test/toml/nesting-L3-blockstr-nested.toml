@@ -1,0 +1,6 @@
+[outer]
+
+[outer.inner]
+text = """
+Deep
+"""

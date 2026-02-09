@@ -1,0 +1,4 @@
+*.a
+*.o
+__pycache__
+test_yay

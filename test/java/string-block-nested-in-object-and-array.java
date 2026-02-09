@@ -1,0 +1,1 @@
+Map.of("parrot", Map.of("condition", "No, no, it's just resting!\n", "remarks", List.of("Remarkable bird, the Norwegian Blue.\nBeautiful plumage, innit?\n", "It's probably pining for the fjords.\nLovely plumage.\n")))

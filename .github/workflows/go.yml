@@ -1,0 +1,66 @@
+name: Go
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: go
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Generate fixtures
+        run: go generate
+
+      - name: Check for fixture changes
+        id: check-fixtures
+        run: |
+          if git diff --quiet fixtures_gen_test.go; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "::warning::Generated fixtures are out of date"
+            git diff fixtures_gen_test.go
+          fi
+
+      - name: Auto-commit fixture updates
+        if: steps.check-fixtures.outputs.changed == 'true' && github.event_name == 'push'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add fixtures_gen_test.go
+          git commit -m "chore: regenerate test fixtures"
+          git push
+
+      - name: Fail PR if fixtures out of date
+        if: steps.check-fixtures.outputs.changed == 'true' && github.event_name == 'pull_request'
+        run: |
+          echo "::error::Generated fixtures are out of date. Run 'go generate' in the go/ directory and commit the changes."
+          exit 1
+
+      - name: Check for missing test fixtures
+        run: ../scripts/check-missing.sh
+
+      - name: Build
+        run: go build -v ./...
+
+      - name: Test
+        run: go test -v ./...

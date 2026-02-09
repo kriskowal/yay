@@ -1,0 +1,5 @@
+({
+  "level1": {
+    "level2": { "data": Uint8Array.from([0xb0, 0xb5, 0xc0, 0xff]) },
+  },
+})

@@ -1,0 +1,7 @@
+Map.of(
+    "level1", Map.of(
+        "level2", Map.of(
+            "data", new byte[] {(byte) 0xb0, (byte) 0xb5, (byte) 0xc0, (byte) 0xff}
+        )
+    )
+)

@@ -1,0 +1,3 @@
+config: >
+  00 11 22 33  # This is a very long comment that was previously on one line and needs to be wrapped to fit within the column limit properly.
+  aa bb cc dd  # Short.

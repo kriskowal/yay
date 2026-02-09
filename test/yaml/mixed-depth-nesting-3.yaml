@@ -1,0 +1,7 @@
+top:
+  list:
+  - bytes: !binary sLU=
+    tag: x
+  - more:
+      inner: !binary Dw8=
+  solo: 1

@@ -1,0 +1,36 @@
+name: JavaScript
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'js/**'
+      - 'test/**'
+      - '.github/workflows/js.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'js/**'
+      - 'test/**'
+      - '.github/workflows/js.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: js/libyay
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run tests
+        run: node --test yay.test.js

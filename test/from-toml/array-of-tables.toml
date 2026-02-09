@@ -1,0 +1,7 @@
+[[fruits]]
+name = "apple"
+color = "red"
+
+[[fruits]]
+name = "banana"
+color = "yellow"

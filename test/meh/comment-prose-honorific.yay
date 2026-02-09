@@ -1,0 +1,4 @@
+config: >
+  # Note that Rickman appeared over the 80th column.
+  00 11 22 33  # Please, if possible, expediently contact the honourable
+               # Mr. Rickman for details.

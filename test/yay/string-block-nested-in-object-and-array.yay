@@ -1,0 +1,10 @@
+parrot:
+  condition: `
+    No, no, it's just resting!
+
+  remarks:
+  - ` Remarkable bird, the Norwegian Blue.
+      Beautiful plumage, innit?
+
+  - ` It's probably pining for the fjords.
+      Lovely plumage.

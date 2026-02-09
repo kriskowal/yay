@@ -1,0 +1,4 @@
+config: >
+  00 11 22 33  # First sentence ends here.
+               # Second sentence is separate.
+  aa bb cc dd  # Third.

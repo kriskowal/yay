@@ -1,0 +1,16 @@
+name: Check README Examples
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check-examples:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify README examples match fixtures
+        run: ./scripts/test-readmes.sh

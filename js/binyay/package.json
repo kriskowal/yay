@@ -1,0 +1,39 @@
+{
+  "name": "binyay",
+  "version": "1.0.0",
+  "description": "YAY command-line tool for parsing, formatting, and transcoding YAY documents",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kriskowal/yay"
+  },
+  "homepage": "https://github.com/kriskowal/yay",
+  "keywords": [
+    "yay",
+    "yaml",
+    "json",
+    "parser",
+    "formatter",
+    "cli"
+  ],
+  "bin": {
+    "yay": "bin/yay"
+  },
+  "files": [
+    "bin",
+    "README.md"
+  ],
+  "scripts": {
+    "postinstall": "node scripts/postinstall.js"
+  },
+  "optionalDependencies": {
+    "binyay-darwin-arm64": "1.0.0",
+    "binyay-darwin-x64": "1.0.0",
+    "binyay-linux-arm64": "1.0.0",
+    "binyay-linux-x64": "1.0.0",
+    "binyay-win32-x64": "1.0.0"
+  },
+  "engines": {
+    "node": ">=14"
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "name": "yay-lang",
+  "displayName": "YAY",
+  "description": "Syntax highlighting for YAY (Yet Another YAML)",
+  "version": "0.1.0",
+  "publisher": "kriskowal",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kriskowal/yay"
+  },
+  "engines": {
+    "vscode": "^1.60.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "yay",
+        "aliases": [
+          "YAY",
+          "yay"
+        ],
+        "extensions": [
+          ".yay",
+          ".meh"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "yay",
+        "scopeName": "source.yay",
+        "path": "./syntaxes/yay.tmLanguage.json"
+      }
+    ]
+  }
+}

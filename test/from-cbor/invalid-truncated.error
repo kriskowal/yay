@@ -1,0 +1,1 @@
+test/from-cbor/invalid-truncated.cbor: CBOR decode error: Io(Error { kind: UnexpectedEof, message: "failed to fill whole buffer" })

@@ -1,0 +1,3 @@
+# Header comment
+name: "Alice" # inline comment
+age: 30 # another comment

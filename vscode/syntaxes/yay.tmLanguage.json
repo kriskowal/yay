@@ -1,0 +1,267 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "YAY",
+  "scopeName": "source.yay",
+  "patterns": [
+    { "include": "#comment" },
+    { "include": "#property-block-string" },
+    { "include": "#property-block-bytes" },
+    { "include": "#property" },
+    { "include": "#list-item" },
+    { "include": "#value" }
+  ],
+  "repository": {
+
+    "comment": {
+      "match": "(?<=\\s|^)(#)(.*)$",
+      "name": "comment.line.number-sign.yay",
+      "captures": {
+        "1": { "name": "punctuation.definition.comment.yay" }
+      }
+    },
+
+    "value": {
+      "patterns": [
+        { "include": "#block-string-open" },
+        { "include": "#block-bytes-open" },
+        { "include": "#inline-bytes" },
+        { "include": "#inline-array" },
+        { "include": "#inline-object" },
+        { "include": "#double-quoted-string" },
+        { "include": "#single-quoted-string" },
+        { "include": "#null" },
+        { "include": "#boolean" },
+        { "include": "#float" },
+        { "include": "#integer" },
+        { "include": "#comment" }
+      ]
+    },
+
+    "null": {
+      "match": "\\bnull\\b",
+      "name": "constant.language.null.yay"
+    },
+
+    "boolean": {
+      "match": "\\b(true|false)\\b",
+      "name": "constant.language.boolean.yay"
+    },
+
+    "integer": {
+      "match": "(?<!\\.)\\b-?\\d+([ ]\\d+)*\\b(?!\\.)",
+      "name": "constant.numeric.integer.yay"
+    },
+
+    "float": {
+      "patterns": [
+        {
+          "match": "\\bnan\\b",
+          "name": "constant.numeric.float.yay"
+        },
+        {
+          "match": "\\binfinity\\b",
+          "name": "constant.numeric.float.yay"
+        },
+        {
+          "match": "-infinity",
+          "name": "constant.numeric.float.yay"
+        },
+        {
+          "match": "-?\\d*\\.\\d*([ ]\\d+)*(e[+-]?\\d+)?",
+          "name": "constant.numeric.float.yay"
+        },
+        {
+          "match": "-?\\d+([ ]\\d+)*e[+-]?\\d+",
+          "name": "constant.numeric.float.yay"
+        }
+      ]
+    },
+
+    "double-quoted-string": {
+      "begin": "\"",
+      "end": "\"",
+      "name": "string.quoted.double.yay",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.string.begin.yay" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.string.end.yay" }
+      },
+      "patterns": [
+        {
+          "match": "\\\\u\\{[0-9a-fA-F]{1,6}\\}",
+          "name": "constant.character.escape.unicode.yay"
+        },
+        {
+          "match": "\\\\[\"\\\\/bfnrt]",
+          "name": "constant.character.escape.yay"
+        }
+      ]
+    },
+
+    "single-quoted-string": {
+      "begin": "'",
+      "end": "'",
+      "name": "string.quoted.single.yay",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.string.begin.yay" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.string.end.yay" }
+      },
+      "patterns": [
+        {
+          "match": "\\\\[\\\\']",
+          "name": "constant.character.escape.yay"
+        }
+      ]
+    },
+
+    "block-string-open": {
+      "comment": "Block string at root or array-item level: ` or ` content",
+      "begin": "^(\\s*(?:-\\s)?)(`)(?:( .*))?$",
+      "while": "^(?:\\1\\s+.*|\\s*$)",
+      "name": "string.unquoted.block.yay",
+      "beginCaptures": {
+        "2": { "name": "punctuation.definition.string.begin.yay" },
+        "3": { "name": "string.unquoted.block.yay" }
+      }
+    },
+
+    "property-block-string": {
+      "comment": "Property with block string value: key: `",
+      "begin": "^(\\s*)(\"[^\"]*\"|'[^']*'|[a-zA-Z0-9_-]+)(:\\s+)(`)\\s*$",
+      "while": "^(?:\\1\\s\\s\\s+.*|\\s*$)",
+      "name": "meta.property.yay",
+      "beginCaptures": {
+        "2": { "name": "entity.name.tag.yay" },
+        "3": { "name": "punctuation.separator.key-value.yay" },
+        "4": { "name": "punctuation.definition.string.begin.yay" }
+      },
+      "contentName": "string.unquoted.block.yay"
+    },
+
+    "property-block-bytes": {
+      "comment": "Property with block bytes value: key: > or key: > # comment",
+      "begin": "^(\\s*)(\"[^\"]*\"|'[^']*'|[a-zA-Z0-9_-]+)(:\\s+)(>)(.*)$",
+      "while": "^(?:\\1\\s\\s\\s+.*|\\s*$)",
+      "name": "meta.property.yay",
+      "beginCaptures": {
+        "2": { "name": "entity.name.tag.yay" },
+        "3": { "name": "punctuation.separator.key-value.yay" },
+        "4": { "name": "punctuation.definition.bytes.begin.yay" },
+        "5": {
+          "patterns": [
+            { "include": "#comment" }
+          ]
+        }
+      },
+      "patterns": [
+        { "include": "#hex-data" },
+        { "include": "#comment" }
+      ]
+    },
+
+    "block-bytes-open": {
+      "comment": "Block bytes at root or array-item level: > hex or > # comment",
+      "begin": "^(\\s*(?:-\\s)?)(>)(\\s.*)$",
+      "while": "^(?:\\1\\s+.*|\\s*$)",
+      "beginCaptures": {
+        "2": { "name": "punctuation.definition.bytes.begin.yay" },
+        "3": {
+          "patterns": [
+            { "include": "#hex-data" },
+            { "include": "#comment" }
+          ]
+        }
+      },
+      "patterns": [
+        { "include": "#hex-data" },
+        { "include": "#comment" }
+      ]
+    },
+
+    "hex-data": {
+      "match": "[0-9a-f][0-9a-f ]*[0-9a-f]|[0-9a-f]{2}",
+      "name": "constant.numeric.hex.yay"
+    },
+
+    "inline-bytes": {
+      "begin": "<",
+      "end": ">",
+      "name": "constant.other.bytes.yay",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.bytes.begin.yay" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.bytes.end.yay" }
+      },
+      "patterns": [
+        {
+          "match": "[0-9a-f]+",
+          "name": "constant.numeric.hex.yay"
+        }
+      ]
+    },
+
+    "inline-array": {
+      "begin": "\\[",
+      "end": "\\]",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.array.begin.yay" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.array.end.yay" }
+      },
+      "patterns": [
+        { "match": ",", "name": "punctuation.separator.comma.yay" },
+        { "include": "#value" }
+      ]
+    },
+
+    "inline-object": {
+      "begin": "\\{",
+      "end": "\\}",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.object.begin.yay" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.object.end.yay" }
+      },
+      "patterns": [
+        { "match": ",", "name": "punctuation.separator.comma.yay" },
+        { "include": "#inline-object-key" },
+        { "include": "#value" }
+      ]
+    },
+
+    "inline-object-key": {
+      "match": "([a-zA-Z0-9_-]+|\"[^\"]*\"|'[^']*')\\s*(:)",
+      "captures": {
+        "1": { "name": "entity.name.tag.yay" },
+        "2": { "name": "punctuation.separator.key-value.yay" }
+      }
+    },
+
+    "property": {
+      "comment": "Block property: key: value (not block-string or block-bytes, which are matched earlier)",
+      "match": "^(\\s*)(\"[^\"]*\"|'[^']*'|[a-zA-Z0-9_-]+)(:)(?:(\\s+)(.*?))?\\s*$",
+      "captures": {
+        "2": { "name": "entity.name.tag.yay" },
+        "3": { "name": "punctuation.separator.key-value.yay" },
+        "5": {
+          "patterns": [
+            { "include": "#value" }
+          ]
+        }
+      }
+    },
+
+    "list-item": {
+      "match": "^(\\s*)(-)(\\s)",
+      "captures": {
+        "2": { "name": "punctuation.definition.list.yay" }
+      }
+    }
+  }
+}

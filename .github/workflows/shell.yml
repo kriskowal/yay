@@ -1,0 +1,25 @@
+name: Shell
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shfmt
+        run: |
+          curl -sS https://webi.sh/shfmt | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Check formatting
+        run: shfmt -d -i 2 scripts/*.sh
+
+      - name: Run shellcheck
+        run: shellcheck scripts/*.sh

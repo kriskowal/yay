@@ -1,0 +1,19 @@
+[package]
+name = "libyay"
+version = "1.0.0"
+edition = "2021"
+description = "YAY (Yet Another YAML) parser - a human readable, writable, and diffable data format"
+license = "Apache-2.0"
+homepage = "https://github.com/kriskowal/yay"
+repository = "https://github.com/kriskowal/yay"
+readme = "README.md"
+keywords = ["yay", "parser", "serialization", "config", "data-format"]
+categories = ["encoding", "parser-implementations", "config"]
+
+[dependencies]
+num-bigint = "0.4"
+num-traits = "0.2"
+thiserror = "1.0"
+
+[dev-dependencies]
+glob = "0.3"

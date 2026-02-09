@@ -1,0 +1,4 @@
+inf: infinity
+nan: nan
+neg_inf: -infinity
+neg_zero: -0.0

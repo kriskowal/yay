@@ -1,0 +1,3 @@
+integers = [1, 2, 3]
+strings = ["a", "b", "c"]
+nested = [[1, 2], [3, 4]]

@@ -1,0 +1,16 @@
+name: Check Missing Test Files
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check-missing:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for missing test files
+        run: ./scripts/check-missing.sh

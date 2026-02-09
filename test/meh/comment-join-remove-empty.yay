@@ -1,0 +1,4 @@
+config: >
+  00 11 22 33  # This comment spans multiple lines and the continuation lines
+               # have no data.
+  aa bb cc dd  # Next item.

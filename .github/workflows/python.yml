@@ -1,0 +1,36 @@
+name: Python
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'python/**'
+      - 'test/**'
+      - '.github/workflows/python.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'python/**'
+      - 'test/**'
+      - '.github/workflows/python.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: python
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run tests
+        run: python test_yay.py

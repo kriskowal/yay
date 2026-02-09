@@ -1,0 +1,6 @@
+test/from-toml/invalid-syntax.toml: TOML parse error: TOML parse error at line 1, column 5
+  |
+1 | bad toml [
+  |     ^
+expected `.`, `=`
+

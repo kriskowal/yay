@@ -1,0 +1,1 @@
+test/from-cbor/invalid-tag.cbor: CBOR tagged value (tag 1) has no YAY equivalent

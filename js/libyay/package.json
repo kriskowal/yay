@@ -1,0 +1,23 @@
+{
+  "name": "libyay",
+  "version": "1.0.0",
+  "description": "YAY (Yet Another YAML) is a human readable, writable, and diffable data document format",
+  "type": "module",
+  "main": "yay.js",
+  "exports": {
+    ".": "./yay.js"
+  },
+  "files": [
+    "yay.js",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test yay.test.js",
+    "coverage": "c8 --all --include yay.js --reporter=text --reporter=html node --test yay.test.js"
+  },
+  "author": "Kris Kowal",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "c8": "^10.1.3"
+  }
+}
