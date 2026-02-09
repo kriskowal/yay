@@ -31,44 +31,44 @@ win32-x64:x86_64-pc-windows-msvc
 cd "$RUST_DIR"
 
 for mapping in $PLATFORMS; do
-	npm_platform="${mapping%%:*}"
-	rust_target="${mapping##*:}"
-	pkg_dir="$JS_DIR/binyay-${npm_platform}"
+  npm_platform="${mapping%%:*}"
+  rust_target="${mapping##*:}"
+  pkg_dir="$JS_DIR/binyay-${npm_platform}"
 
-	if [[ ! -d "$pkg_dir" ]]; then
-		echo "Warning: Package directory not found: $pkg_dir"
-		continue
-	fi
+  if [[ ! -d "$pkg_dir" ]]; then
+    echo "Warning: Package directory not found: $pkg_dir"
+    continue
+  fi
 
-	echo "Building binyay-${npm_platform} (${rust_target})..."
+  echo "Building binyay-${npm_platform} (${rust_target})..."
 
-	# Check if target is installed
-	if ! rustup target list --installed | grep -q "^${rust_target}$"; then
-		echo "  Skipping: target ${rust_target} not installed"
-		echo "  Run: rustup target add ${rust_target}"
-		continue
-	fi
+  # Check if target is installed
+  if ! rustup target list --installed | grep -q "^${rust_target}$"; then
+    echo "  Skipping: target ${rust_target} not installed"
+    echo "  Run: rustup target add ${rust_target}"
+    continue
+  fi
 
-	# Build
-	if cargo build --release --target "$rust_target" -p binyay 2>/dev/null; then
-		# Copy binary
-		if [[ "$npm_platform" == win32-* ]]; then
-			bin_name="yay.exe"
-		else
-			bin_name="yay"
-		fi
+  # Build
+  if cargo build --release --target "$rust_target" -p binyay 2>/dev/null; then
+    # Copy binary
+    if [[ "$npm_platform" == win32-* ]]; then
+      bin_name="yay.exe"
+    else
+      bin_name="yay"
+    fi
 
-		src="$RUST_DIR/target/${rust_target}/release/${bin_name}"
-		if [[ -f "$src" ]]; then
-			cp "$src" "$pkg_dir/bin/"
-			chmod +x "$pkg_dir/bin/${bin_name}"
-			echo "  Built and copied to $pkg_dir/bin/${bin_name}"
-		else
-			echo "  Warning: Binary not found at $src"
-		fi
-	else
-		echo "  Warning: Build failed for ${rust_target}"
-	fi
+    src="$RUST_DIR/target/${rust_target}/release/${bin_name}"
+    if [[ -f "$src" ]]; then
+      cp "$src" "$pkg_dir/bin/"
+      chmod +x "$pkg_dir/bin/${bin_name}"
+      echo "  Built and copied to $pkg_dir/bin/${bin_name}"
+    else
+      echo "  Warning: Binary not found at $src"
+    fi
+  else
+    echo "  Warning: Build failed for ${rust_target}"
+  fi
 done
 
 echo ""

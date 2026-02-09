@@ -8,13 +8,13 @@ ROOT="$HERE/.."
 DIR="$ROOT/rust"
 
 if [[ ! -d "$DIR" ]]; then
-	echo "Rust directory not found"
-	exit 2
+  echo "Rust directory not found"
+  exit 2
 fi
 
 if ! command -v cargo >/dev/null 2>&1; then
-	echo "Skipping: cargo not installed"
-	exit 2
+  echo "Skipping: cargo not installed"
+  exit 2
 fi
 
 cd "$DIR"

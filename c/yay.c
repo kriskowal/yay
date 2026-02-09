@@ -1146,7 +1146,7 @@ static yay_value_t *parse_concatenated_strings(parse_ctx_t *ctx, size_t *idx, in
             parts = realloc(parts, parts_cap * sizeof(char *));
             part_lens = realloc(part_lens, parts_cap * sizeof(size_t));
         }
-        parts[parts_count] = strdup(parsed->data.string);
+        parts[parts_count] = str_dup(parsed->data.string);
         part_lens[parts_count] = strlen(parsed->data.string);
         parts_count++;
         

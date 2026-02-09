@@ -8,13 +8,13 @@ ROOT="$HERE/.."
 DIR="$ROOT/go"
 
 if [[ ! -d "$DIR" ]]; then
-	echo "Go directory not found"
-	exit 2
+  echo "Go directory not found"
+  exit 2
 fi
 
 if ! command -v go >/dev/null 2>&1; then
-	echo "Skipping: go not installed"
-	exit 2
+  echo "Skipping: go not installed"
+  exit 2
 fi
 
 cd "$DIR"

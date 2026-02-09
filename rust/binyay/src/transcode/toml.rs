@@ -102,8 +102,7 @@ fn toml_item_to_value(item: &toml_edit::Item) -> Result<Value, String> {
         toml_edit::Item::Value(v) => toml_value_to_yay(v),
         toml_edit::Item::Table(t) => toml_table_to_value(t),
         toml_edit::Item::ArrayOfTables(arr) => {
-            let items: Result<Vec<Value>, String> =
-                arr.iter().map(|t| toml_table_to_value(t)).collect();
+            let items: Result<Vec<Value>, String> = arr.iter().map(toml_table_to_value).collect();
             Ok(Value::Array(items?))
         }
         toml_edit::Item::None => Ok(Value::Null),

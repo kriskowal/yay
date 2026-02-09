@@ -53,24 +53,24 @@ fn parse_value(input: &str) -> Result<(Value, &str), String> {
 }
 
 fn parse_null(input: &str) -> Result<(Value, &str), String> {
-    if input.starts_with("null") {
-        Ok((Value::Null, &input[4..]))
+    if let Some(rest) = input.strip_prefix("null") {
+        Ok((Value::Null, rest))
     } else {
         Err("Expected 'null'".to_string())
     }
 }
 
 fn parse_true(input: &str) -> Result<(Value, &str), String> {
-    if input.starts_with("true") {
-        Ok((Value::Bool(true), &input[4..]))
+    if let Some(rest) = input.strip_prefix("true") {
+        Ok((Value::Bool(true), rest))
     } else {
         Err("Expected 'true'".to_string())
     }
 }
 
 fn parse_false(input: &str) -> Result<(Value, &str), String> {
-    if input.starts_with("false") {
-        Ok((Value::Bool(false), &input[5..]))
+    if let Some(rest) = input.strip_prefix("false") {
+        Ok((Value::Bool(false), rest))
     } else {
         Err("Expected 'false'".to_string())
     }
@@ -202,7 +202,7 @@ fn parse_json_string(input: &str) -> Result<(String, &str), String> {
 }
 
 fn parse_hex(hex: &str) -> Result<Vec<u8>, String> {
-    if hex.len() % 2 != 0 {
+    if !hex.len().is_multiple_of(2) {
         return Err("Odd number of hex digits".to_string());
     }
 
@@ -272,8 +272,8 @@ fn parse_array(input: &str) -> Result<(Value, &str), String> {
     let mut rest = input[1..].trim_start();
     let mut items = Vec::new();
 
-    if rest.starts_with(']') {
-        return Ok((Value::Array(items), &rest[1..]));
+    if let Some(stripped) = rest.strip_prefix(']') {
+        return Ok((Value::Array(items), stripped));
     }
 
     loop {
@@ -281,8 +281,8 @@ fn parse_array(input: &str) -> Result<(Value, &str), String> {
         items.push(value);
         rest = new_rest.trim_start();
 
-        if rest.starts_with(']') {
-            return Ok((Value::Array(items), &rest[1..]));
+        if let Some(stripped) = rest.strip_prefix(']') {
+            return Ok((Value::Array(items), stripped));
         } else if rest.starts_with(',') {
             rest = rest[1..].trim_start();
         } else {
@@ -299,8 +299,8 @@ fn parse_object(input: &str) -> Result<(Value, &str), String> {
     let mut rest = input[1..].trim_start();
     let mut obj = HashMap::new();
 
-    if rest.starts_with('}') {
-        return Ok((Value::Object(obj), &rest[1..]));
+    if let Some(stripped) = rest.strip_prefix('}') {
+        return Ok((Value::Object(obj), stripped));
     }
 
     loop {
@@ -322,8 +322,8 @@ fn parse_object(input: &str) -> Result<(Value, &str), String> {
         obj.insert(key, value);
         rest = new_rest.trim_start();
 
-        if rest.starts_with('}') {
-            return Ok((Value::Object(obj), &rest[1..]));
+        if let Some(stripped) = rest.strip_prefix('}') {
+            return Ok((Value::Object(obj), stripped));
         } else if rest.starts_with(',') {
             rest = rest[1..].trim_start();
         } else {

@@ -13,68 +13,68 @@ OUTPUT_DIR="$ROOT/docs/fixtures"
 
 # Get language extension
 get_ext() {
-	case "$1" in
-	c) echo "c" ;;
-	go) echo "go" ;;
-	java) echo "java" ;;
-	js) echo "js" ;;
-	python) echo "py" ;;
-	rust) echo "rs" ;;
-	scheme) echo "scm" ;;
-	esac
+  case "$1" in
+  c) echo "c" ;;
+  go) echo "go" ;;
+  java) echo "java" ;;
+  js) echo "js" ;;
+  python) echo "py" ;;
+  rust) echo "rs" ;;
+  scheme) echo "scm" ;;
+  esac
 }
 
 # Get language display name
 get_name() {
-	case "$1" in
-	c) echo "C" ;;
-	go) echo "Go" ;;
-	java) echo "Java" ;;
-	js) echo "JavaScript" ;;
-	python) echo "Python" ;;
-	rust) echo "Rust" ;;
-	scheme) echo "Scheme" ;;
-	esac
+  case "$1" in
+  c) echo "C" ;;
+  go) echo "Go" ;;
+  java) echo "Java" ;;
+  js) echo "JavaScript" ;;
+  python) echo "Python" ;;
+  rust) echo "Rust" ;;
+  scheme) echo "Scheme" ;;
+  esac
 }
 
 # Get syntax highlighting class
 get_highlight() {
-	case "$1" in
-	c) echo "c" ;;
-	go) echo "go" ;;
-	java) echo "java" ;;
-	js) echo "javascript" ;;
-	python) echo "python" ;;
-	rust) echo "rust" ;;
-	scheme) echo "scheme" ;;
-	esac
+  case "$1" in
+  c) echo "c" ;;
+  go) echo "go" ;;
+  java) echo "java" ;;
+  js) echo "javascript" ;;
+  python) echo "python" ;;
+  rust) echo "rust" ;;
+  scheme) echo "scheme" ;;
+  esac
 }
 
 # HTML escape function
 html_escape() {
-	local text="$1"
-	text="${text//&/&amp;}"
-	text="${text//</&lt;}"
-	text="${text//>/&gt;}"
-	text="${text//\"/&quot;}"
-	printf '%s' "$text"
+  local text="$1"
+  text="${text//&/&amp;}"
+  text="${text//</&lt;}"
+  text="${text//>/&gt;}"
+  text="${text//\"/&quot;}"
+  printf '%s' "$text"
 }
 
 # Generate HTML header
 gen_header() {
-	local lang="$1"
-	local name
-	name=$(get_name "$lang")
+  local lang="$1"
+  local name
+  name=$(get_name "$lang")
 
-	cat <<'EOF'
+  cat <<'EOF'
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 EOF
-	echo "  <title>YAY Test Fixtures - ${name}</title>"
-	cat <<'EOF'
+  echo "  <title>YAY Test Fixtures - ${name}</title>"
+  cat <<'EOF'
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/scheme.min.js"></script>
@@ -215,33 +215,33 @@ EOF
 <body>
   <div class="container">
 EOF
-	echo "    <h1>YAY Test Fixtures - ${name}</h1>"
+  echo "    <h1>YAY Test Fixtures - ${name}</h1>"
 }
 
 # Generate navigation
 gen_nav() {
-	local current="$1"
-	local nav_lang nav_name
+  local current="$1"
+  local nav_lang nav_name
 
-	echo '    <nav class="nav">'
-	for nav_lang in c go java js python rust scheme; do
-		nav_name=$(get_name "$nav_lang")
-		if [[ "$nav_lang" == "$current" ]]; then
-			echo "      <a href=\"${nav_lang}.html\" class=\"active\">${nav_name}</a>"
-		else
-			echo "      <a href=\"${nav_lang}.html\">${nav_name}</a>"
-		fi
-	done
-	echo '    </nav>'
+  echo '    <nav class="nav">'
+  for nav_lang in c go java js python rust scheme; do
+    nav_name=$(get_name "$nav_lang")
+    if [[ "$nav_lang" == "$current" ]]; then
+      echo "      <a href=\"${nav_lang}.html\" class=\"active\">${nav_name}</a>"
+    else
+      echo "      <a href=\"${nav_lang}.html\">${nav_name}</a>"
+    fi
+  done
+  echo '    </nav>'
 }
 
 # Generate table header
 gen_table_header() {
-	local lang="$1"
-	local name
-	name=$(get_name "$lang")
+  local lang="$1"
+  local name
+  name=$(get_name "$lang")
 
-	cat <<EOF
+  cat <<EOF
     <table>
       <thead>
         <tr>
@@ -256,18 +256,18 @@ EOF
 
 # Generate table row
 gen_table_row() {
-	local name="$1"
-	local yay_content="$2"
-	local lang_content="$3"
-	local lang="$4"
-	local highlight
-	highlight=$(get_highlight "$lang")
+  local name="$1"
+  local yay_content="$2"
+  local lang_content="$3"
+  local lang="$4"
+  local highlight
+  highlight=$(get_highlight "$lang")
 
-	local escaped_yay escaped_lang
-	escaped_yay=$(html_escape "$yay_content")
-	escaped_lang=$(html_escape "$lang_content")
+  local escaped_yay escaped_lang
+  escaped_yay=$(html_escape "$yay_content")
+  escaped_lang=$(html_escape "$lang_content")
 
-	cat <<EOF
+  cat <<EOF
         <tr>
           <td class="fixture-name">${name}</td>
           <td><pre><code class="language-yaml">${escaped_yay}</code></pre></td>
@@ -278,9 +278,9 @@ EOF
 
 # Generate HTML footer
 gen_footer() {
-	local count="$1"
+  local count="$1"
 
-	cat <<EOF
+  cat <<EOF
       </tbody>
     </table>
     <div class="stats">
@@ -294,48 +294,48 @@ EOF
 
 # Generate HTML page for a language
 gen_lang_page() {
-	local lang="$1"
-	local ext
-	ext=$(get_ext "$lang")
-	local output_file="$OUTPUT_DIR/${lang}.html"
-	local count=0
+  local lang="$1"
+  local ext
+  ext=$(get_ext "$lang")
+  local output_file="$OUTPUT_DIR/${lang}.html"
+  local count=0
 
-	echo "Generating ${lang}.html..."
+  echo "Generating ${lang}.html..."
 
-	{
-		gen_header "$lang"
-		gen_nav "$lang"
-		gen_table_header "$lang"
+  {
+    gen_header "$lang"
+    gen_nav "$lang"
+    gen_table_header "$lang"
 
-		# Get sorted list of fixtures
-		for yay_file in $(find "$TEST_DIR/yay" -name "*.yay" -type f | sort); do
-			local base
-			base=$(basename "$yay_file" .yay)
-			local lang_file="$TEST_DIR/${ext}/${base}.${ext}"
+    # Get sorted list of fixtures
+    for yay_file in $(find "$TEST_DIR/yay" -name "*.yay" -type f | sort); do
+      local base
+      base=$(basename "$yay_file" .yay)
+      local lang_file="$TEST_DIR/${ext}/${base}.${ext}"
 
-			if [[ -f "$lang_file" ]]; then
-				local yay_content lang_content
-				yay_content=$(cat "$yay_file")
-				lang_content=$(cat "$lang_file")
+      if [[ -f "$lang_file" ]]; then
+        local yay_content lang_content
+        yay_content=$(cat "$yay_file")
+        lang_content=$(cat "$lang_file")
 
-				gen_table_row "$base" "$yay_content" "$lang_content" "$lang"
-				((count++)) || true
-			fi
-		done
+        gen_table_row "$base" "$yay_content" "$lang_content" "$lang"
+        ((count++)) || true
+      fi
+    done
 
-		gen_footer "$count"
-	} >"$output_file"
+    gen_footer "$count"
+  } >"$output_file"
 
-	echo "  Generated $count fixtures"
+  echo "  Generated $count fixtures"
 }
 
 # Generate index page
 gen_index_page() {
-	local output_file="$OUTPUT_DIR/index.html"
+  local output_file="$OUTPUT_DIR/index.html"
 
-	echo "Generating index.html..."
+  echo "Generating index.html..."
 
-	cat <<'EOF' >"$output_file"
+  cat <<'EOF' >"$output_file"
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -436,22 +436,22 @@ EOF
 
 # Main
 main() {
-	# Create output directory
-	mkdir -p "$OUTPUT_DIR"
+  # Create output directory
+  mkdir -p "$OUTPUT_DIR"
 
-	echo "Generating HTML fixture pages..."
-	echo
+  echo "Generating HTML fixture pages..."
+  echo
 
-	# Generate page for each language
-	for lang in c go java js python rust scheme; do
-		gen_lang_page "$lang"
-	done
+  # Generate page for each language
+  for lang in c go java js python rust scheme; do
+    gen_lang_page "$lang"
+  done
 
-	# Generate index page
-	gen_index_page
+  # Generate index page
+  gen_index_page
 
-	echo
-	echo "Done! Output written to $OUTPUT_DIR/"
+  echo
+  echo "Done! Output written to $OUTPUT_DIR/"
 }
 
 main "$@"

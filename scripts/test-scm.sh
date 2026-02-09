@@ -8,13 +8,13 @@ ROOT="$HERE/.."
 DIR="$ROOT/scm"
 
 if [[ ! -d "$DIR" ]]; then
-	echo "Scheme directory not found"
-	exit 2
+  echo "Scheme directory not found"
+  exit 2
 fi
 
 if ! command -v guile >/dev/null 2>&1; then
-	echo "Skipping: guile not installed"
-	exit 2
+  echo "Skipping: guile not installed"
+  exit 2
 fi
 
 cd "$DIR"

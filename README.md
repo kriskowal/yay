@@ -987,6 +987,11 @@ bytes), `-b` (file→bytes), `-s` (file→string), `--` (string escape), and
 Bare words are strings, bare numbers are integers or floats.
 Root scalars are not expressible as SHON; use a file or stdin for those.
 
+## Libraries
+
+- **[libyay](https://www.npmjs.com/package/libyay)** — JavaScript/TypeScript library for parsing and encoding YAY. `npm install libyay`
+- **[libyay](https://crates.io/crates/libyay)** (Rust) — Rust crate for parsing and encoding YAY.
+
 ## Editor Support
 
 - **[Vim](vim/)** — Syntax highlighting, filetype detection, and indent settings for `.yay` and `.meh` files.

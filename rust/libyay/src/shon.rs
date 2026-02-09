@@ -430,7 +430,7 @@ fn parse_hex_token(token: &str) -> Result<Vec<u8>, ShonError> {
     if token.is_empty() {
         return Ok(Vec::new());
     }
-    if token.len() % 2 != 0 {
+    if !token.len().is_multiple_of(2) {
         return Err(ShonError(format!(
             "Hex string must have even number of digits, got {}",
             token.len()

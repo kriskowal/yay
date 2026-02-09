@@ -30,7 +30,7 @@ exit_code=0
 
 # Extract from "## References" to end, trimming trailing empty lines
 extract_footer() {
-	awk '/^## References$/,0' "$1" | awk '
+  awk '/^## References$/,0' "$1" | awk '
     { lines[NR] = $0 }
     END {
       # Find last non-empty line
@@ -51,36 +51,36 @@ extract_footer() {
 
 # Check a README file
 check_readme() {
-	local readme="$1"
-	local name="$2"
+  local readme="$1"
+  local name="$2"
 
-	if [[ ! -f "$readme" ]]; then
-		return 0 # Skip if doesn't exist
-	fi
+  if [[ ! -f "$readme" ]]; then
+    return 0 # Skip if doesn't exist
+  fi
 
-	if ! grep -q "^## References$" "$readme"; then
-		echo "FAIL: Missing References section in $name"
-		exit_code=1
-		return 1
-	fi
+  if ! grep -q "^## References$" "$readme"; then
+    echo "FAIL: Missing References section in $name"
+    exit_code=1
+    return 1
+  fi
 
-	if ! grep -q "^## License$" "$readme"; then
-		echo "FAIL: Missing License section in $name"
-		exit_code=1
-		return 1
-	fi
+  if ! grep -q "^## License$" "$readme"; then
+    echo "FAIL: Missing License section in $name"
+    exit_code=1
+    return 1
+  fi
 
-	local footer
-	footer=$(extract_footer "$readme")
+  local footer
+  footer=$(extract_footer "$readme")
 
-	if [[ "$footer" != "$FOOTER" ]]; then
-		echo "FAIL: Footer mismatch in $name"
-		exit_code=1
-		return 1
-	fi
+  if [[ "$footer" != "$FOOTER" ]]; then
+    echo "FAIL: Footer mismatch in $name"
+    exit_code=1
+    return 1
+  fi
 
-	echo "PASS: $name"
-	return 0
+  echo "PASS: $name"
+  return 0
 }
 
 # Check root README
@@ -88,7 +88,7 @@ check_readme "$ROOT/README.md" "README.md"
 
 # Check language READMEs (those with examples)
 for dir in c go java python scm; do
-	check_readme "$ROOT/$dir/README.md" "$dir/README.md"
+  check_readme "$ROOT/$dir/README.md" "$dir/README.md"
 done
 
 # Check library READMEs
@@ -96,7 +96,7 @@ check_readme "$ROOT/js/libyay/README.md" "js/libyay/README.md"
 check_readme "$ROOT/rust/libyay/README.md" "rust/libyay/README.md"
 
 if [[ $exit_code -eq 0 ]]; then
-	echo "All README footers match"
+  echo "All README footers match"
 fi
 
 exit $exit_code

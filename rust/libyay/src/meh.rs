@@ -249,9 +249,9 @@ impl<'a> MehParser<'a> {
         }
 
         // Comment line
-        if content.starts_with('#') {
+        if let Some(stripped) = content.strip_prefix('#') {
             let comment = Comment {
-                text: content[1..].to_string(),
+                text: stripped.to_string(),
                 align_column: None,
             };
             self.advance_line();
@@ -270,11 +270,7 @@ impl<'a> MehParser<'a> {
 
         // Block string at root level
         if content == "`" || content.starts_with("` ") {
-            let first_line = if content.starts_with("` ") {
-                Some(content[2..].to_string())
-            } else {
-                None
-            };
+            let first_line = content.strip_prefix("` ").map(|s| s.to_string());
             self.advance_line();
             let block_str = self.parse_block_string_lines(indent, first_line)?;
             return Ok(Some(Item::Value(CstValue::String(CstString::Block(
@@ -284,8 +280,7 @@ impl<'a> MehParser<'a> {
 
         // Block bytes at root level
         if content == ">" || content.starts_with("> ") {
-            let (first_hex, first_comment) = if content.starts_with("> ") {
-                let rest = &content[2..];
+            let (first_hex, first_comment) = if let Some(rest) = content.strip_prefix("> ") {
                 if rest.trim_start().starts_with('#') {
                     // Just a comment on the first line
                     (
@@ -333,11 +328,7 @@ impl<'a> MehParser<'a> {
         let content = &line[indent..];
 
         // Extract content after "- "
-        let after_dash = if content.starts_with("- ") {
-            &content[2..]
-        } else {
-            "" // Just "-"
-        };
+        let after_dash = content.strip_prefix("- ").unwrap_or_default();
 
         // Check for inline comment
         let (value_part, inline_comment) = split_inline_comment(after_dash);
@@ -355,11 +346,7 @@ impl<'a> MehParser<'a> {
             }
         } else if value_part == "`" || value_part.starts_with("` ") {
             // Block string in array item
-            let first_line = if value_part.starts_with("` ") {
-                Some(value_part[2..].to_string())
-            } else {
-                None
-            };
+            let first_line = value_part.strip_prefix("` ").map(|s| s.to_string());
             let block_str = self.parse_block_string_lines(indent, first_line)?;
             Some(ArrayItemValue::Inline(CstValue::String(CstString::Block(
                 block_str,
@@ -432,8 +419,7 @@ impl<'a> MehParser<'a> {
             ))))
         } else if value_str == ">" || value_str.starts_with("> ") {
             // Block bytes
-            let (first_hex, first_comment) = if value_str.starts_with("> ") {
-                let rest = &value_str[2..];
+            let (first_hex, first_comment) = if let Some(rest) = value_str.strip_prefix("> ") {
                 if rest.trim_start().starts_with('#') {
                     // Just a comment on the first line
                     (
@@ -522,11 +508,7 @@ impl<'a> MehParser<'a> {
         _indent: usize,
     ) -> Result<ArrayItem, String> {
         // content starts with "- " or is just "-"
-        let after_dash = if content.starts_with("- ") {
-            &content[2..]
-        } else {
-            ""
-        };
+        let after_dash = content.strip_prefix("- ").unwrap_or_default();
 
         let (value_part, inline_comment) = split_inline_comment(after_dash);
 
@@ -633,13 +615,13 @@ impl<'a> MehParser<'a> {
             let content = &line[indent..];
 
             // Check for standalone comment line (no hex data)
-            if content.starts_with('#') {
+            if let Some(stripped) = content.strip_prefix('#') {
                 // Standalone comment - store as a hex line with empty hex and the comment
                 lines.push(BlockBytesLine {
                     indent,
                     hex: String::new(),
                     comment: Some(Comment {
-                        text: content[1..].to_string(),
+                        text: stripped.to_string(),
                         align_column: None,
                     }),
                 });
@@ -852,7 +834,7 @@ fn split_inline_comment(s: &str) -> (&str, Option<Comment>) {
     let mut in_single = false;
     let mut escape = false;
 
-    for (i, c) in s.chars().enumerate() {
+    for (i, c) in s.char_indices() {
         if escape {
             escape = false;
             continue;
@@ -886,7 +868,7 @@ fn split_array_item(s: &str) -> (&str, &str) {
     let mut in_single = false;
     let mut escape = false;
 
-    for (i, c) in s.chars().enumerate() {
+    for (i, c) in s.char_indices() {
         if escape {
             escape = false;
             continue;
@@ -1443,9 +1425,7 @@ impl Transformer {
     fn join_block_bytes_comments(&self, lines: Vec<BlockBytesLine>) -> Vec<BlockBytesLine> {
         /// Check if a word starts with a capital letter
         fn starts_with_capital(word: &str) -> bool {
-            word.chars()
-                .next()
-                .map_or(false, |c| c.is_ascii_uppercase())
+            word.chars().next().is_some_and(|c| c.is_ascii_uppercase())
         }
 
         /// Check if we should join: previous line doesn't end a sentence,
@@ -1490,7 +1470,7 @@ impl Transformer {
                 result.push(line);
             } else if let Some(comment) = &line.comment {
                 // Continuation line (no hex, just comment)
-                let should_join = result.last().map_or(false, |prev| {
+                let should_join = result.last().is_some_and(|prev| {
                     if let Some(prev_comment) = &prev.comment {
                         should_join_comments(&prev_comment.text, &comment.text)
                     } else {
@@ -1659,8 +1639,8 @@ fn wrap_comment_text(text: &str, max_width: usize) -> Vec<String> {
     }
 
     // Check for bullet point
-    let (is_bullet, content) = if text_trimmed.starts_with("- ") {
-        (true, &text_trimmed[2..])
+    let (is_bullet, content) = if let Some(stripped) = text_trimmed.strip_prefix("- ") {
+        (true, stripped)
     } else {
         (false, text_trimmed)
     };
@@ -1673,9 +1653,7 @@ fn wrap_comment_text(text: &str, max_width: usize) -> Vec<String> {
 
     /// Check if a word starts with a capital letter
     fn starts_with_capital(word: &str) -> bool {
-        word.chars()
-            .next()
-            .map_or(false, |c| c.is_ascii_uppercase())
+        word.chars().next().is_some_and(|c| c.is_ascii_uppercase())
     }
 
     /// Check if this word and the next form an abbreviation pair like "Mr. Smith"

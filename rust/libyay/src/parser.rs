@@ -235,7 +235,7 @@ fn strip_inline_comment(s: &str) -> &str {
     let mut in_single = false;
     let mut escape = false;
 
-    for (i, c) in s.chars().enumerate() {
+    for (i, c) in s.char_indices() {
         if escape {
             escape = false;
             continue;
@@ -594,8 +594,7 @@ fn parse_unicode_escape(
     }
 
     // Validate hex digits
-    for j in hex_start..brace_end {
-        let c = chars[j];
+    for &c in &chars[hex_start..brace_end] {
         if !c.is_ascii_hexdigit() {
             return Err(
                 ParseError::BadUnicodeEscape(String::new()).with_location(ctx, line_num, brace_col)
@@ -1150,7 +1149,7 @@ fn parse_inline_byte_array(s: &str) -> Result<Vec<u8>> {
         return Ok(Vec::new());
     }
 
-    if s.len() % 2 != 0 {
+    if !s.len().is_multiple_of(2) {
         return Err(ParseError::OddHexDigits(String::new()));
     }
 
@@ -1333,8 +1332,8 @@ fn parse_inline_string(
                         ));
                     }
                     // Validate hex digits
-                    for j in hex_start..brace_end {
-                        if !chars[j].is_ascii_hexdigit() {
+                    for (j, &c) in chars.iter().enumerate().take(brace_end).skip(hex_start) {
+                        if !c.is_ascii_hexdigit() {
                             return Err(ParseError::BadUnicodeEscape(String::new()).with_location(
                                 ctx,
                                 line_num,
@@ -1488,7 +1487,7 @@ fn parse_angle_bytes(s: &str, ctx: &ParseContext, line_num: usize, col: usize) -
     let inner = &s[1..s.len() - 1];
     let hex_str: String = inner.chars().filter(|c| !c.is_whitespace()).collect();
 
-    if hex_str.len() % 2 != 0 {
+    if !hex_str.len().is_multiple_of(2) {
         return Err(ParseError::OddHexDigits(String::new()).with_location(ctx, line_num, col));
     }
 
@@ -1577,7 +1576,7 @@ fn parse_block_bytes(tokens: &[Token], mut i: usize, ctx: &ParseContext) -> Resu
         i += 1;
     }
 
-    if hex_str.len() % 2 != 0 {
+    if !hex_str.len().is_multiple_of(2) {
         return Err(ParseError::OddHexDigits(String::new()).with_location(
             ctx,
             first.line_num,
@@ -1631,7 +1630,7 @@ fn parse_block_bytes_from_property(
         return Err(ParseError::ExpectedHexInBlock);
     }
 
-    if hex_str.len() % 2 != 0 {
+    if !hex_str.len().is_multiple_of(2) {
         return Err(ParseError::OddHexDigits(String::new()).with_location(
             ctx,
             start_token.line_num,
@@ -1684,7 +1683,7 @@ fn parse_block_string_from_property(
         }
 
         let base = content_indent.unwrap();
-        let extra_indent = if t.indent > base { t.indent - base } else { 0 };
+        let extra_indent = t.indent.saturating_sub(base);
         let prefix = " ".repeat(extra_indent);
         lines.push(format!("{}{}", prefix, t.text));
         i += 1;
@@ -2657,7 +2656,7 @@ fn parse_scalar(s: &str, ctx: &ParseContext, line_num: usize, col: usize) -> Res
 // Add hex crate functionality inline since we can't add it as a dependency easily
 mod hex {
     pub fn decode(s: &str) -> Result<Vec<u8>, ()> {
-        if s.len() % 2 != 0 {
+        if !s.len().is_multiple_of(2) {
             return Err(());
         }
 

@@ -429,6 +429,7 @@ fn process_directory(
     process::exit(if had_errors { 1 } else { 0 });
 }
 
+#[allow(clippy::too_many_arguments)]
 fn process_input(
     input: &str,
     input_bytes: Option<&[u8]>,

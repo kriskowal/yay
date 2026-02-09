@@ -1,6 +1,6 @@
 {
   "name": "libyay",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "YAY (Yet Another YAML) is a human readable, writable, and diffable data document format",
   "type": "module",
   "main": "yay.js",

@@ -52,10 +52,10 @@ fn validate_no_bom(source: &str, ctx: &ParseContext) -> Result<()> {
 /// Only U+000A (line feed) and printable characters are permitted.
 fn is_allowed_code_point(cp: u32) -> bool {
     cp == 0x000A
-        || (0x0020 <= cp && cp <= 0x007E)
-        || (0x00A0 <= cp && cp <= 0xD7FF)
-        || (0xE000 <= cp && cp <= 0xFFFD && !(0xFDD0 <= cp && cp <= 0xFDEF))
-        || (0x10000 <= cp && cp <= 0x10FFFF && (cp & 0xFFFF) < 0xFFFE)
+        || (0x0020..=0x007E).contains(&cp)
+        || (0x00A0..=0xD7FF).contains(&cp)
+        || ((0xE000..=0xFFFD).contains(&cp) && !(0xFDD0..=0xFDEF).contains(&cp))
+        || ((0x10000..=0x10FFFF).contains(&cp) && (cp & 0xFFFF) < 0xFFFE)
 }
 
 /// Validate that the source contains no forbidden code points.

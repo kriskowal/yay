@@ -8,13 +8,13 @@ ROOT="$HERE/.."
 DIR="$ROOT/js/libyay"
 
 if [[ ! -d "$DIR" ]]; then
-	echo "JavaScript directory not found"
-	exit 2
+  echo "JavaScript directory not found"
+  exit 2
 fi
 
 if ! command -v node >/dev/null 2>&1; then
-	echo "Skipping: node not installed"
-	exit 2
+  echo "Skipping: node not installed"
+  exit 2
 fi
 
 cd "$DIR"

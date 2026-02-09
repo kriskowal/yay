@@ -185,8 +185,8 @@ static void parse_file(const char *filename) {
     fseek(f, 0, SEEK_SET);
     
     char *content = malloc(size + 1);
-    fread(content, 1, size, f);
-    content[size] = '\0';
+    size_t nread = fread(content, 1, size, f);
+    content[nread] = '\0';
     fclose(f);
     
     yay_result_t result = yay_parse(content, size, filename);

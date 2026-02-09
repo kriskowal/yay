@@ -197,11 +197,11 @@ fn encode_yay_key(key: &str) -> String {
 }
 
 fn can_inline_array(arr: &[Value]) -> bool {
-    arr.len() <= 5 && arr.iter().all(|v| is_simple_value(v))
+    arr.len() <= 5 && arr.iter().all(is_simple_value)
 }
 
 fn can_inline_object(obj: &HashMap<String, Value>) -> bool {
-    obj.len() <= 3 && obj.values().all(|v| is_simple_value(v))
+    obj.len() <= 3 && obj.values().all(is_simple_value)
 }
 
 fn is_simple_value(v: &Value) -> bool {
@@ -1008,7 +1008,7 @@ fn encode_scheme(value: &Value) -> String {
             if arr.is_empty() {
                 "#()".to_string()
             } else {
-                let items: Vec<String> = arr.iter().map(|v| encode_scheme(v)).collect();
+                let items: Vec<String> = arr.iter().map(encode_scheme).collect();
                 format!("#({})", items.join(" "))
             }
         }
@@ -1264,7 +1264,7 @@ fn encode_yson_string(s: &str) -> String {
     let needs_escape = s
         .chars()
         .next()
-        .map(|c| c >= '!' && c <= '/')
+        .map(|c| ('!'..='/').contains(&c))
         .unwrap_or(false);
 
     if needs_escape {
