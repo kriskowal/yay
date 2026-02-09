@@ -1,6 +1,8 @@
 # YAY Parser for Python
 
-A parser for the [YAY](https://github.com/kriskowal/yay) data format, implemented in Python.
+[![PyPI](https://img.shields.io/pypi/v/libyay.svg)](https://pypi.org/project/libyay/)
+
+A parser for the [YAY](https://kriskowal.com/yay) data format, implemented in Python.
 
 ## Requirements
 
@@ -11,8 +13,6 @@ A parser for the [YAY](https://github.com/kriskowal/yay) data format, implemente
 ```bash
 pip install libyay
 ```
-
-Or copy `yay.py` to your project.
 
 ## Usage
 
