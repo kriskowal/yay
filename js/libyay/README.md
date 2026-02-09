@@ -1,6 +1,8 @@
 # libyay
 
-A parser for the [YAY](https://github.com/kriskowal/yay) data format, implemented in JavaScript (ES2024+).
+[![npm](https://img.shields.io/npm/v/libyay.svg)](https://www.npmjs.com/package/libyay)
+
+A parser for the [YAY](https://kriskowal.com/yay) data format, implemented in JavaScript (ES2024+).
 
 ## Requirements
 

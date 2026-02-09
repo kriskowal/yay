@@ -989,8 +989,10 @@ Root scalars are not expressible as SHON; use a file or stdin for those.
 
 ## Libraries
 
-- **[libyay](https://www.npmjs.com/package/libyay)** — JavaScript/TypeScript library for parsing and encoding YAY. `npm install libyay`
-- **[libyay](https://crates.io/crates/libyay)** (Rust) — Rust crate for parsing and encoding YAY.
+- **[libyay](https://www.npmjs.com/package/libyay)** (npm) — JavaScript/TypeScript library for parsing and encoding YAY. `npm install libyay`
+- **[libyay](https://crates.io/crates/libyay)** (crates.io) — Rust crate for parsing and encoding YAY. `cargo add libyay`
+- **[binyay](https://crates.io/crates/binyay)** (crates.io) — CLI tool. `cargo install binyay`
+- **[binyay](https://www.npmjs.com/package/binyay)** (npm) — CLI tool. `npm install -g binyay`
 
 ## Editor Support
 

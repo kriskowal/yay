@@ -5,24 +5,30 @@ The `yay` command line tool parses, validates, formats, and converts
 
 ## Installation
 
-### From Source (Rust)
-
-```bash
-cd rust
-cargo build --release
-# Binary is at rust/target/release/yay
-```
-
 ### Homebrew (macOS/Linux)
 
 ```bash
-brew install yay
+brew install kriskowal/yippee/yay
 ```
 
 ### npm
 
 ```bash
-npm install -g libyay
+npm install -g binyay
+```
+
+### Rust
+
+```bash
+cargo install binyay
+```
+
+### From Source
+
+```bash
+cd rust
+cargo build --release
+# Binary is at rust/target/release/yay
 ```
 
 ## Usage
