@@ -380,6 +380,7 @@ formats and languages.*</p>
 <button data-tab="cbor-hex">CBOR ❄️</button>
 <button data-tab="cbor-diag">CBOR 🔎</button>
 <button data-tab="js">JS 🟨</button>
+<button data-tab="go">Go 🐭</button>
 <button data-tab="python">Python 🐍</button>
 <button data-tab="rust">Rust 🦀</button>
 <button data-tab="scheme">Scheme 🏸</button>
@@ -596,6 +597,33 @@ formats and languages.*</p>
 <span class="p">})</span></code></pre>
 </div>
 
+<div class="tab-panel" data-tab="go">
+<pre><code><span class="k">map</span><span class="p">[</span><span class="k">string</span><span class="p">]</span><span class="k">any</span><span class="p">{</span>
+	<span class="t">"and-objects-too"</span><span class="p">:</span> <span class="k">map</span><span class="p">[</span><span class="k">string</span><span class="p">]</span><span class="k">any</span><span class="p">{</span>
+		<span class="t">"from-their-floating-friends"</span><span class="p">:</span> <span class="n">6.283185307179586</span><span class="p">,</span>
+		<span class="t">"integers-are-distinct"</span><span class="p">:</span> <span class="k">big</span><span class="p">.</span><span class="k">NewInt</span><span class="p">(</span><span class="n">42</span><span class="p">),</span>
+	<span class="p">},</span>
+	<span class="t">"arrays"</span><span class="p">:</span> <span class="p">[]</span><span class="k">any</span><span class="p">{</span><span class="s">"may"</span><span class="p">,</span> <span class="s">"have"</span><span class="p">,</span> <span class="s">"many"</span><span class="p">,</span> <span class="s">"values"</span><span class="p">},</span>
+	<span class="t">"block"</span><span class="p">:</span> <span class="k">map</span><span class="p">[</span><span class="k">string</span><span class="p">]</span><span class="k">any</span><span class="p">{</span>
+		<span class="t">"array"</span><span class="p">:</span> <span class="p">[]</span><span class="k">any</span><span class="p">{</span><span class="s">"But"</span><span class="p">,</span> <span class="s">"this"</span><span class="p">,</span> <span class="s">"one's"</span><span class="p">},</span>
+		<span class="t">"bytes"</span><span class="p">:</span> <span class="p">[]</span><span class="k">byte</span><span class="p">{</span><span class="b">0xb0</span><span class="p">,</span> <span class="b">0xb5</span><span class="p">,</span> <span class="b">0xc0</span><span class="p">,</span> <span class="b">0xff</span><span class="p">,</span> <span class="b">0xfe</span><span class="p">,</span> <span class="b">0xfa</span><span class="p">,</span> <span class="b">0xca</span><span class="p">,</span> <span class="b">0xde</span><span class="p">},</span>
+		<span class="t">"object"</span><span class="p">:</span> <span class="k">map</span><span class="p">[</span><span class="k">string</span><span class="p">]</span><span class="k">any</span><span class="p">{</span><span class="t">"mine"</span><span class="p">:</span> <span class="k">nil</span><span class="p">},</span>
+		<span class="t">"string"</span><span class="p">:</span> <span class="s">"This is a string.<span class="e">\n</span>There are many like it.<span class="e">\n</span>"</span><span class="p">,</span>
+	<span class="p">},</span>
+	<span class="t">"concatenated"</span><span class="p">:</span> <span class="s">"I'm not dead yet. I feel happy!"</span><span class="p">,</span>
+	<span class="t">"inline"</span><span class="p">:</span> <span class="k">map</span><span class="p">[</span><span class="k">string</span><span class="p">]</span><span class="k">any</span><span class="p">{</span>
+		<span class="t">"array"</span><span class="p">:</span> <span class="p">[]</span><span class="k">any</span><span class="p">{</span><span class="k">math</span><span class="p">.</span><span class="k">Inf</span><span class="p">(</span><span class="n">1</span><span class="p">),</span> <span class="k">math</span><span class="p">.</span><span class="k">Inf</span><span class="p">(</span><span class="n">-1</span><span class="p">),</span> <span class="k">math</span><span class="p">.</span><span class="k">NaN</span><span class="p">()},</span>
+		<span class="t">"bytes"</span><span class="p">:</span> <span class="p">[]</span><span class="k">byte</span><span class="p">{</span><span class="b">0xf3</span><span class="p">,</span> <span class="b">0x3d</span><span class="p">,</span> <span class="b">0xfa</span><span class="p">,</span> <span class="b">0xce</span><span class="p">},</span>
+		<span class="t">"object"</span><span class="p">:</span> <span class="k">map</span><span class="p">[</span><span class="k">string</span><span class="p">]</span><span class="k">any</span><span class="p">{</span><span class="t">"bigint"</span><span class="p">:</span> <span class="k">big</span><span class="p">.</span><span class="k">NewInt</span><span class="p">(</span><span class="n">1</span><span class="p">),</span> <span class="t">"float64"</span><span class="p">:</span> <span class="n">2.0</span><span class="p">},</span>
+		<span class="t">"string"</span><span class="p">:</span> <span class="s">"is concise"</span><span class="p">,</span>
+	<span class="p">},</span>
+	<span class="t">"name with spaces"</span><span class="p">:</span> <span class="s">"works too"</span><span class="p">,</span>
+	<span class="t">"roses-are-red"</span><span class="p">:</span> <span class="k">true</span><span class="p">,</span>
+	<span class="t">"unicode-code-point"</span><span class="p">:</span> <span class="s">"&#x1f600;"</span><span class="p">,</span>
+	<span class="t">"violets-are-blue"</span><span class="p">:</span> <span class="k">false</span><span class="p">,</span>
+<span class="p">}</span></code></pre>
+</div>
+
 <div class="tab-panel" data-tab="python">
 <pre><code><span class="p">{</span><span class="t">"and-objects-too"</span><span class="p">:</span> <span class="p">{</span><span class="t">"from-their-floating-friends"</span><span class="p">:</span> <span class="n">6.283185307179586</span><span class="p">,</span>
 <span class="t">"integers-are-distinct"</span><span class="p">:</span> <span class="n">42</span><span class="p">},</span> <span class="t">"arrays"</span><span class="p">:</span> <span class="p">[</span><span class="s">"may"</span><span class="p">,</span> <span class="s">"have"</span><span class="p">,</span> <span class="s">"many"</span><span class="p">,</span> <span class="s">"values"</span><span class="p">],</span>
@@ -794,6 +822,7 @@ yay -t diag config.yay</code></pre>
 <h3 class="h3">Code Generation 🏗️</h3>
 
 <pre><code>yay -t js config.yay      <span class="c"># JS 🟨</span>
+yay -t go config.yay      <span class="c"># Go 🐭</span>
 yay -t python config.yay  <span class="c"># Python 🐍</span>
 yay -t rust config.yay    <span class="c"># Rust 🦀</span>
 yay -t c config.yay       <span class="c"># C 🪚</span>
