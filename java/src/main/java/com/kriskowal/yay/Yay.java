@@ -208,11 +208,16 @@ public class Yay {
     boolean lastWasBreak = false;
 
     for (ScanLine sl : scanLines) {
-      // A block string's text lines are literal: text at the line's own
-      // indent, closing no open block.
-      if (sl.literal && !sl.content.isEmpty()) {
-        tokens.add(new Token(TokenType.TEXT, sl.content, sl.indent, sl.lineNum, sl.indent));
-        lastWasBreak = false;
+      // A block string's lines are literal: a break for every blank line, so
+      // that a run of blank lines is kept, and text at the line's own indent,
+      // closing no open block.
+      if (sl.literal) {
+        if (sl.content.isEmpty()) {
+          tokens.add(new Token(TokenType.BREAK, "", sl.indent, sl.lineNum, 0));
+        } else {
+          tokens.add(new Token(TokenType.TEXT, sl.content, sl.indent, sl.lineNum, sl.indent));
+        }
+        lastWasBreak = sl.content.isEmpty();
         continue;
       }
 

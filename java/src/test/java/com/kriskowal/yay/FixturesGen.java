@@ -220,6 +220,9 @@ public class FixturesGen {
     FIXTURES.put("object-multiline", map("answer", bi(42), "error", bi(404)));
     FIXTURES.put("object-nested-empty-inline", map("outer", map("inner", map())));
     FIXTURES.put("object-nested-empty-property", map("outer", map("inner", map())));
+    FIXTURES.put("string-block-blank-run-array", list("\nx\n\n\ny\n", "p\n\n\nq\n"));
+    FIXTURES.put("string-block-blank-run-property", map("a", "x\n\n\ny\n", "b", bi(1)));
+    FIXTURES.put("string-block-blank-run-root", "\na\n\n\nb\n");
     FIXTURES.put("string-block-deep-indent", map("message", "Line 1\n  Indented\nLine 2\n"));
     FIXTURES.put(
         "string-block-deeply-nested", map("level1", map("level2", map("text", "Hello\nWorld\n"))));

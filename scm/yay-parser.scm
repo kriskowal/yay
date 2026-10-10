@@ -234,7 +234,6 @@
 (define (tokenize lines)
   (let ((tokens '())
         (stack (list 0))
-        (broken #f)
         (first-line #t))
     (for-each
      (lambda (entry)
@@ -248,9 +247,10 @@
            (yay-error "Unexpected indent"))
          (when (> (string-length line) 0)
            (set! first-line #f))
-         ;; Close blocks on dedent
+         ;; Close blocks on dedent. A blank line has no indent of its own, so
+         ;; it closes nothing.
          (let close-loop ()
-           (when (< indent (car stack))
+           (when (and (> (string-length line) 0) (< indent (car stack)))
              (set! tokens (cons (list 'stop "") tokens))
              (set! stack (cdr stack))
              (close-loop)))
@@ -259,20 +259,15 @@
            (cond
             ((and (> (string-length leader) 0) (> indent top))
              (set! tokens (cons (list 'start leader indent linenum) tokens))
-             (set! stack (cons indent stack))
-             (set! broken #f))
+             (set! stack (cons indent stack)))
             ((and (> (string-length leader) 0) (= indent top))
              (set! tokens (cons (list 'stop "") tokens))
-             (set! tokens (cons (list 'start leader indent linenum) tokens))
-             (set! broken #f)))
-           ;; Handle line content
-           (cond
-            ((> (string-length line) 0)
-             (set! tokens (cons (list 'text line indent linenum) tokens))
-             (set! broken #f))
-            ((not broken)
-             (set! tokens (cons (list 'break "" linenum) tokens))
-             (set! broken #t))))))
+             (set! tokens (cons (list 'start leader indent linenum) tokens))))
+           ;; Handle line content. Every blank line is a break, so that a block
+           ;; string keeps a run of blank lines.
+           (if (> (string-length line) 0)
+               (set! tokens (cons (list 'text line indent linenum) tokens))
+               (set! tokens (cons (list 'break "" linenum) tokens))))))
      lines)
     ;; Close remaining blocks
     (let close-final ()

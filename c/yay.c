@@ -714,13 +714,13 @@ static void outline_lex(parse_ctx_t *ctx) {
     int stack_top = 0;
     stack[0] = 0;
     int top = 0;
-    bool broken = false;
     
     for (size_t i = 0; i < ctx->line_count; i++) {
         scan_line_t *sl = &ctx->lines[i];
         
-        /* Emit stops for dedent */
-        while (sl->indent < top) {
+        /* Emit stops for dedent. A blank line has no indent of its own, so
+         * it closes nothing. */
+        while (sl->line[0] != '\0' && sl->indent < top) {
             add_token(ctx, TOKEN_STOP, "", 0, 0, 0);
             stack_top--;
             top = stack[stack_top];
@@ -733,23 +733,20 @@ static void outline_lex(parse_ctx_t *ctx) {
                          sl->line_num, sl->indent);
                 stack[++stack_top] = sl->indent;
                 top = sl->indent;
-                broken = false;
             } else if (sl->indent == top) {
                 add_token(ctx, TOKEN_STOP, "", 0, 0, 0);
                 add_token(ctx, TOKEN_START, sl->leader, sl->indent,
                          sl->line_num, sl->indent);
-                broken = false;
             }
         }
         
-        /* Emit text or break */
+        /* Emit text or break. Every blank line is a break, so that a block
+         * string keeps a run of blank lines. */
         if (strlen(sl->line) > 0) {
             add_token(ctx, TOKEN_TEXT, sl->line, sl->indent, 
                      sl->line_num, sl->indent);
-            broken = false;
-        } else if (!broken) {
+        } else {
             add_token(ctx, TOKEN_BREAK, "", sl->line_num, sl->indent, 0);
-            broken = true;
         }
     }
     

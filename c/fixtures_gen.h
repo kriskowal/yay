@@ -571,6 +571,18 @@ static yay_value_t *make_expected_object_nested_empty_property(void) {
     return YAY_OBJECT("outer", YAY_OBJECT("inner", yay_object()));
 }
 
+static yay_value_t *make_expected_string_block_blank_run_array(void) {
+    return YAY_ARRAY(yay_string("\nx\n\n\ny\n"), yay_string("p\n\n\nq\n"));
+}
+
+static yay_value_t *make_expected_string_block_blank_run_property(void) {
+    return YAY_OBJECT("a", yay_string("x\n\n\ny\n"), "b", yay_int(1));
+}
+
+static yay_value_t *make_expected_string_block_blank_run_root(void) {
+    return yay_string("\na\n\n\nb\n");
+}
+
 static yay_value_t *make_expected_string_block_deep_indent(void) {
     return YAY_OBJECT("message", yay_string("Line 1\n  Indented\nLine 2\n"));
 }
@@ -793,6 +805,9 @@ static test_fixture_t test_fixtures[] = {
     {"object_multiline", "answer: 42\nerror: 404\n", make_expected_object_multiline},
     {"object_nested_empty_inline", "outer:\n  inner: {}\n", make_expected_object_nested_empty_inline},
     {"object_nested_empty_property", "outer:\n  inner: {}\n", make_expected_object_nested_empty_property},
+    {"string_block_blank_run_array", "- `\n  x\n\n\n  y\n\n\n- ` p\n\n\n  q\n", make_expected_string_block_blank_run_array},
+    {"string_block_blank_run_property", "a: `\n  x\n\n\n  y\n\n\nb: 1\n", make_expected_string_block_blank_run_property},
+    {"string_block_blank_run_root", "`\n  a\n\n\n  b\n\n\n", make_expected_string_block_blank_run_root},
     {"string_block_deep_indent", "message: `\n    Line 1\n      Indented\n    Line 2\n", make_expected_string_block_deep_indent},
     {"string_block_deeply_nested", "level1:\n  level2:\n    text: `\n      Hello\n      World\n", make_expected_string_block_deeply_nested},
     {"string_block_empty_middle", "`\n  I'm getting better!\n\n  No you're not.\n", make_expected_string_block_empty_middle},
@@ -821,7 +836,7 @@ static test_fixture_t test_fixtures[] = {
     {NULL, NULL, NULL}
 };
 
-#define TEST_FIXTURE_COUNT 120
+#define TEST_FIXTURE_COUNT 123
 
 static error_fixture_t error_fixtures[] = {
     {"array_inline_invalid_multiline", "array-inline-invalid-multiline.nay", "[\n  1,\n  2\n]\n", 13, "Unexpected newline in inline array at 1:1 of <array-inline-invalid-multiline.nay>"},

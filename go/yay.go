@@ -299,24 +299,26 @@ func extractLeader(rest string, lineNum, indent int, ctx *parseContext) (string,
 //   - tokenStart: When a list item begins or indent increases
 //   - tokenStop: When indent decreases (block ends)
 //   - tokenText: Line content
-//   - tokenBreak: Blank lines (coalesced)
+//   - tokenBreak: Blank lines, one per line
 
 // outlineLex converts scan lines to a token stream with block markers.
 func outlineLex(lines []scanLine) []token {
 	var tokens []token
 	stack := []int{0} // Indent level stack, starts at 0
 	top := 0          // Current indent level
-	broken := false   // Whether we just emitted a break
 
 	for _, sl := range lines {
-		// Emit stops for each level we dedent past
-		tokens, stack, top = emitDedents(tokens, stack, top, sl.indent)
+		// Emit stops for each level we dedent past. A blank line has no
+		// indent of its own, so it closes nothing.
+		if len(sl.line) > 0 {
+			tokens, stack, top = emitDedents(tokens, stack, top, sl.indent)
+		}
 
 		// Emit start for list items
-		tokens, stack, top, broken = emitListStart(tokens, stack, top, broken, sl)
+		tokens, stack, top = emitListStart(tokens, stack, top, sl)
 
 		// Emit text or break
-		tokens, broken = emitContent(tokens, broken, sl)
+		tokens = emitContent(tokens, sl)
 	}
 
 	// Close any remaining open blocks
@@ -336,9 +338,9 @@ func emitDedents(tokens []token, stack []int, top, indent int) ([]token, []int, 
 }
 
 // emitListStart emits start tokens for list items.
-func emitListStart(tokens []token, stack []int, top int, broken bool, sl scanLine) ([]token, []int, int, bool) {
+func emitListStart(tokens []token, stack []int, top int, sl scanLine) ([]token, []int, int) {
 	if len(sl.leader) == 0 {
-		return tokens, stack, top, broken
+		return tokens, stack, top
 	}
 
 	if sl.indent > top {
@@ -352,7 +354,6 @@ func emitListStart(tokens []token, stack []int, top int, broken bool, sl scanLin
 		})
 		stack = append(stack, sl.indent)
 		top = sl.indent
-		broken = false
 	} else if sl.indent == top {
 		// Sibling item - close previous, start new
 		tokens = append(tokens, token{typ: tokenStop, text: ""})
@@ -363,37 +364,31 @@ func emitListStart(tokens []token, stack []int, top int, broken bool, sl scanLin
 			lineNum: sl.lineNum,
 			col:     sl.indent,
 		})
-		broken = false
 	}
 
-	return tokens, stack, top, broken
+	return tokens, stack, top
 }
 
-// emitContent emits text or break tokens for line content.
-func emitContent(tokens []token, broken bool, sl scanLine) ([]token, bool) {
+// emitContent emits a text token for line content, or a break for a blank
+// line. Every blank line is a break, so that a block string keeps a run of
+// blank lines.
+func emitContent(tokens []token, sl scanLine) []token {
 	if len(sl.line) > 0 {
-		tokens = append(tokens, token{
+		return append(tokens, token{
 			typ:     tokenText,
 			text:    sl.line,
 			indent:  sl.indent,
 			lineNum: sl.lineNum,
 			col:     sl.indent,
 		})
-		return tokens, false
 	}
 
-	// Empty line - emit break if not already broken
-	if !broken {
-		tokens = append(tokens, token{
-			typ:     tokenBreak,
-			text:    "",
-			lineNum: sl.lineNum,
-			col:     sl.indent,
-		})
-		return tokens, true
-	}
-
-	return tokens, broken
+	return append(tokens, token{
+		typ:     tokenBreak,
+		text:    "",
+		lineNum: sl.lineNum,
+		col:     sl.indent,
+	})
 }
 
 // emitFinalStops closes any remaining open blocks.

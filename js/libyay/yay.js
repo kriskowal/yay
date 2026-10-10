@@ -244,10 +244,10 @@ function outlineLex(lines) {
   const tokens = [];
   let stack = [0];
   let top = 0;
-  let broken = false;
   for (const { line, indent, leader, lineNum } of lines) {
-    // Close blocks on dedent.
-    while (indent < top) {
+    // Close blocks on dedent. A blank line has no indent of its own, so it
+    // closes nothing.
+    while (line.length > 0 && indent < top) {
       tokens.push({ type: "stop", text: "" });
       stack.pop();
       top = stack[stack.length - 1];
@@ -262,7 +262,6 @@ function outlineLex(lines) {
       });
       stack.push(indent);
       top = indent;
-      broken = false;
     } else if (leader.length > 0 && indent === top) {
       tokens.push({ type: "stop", text: "" });
       tokens.push({
@@ -272,14 +271,13 @@ function outlineLex(lines) {
         lineNum,
         col: indent,
       });
-      broken = false;
     }
+    // Every blank line is a break, so that a block string keeps a run of
+    // blank lines.
     if (line.length > 0) {
       tokens.push({ type: "text", text: line, indent, lineNum, col: indent });
-      broken = false;
-    } else if (!broken) {
+    } else {
       tokens.push({ type: "break", text: "", lineNum, col: indent });
-      broken = true;
     }
   }
   while (stack.length > 1) {

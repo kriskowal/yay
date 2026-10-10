@@ -5,7 +5,7 @@
 //! - `Start`: When a list item begins or indent increases
 //! - `Stop`: When indent decreases (block ends)
 //! - `Text`: Line content
-//! - `Break`: Blank lines (coalesced)
+//! - `Break`: Blank lines, one per line
 
 use crate::scanner::ScanLine;
 
@@ -59,11 +59,12 @@ pub fn outline_lex(lines: &[ScanLine]) -> Vec<Token> {
     let mut tokens = Vec::new();
     let mut stack = vec![0usize]; // Indent level stack, starts at 0
     let mut top = 0; // Current indent level
-    let mut broken = false; // Whether we just emitted a break
 
     for sl in lines {
-        // Emit stops for each level we dedent past
-        while sl.indent < top {
+        // Emit stops for each level we dedent past. A blank line has no
+        // indent of its own, so it closes nothing: a blank line inside a
+        // block string in an indented list item must not end the item.
+        while !sl.line.is_empty() && sl.indent < top {
             tokens.push(Token::stop());
             stack.pop();
             top = *stack.last().unwrap_or(&0);
@@ -82,7 +83,6 @@ pub fn outline_lex(lines: &[ScanLine]) -> Vec<Token> {
                 ));
                 stack.push(sl.indent);
                 top = sl.indent;
-                broken = false;
             } else if sl.indent == top {
                 // Sibling item - close previous, start new
                 tokens.push(Token::stop());
@@ -93,11 +93,11 @@ pub fn outline_lex(lines: &[ScanLine]) -> Vec<Token> {
                     sl.line_num,
                     sl.indent,
                 ));
-                broken = false;
             }
         }
 
-        // Emit text or break
+        // Emit text or break. Every blank line is a break, so that a block
+        // string keeps a run of blank lines.
         if !sl.line.is_empty() {
             tokens.push(Token::new(
                 TokenType::Text,
@@ -106,9 +106,7 @@ pub fn outline_lex(lines: &[ScanLine]) -> Vec<Token> {
                 sl.line_num,
                 sl.indent,
             ));
-            broken = false;
-        } else if !broken {
-            // Empty line - emit break if not already broken
+        } else {
             tokens.push(Token::new(
                 TokenType::Break,
                 "",
@@ -116,7 +114,6 @@ pub fn outline_lex(lines: &[ScanLine]) -> Vec<Token> {
                 sl.line_num,
                 sl.indent,
             ));
-            broken = true;
         }
     }
 
