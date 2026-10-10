@@ -143,9 +143,12 @@
            (else
             (yay-error (format #f "Forbidden code point U+~4,'0X" cp)))))
         (check-cp (+ i 1)))))
-  ;; Split into lines
+  ;; Split into lines. While inside a block string, opener is the column
+  ;; that ends it: the indent of a bare opener, or the key's column for a
+  ;; property opener. Its content lines are literal: no list leaders, no "-"
+  ;; or "*" checks, no comments.
   (let ((lines-raw (string-split-newlines source)))
-    (let loop ((lines lines-raw) (linenum 0) (acc '()))
+    (let loop ((lines lines-raw) (linenum 0) (acc '()) (opener -1))
       (if (null? lines)
           (reverse acc)
           (let* ((line-str (car lines))
@@ -157,11 +160,18 @@
             ;; Count indent
             (let* ((indent (count-leading-spaces line-str))
                    (rest (if (>= indent len) "" (substring line-str indent len))))
-              ;; Skip comment-only lines at column 0
-              (if (and (string-starts-with? rest "#") (= indent 0))
-                  (loop (cdr lines) (+ linenum 1) acc)
+              (cond
+               ;; A line inside a block string
+               ((and (>= opener 0) (or (= len 0) (> indent opener)))
+                (loop (cdr lines) (+ linenum 1)
+                      (cons (list rest indent "" linenum) acc)
+                      opener))
+               ;; Skip comment-only lines at column 0
+               ((and (string-starts-with? rest "#") (= indent 0))
+                (loop (cdr lines) (+ linenum 1) acc -1))
+               (else
                   ;; Determine leader
-                  (let ((leader-and-content
+                  (let* ((leader-and-content
                          (cond
                           ;; "- " prefix - check for double space error
                           ((string-starts-with? rest "- ")
@@ -200,13 +210,25 @@
                                     (char=? (string-ref rest 0) #\*)
                                     (char=? (string-ref rest 1) #\space)))
                            (yay-error "Unexpected character \"*\""))
-                          (else (cons "" rest)))))
+                          (else (cons "" rest))))
+                         (content (cdr leader-and-content)))
                     (loop (cdr lines) (+ linenum 1)
-                          (cons (list (cdr leader-and-content) 
+                          (cons (list content
                                       indent 
                                       (car leader-and-content) 
                                       linenum) 
-                                acc))))))))))
+                                acc)
+                          (cond
+                           ((bare-block-opener? content) indent)
+                           ((string-ends-with? content ": `")
+                            (+ indent (- (string-length rest) (string-length content))))
+                           (else -1))))))))))))
+
+;; Whether a line's content (after any list leader) is a bare "`" or "` text"
+;; block string opener.
+(define (bare-block-opener? content)
+  (or (string=? content "`")
+      (string-starts-with? content "` ")))
 
 ;; Tokenizer: scanned lines -> tokens
 (define (tokenize lines)
@@ -983,14 +1005,14 @@
 ;; If base-indent >= 0, stop when we see a line at or below that indent
 (define (parse-block-string-with-indent p first-line base-indent)
   (parser-advance! p)
-  (let loop ((lines (if (string=? first-line "") '() (list first-line))))
+  (let loop ((lines '()))
     (let ((t (parser-peek p)))
       (cond
        ((not t)
         (finish-block-string lines first-line))
        ((eq? (token-type t) 'break)
         (parser-advance! p)
-        (loop (cons "" lines)))
+        (loop (cons (cons #f "") lines)))
        ((and (eq? (token-type t) 'text)
              (>= base-indent 0)
              (<= (token-indent t) base-indent))
@@ -998,32 +1020,51 @@
         (finish-block-string lines first-line))
        ((eq? (token-type t) 'text)
         (parser-advance! p)
-        (loop (cons (token-text t) lines)))
+        (loop (cons (cons (token-indent t) (token-text t)) lines)))
        (else
         (finish-block-string lines first-line))))))
 
+;; lines are a block string's continuation lines, last first, each
+;; (indent . text) with #f for the indent of a blank line.
 (define (finish-block-string lines first-line)
-  (let* ((rev-lines (reverse lines))
-         ;; Trim trailing empty lines
-         (trimmed (let trim-end ((lst rev-lines))
-                    (if (and (pair? lst)
-                             (pair? (reverse lst))
-                             (string=? (car (reverse lst)) ""))
-                        (trim-end (reverse (cdr (reverse lst))))
-                        lst)))
-         ;; Trim leading empty lines
-         (trimmed2 (let trim-start ((lst trimmed))
-                     (if (and (pair? lst) (string=? (car lst) ""))
-                         (trim-start (cdr lst))
-                         lst)))
-         (body (string-join trimmed2 "\n"))
-         (leading-nl (and (string=? first-line "") (pair? trimmed2)))
+  (let* ((body-lines (strip-block-indent (reverse lines)))
+         (trimmed (trim-blank-lines (if (string=? first-line "")
+                                        body-lines
+                                        (cons first-line body-lines))))
+         (body (string-join trimmed "\n"))
+         (leading-nl (and (string=? first-line "") (pair? trimmed)))
          (result (string-append (if leading-nl "\n" "")
                                 body
-                                (if (pair? trimmed2) "\n" ""))))
+                                (if (pair? trimmed) "\n" ""))))
     (if (string=? result "")
         (error "Empty block string not allowed (use \"\" or \"\\n\" explicitly)")
         result)))
+
+;; Strip the least indentation of the content lines from a block string's
+;; lines, each (indent . text) with #f for the indent of a blank line.
+(define (strip-block-indent entries)
+  (let ((min-indent (let loop ((lst entries) (min-i #f))
+                      (cond
+                       ((null? lst) (or min-i 0))
+                       ((and (car (car lst))
+                             (or (not min-i) (< (car (car lst)) min-i)))
+                        (loop (cdr lst) (car (car lst))))
+                       (else (loop (cdr lst) min-i))))))
+    (map (lambda (entry)
+           (if (car entry)
+               (string-append (make-string (- (car entry) min-indent) #\space)
+                              (cdr entry))
+               ""))
+         entries)))
+
+;; Drop the blank lines from both ends of a list of lines.
+(define (trim-blank-lines lines)
+  (let ((drop-blanks (lambda (lst)
+                       (let loop ((lst lst))
+                         (if (and (pair? lst) (string=? (car lst) ""))
+                             (loop (cdr lst))
+                             lst)))))
+    (reverse (drop-blanks (reverse (drop-blanks lines))))))
 
 ;; Parse block bytes (> hex)
 (define (parse-block-bytes p first-line)
@@ -1344,31 +1385,7 @@
         (finish-block-string-property lines))))))
 
 (define (finish-block-string-property lines)
-  (let* ((rev-lines (reverse lines))
-         ;; Find minimum indent
-         (min-indent (let loop ((lst rev-lines) (min-i #f))
-                       (if (null? lst)
-                           (or min-i 0)
-                           (let ((indent (car (car lst))))
-                             (if (and indent (or (not min-i) (< indent min-i)))
-                                 (loop (cdr lst) indent)
-                                 (loop (cdr lst) min-i))))))
-         ;; Build lines with relative indentation
-         (body-lines (map (lambda (entry)
-                            (let ((indent (car entry))
-                                  (text (cdr entry)))
-                              (if indent
-                                  (let ((extra (- indent min-indent)))
-                                    (string-append (make-string extra #\space) text))
-                                  "")))
-                          rev-lines))
-         ;; Trim trailing empty lines
-         (trimmed (let trim-end ((lst body-lines))
-                    (if (and (pair? lst)
-                             (pair? (reverse lst))
-                             (string=? (car (reverse lst)) ""))
-                        (trim-end (reverse (cdr (reverse lst))))
-                        lst)))
+  (let* ((trimmed (trim-blank-lines (strip-block-indent (reverse lines))))
          (result (string-append (string-join trimmed "\n")
                                 (if (pair? trimmed) "\n" ""))))
     (if (string=? result "")

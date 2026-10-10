@@ -197,6 +197,10 @@ func validateCodePoints(source string, ctx *parseContext) error {
 func scanLines(source string, ctx *parseContext) ([]scanLine, error) {
 	var lines []scanLine
 	lineStrings := strings.Split(source, "\n")
+	// While inside a block string, the column that ends it: the indent of a
+	// bare opener, or the key's column for a property opener. Its content
+	// lines are literal: no list leaders, no "-" or "*" checks, no comments.
+	blockOpener := -1
 
 	for lineNum, lineStr := range lineStrings {
 		// Validate: No trailing spaces
@@ -209,6 +213,14 @@ func scanLines(source string, ctx *parseContext) ([]scanLine, error) {
 
 		rest := lineStr[indent:]
 
+		if blockOpener >= 0 {
+			if len(lineStr) == 0 || indent > blockOpener {
+				lines = append(lines, scanLine{line: rest, indent: indent, lineNum: lineNum})
+				continue
+			}
+			blockOpener = -1
+		}
+
 		// Skip top-level comments
 		if strings.HasPrefix(rest, "#") && indent == 0 {
 			continue
@@ -220,6 +232,12 @@ func scanLines(source string, ctx *parseContext) ([]scanLine, error) {
 			return nil, err
 		}
 
+		if isBareBlockOpener(content) {
+			blockOpener = indent
+		} else if strings.HasSuffix(content, ": `") {
+			blockOpener = indent + len(leader)
+		}
+
 		lines = append(lines, scanLine{
 			line:    content,
 			indent:  indent,
@@ -229,6 +247,12 @@ func scanLines(source string, ctx *parseContext) ([]scanLine, error) {
 	}
 
 	return lines, nil
+}
+
+// isBareBlockOpener reports whether a line's content (after any list leader)
+// is a bare "`" or "` text" block string opener.
+func isBareBlockOpener(content string) bool {
+	return content == "`" || strings.HasPrefix(content, "` ")
 }
 
 // countIndent returns the number of leading spaces in a line.

@@ -587,6 +587,25 @@ static yay_value_t *make_expected_string_block_empty_middle(void) {
     return yay_string("\nI'm getting better!\n\nNo you're not.\n");
 }
 
+static yay_value_t *make_expected_string_block_markdown_array(void) {
+    return YAY_ARRAY(
+    yay_string("\n- a\n  - b\n* item\n"),
+    yay_string("---\n-x\n"),
+    yay_string("end")
+);
+}
+
+static yay_value_t *make_expected_string_block_markdown_property(void) {
+    return YAY_OBJECT(
+    "body", yay_string("# Heading\n- a\n  - b\n* item\n---\n-x\n"),
+    "next", yay_int(1)
+);
+}
+
+static yay_value_t *make_expected_string_block_markdown_root(void) {
+    return yay_string("\n# Heading\n- a\n  - b\n* item\n---\n-x\n");
+}
+
 static yay_value_t *make_expected_string_block_nested_in_object_and_array(void) {
     return YAY_OBJECT(
     "parrot", YAY_OBJECT(
@@ -777,6 +796,9 @@ static test_fixture_t test_fixtures[] = {
     {"string_block_deep_indent", "message: `\n    Line 1\n      Indented\n    Line 2\n", make_expected_string_block_deep_indent},
     {"string_block_deeply_nested", "level1:\n  level2:\n    text: `\n      Hello\n      World\n", make_expected_string_block_deeply_nested},
     {"string_block_empty_middle", "`\n  I'm getting better!\n\n  No you're not.\n", make_expected_string_block_empty_middle},
+    {"string_block_markdown_array", "- `\n  - a\n    - b\n  * item\n- ` ---\n  -x\n- \"end\"\n", make_expected_string_block_markdown_array},
+    {"string_block_markdown_property", "body: `\n  # Heading\n  - a\n    - b\n  * item\n  ---\n  -x\nnext: 1\n", make_expected_string_block_markdown_property},
+    {"string_block_markdown_root", "`\n  # Heading\n  - a\n    - b\n  * item\n  ---\n  -x\n", make_expected_string_block_markdown_root},
     {"string_block_nested_in_object_and_array", "parrot:\n  condition: `\n    No, no, it's just resting!\n\n  remarks:\n  - ` Remarkable bird, the Norwegian Blue.\n      Beautiful plumage, innit?\n\n  - ` It's probably pining for the fjords.\n      Lovely plumage.\n", make_expected_string_block_nested_in_object_and_array},
     {"string_block_property_empty_middle", "message: `\n  It's not pining!\n\n  It's passed on! This parrot is no more!\n", make_expected_string_block_property_empty_middle},
     {"string_block_property_trailing_empty", "message: `\n  By Grabthar's hammer... what a savings.\n\n\nnext: 1\n", make_expected_string_block_property_trailing_empty},
@@ -799,7 +821,7 @@ static test_fixture_t test_fixtures[] = {
     {NULL, NULL, NULL}
 };
 
-#define TEST_FIXTURE_COUNT 117
+#define TEST_FIXTURE_COUNT 120
 
 static error_fixture_t error_fixtures[] = {
     {"array_inline_invalid_multiline", "array-inline-invalid-multiline.nay", "[\n  1,\n  2\n]\n", 13, "Unexpected newline in inline array at 1:1 of <array-inline-invalid-multiline.nay>"},

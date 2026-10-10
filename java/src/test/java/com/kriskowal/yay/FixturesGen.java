@@ -224,6 +224,11 @@ public class FixturesGen {
     FIXTURES.put(
         "string-block-deeply-nested", map("level1", map("level2", map("text", "Hello\nWorld\n"))));
     FIXTURES.put("string-block-empty-middle", "\nI'm getting better!\n\nNo you're not.\n");
+    FIXTURES.put("string-block-markdown-array", list("\n- a\n  - b\n* item\n", "---\n-x\n", "end"));
+    FIXTURES.put(
+        "string-block-markdown-property",
+        map("body", "# Heading\n- a\n  - b\n* item\n---\n-x\n", "next", bi(1)));
+    FIXTURES.put("string-block-markdown-root", "\n# Heading\n- a\n  - b\n* item\n---\n-x\n");
     FIXTURES.put(
         "string-block-nested-in-object-and-array",
         map(

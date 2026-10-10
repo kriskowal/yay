@@ -519,6 +519,13 @@ static void add_scan_line(parse_ctx_t *ctx, const char *line, int indent,
     sl->line_num = line_num;
 }
 
+/* Whether a line's content (after any list leader) is a bare "`" or
+ * "` text" block string opener. */
+static bool is_bare_block_opener(const char *content, size_t content_len) {
+    return (content_len == 1 && content[0] == '`') ||
+           (content_len >= 2 && content[0] == '`' && content[1] == ' ');
+}
+
 static bool scan(parse_ctx_t *ctx) {
     const char *src = ctx->source;
     size_t len = ctx->source_len;
@@ -586,6 +593,10 @@ static bool scan(parse_ctx_t *ctx) {
     /* Process lines */
     const char *line_start = src;
     int line_num = 0;
+    /* While inside a block string, the column that ends it: the indent of a
+     * bare opener, or the key's column for a property opener. Its content
+     * lines are literal: no list leaders, no "-" or "*" checks, no comments. */
+    int block_opener = -1;
     
     while (line_start <= src + len) {
         /* Find end of line */
@@ -611,6 +622,19 @@ static bool scan(parse_ctx_t *ctx) {
         
         const char *rest = line_start + indent;
         size_t rest_len = line_len - indent;
+        
+        if (block_opener >= 0) {
+            if (line_len == 0 || indent > block_opener) {
+                char *literal = str_dup_len(rest, rest_len);
+                add_scan_line(ctx, literal, indent, "", line_num);
+                free(literal);
+                if (line_end >= src + len) break;
+                line_start = line_end + 1;
+                line_num++;
+                continue;
+            }
+            block_opener = -1;
+        }
         
         /* Skip top-level comments */
         if (rest_len > 0 && rest[0] == '#' && indent == 0) {
@@ -644,6 +668,13 @@ static bool scan(parse_ctx_t *ctx) {
             ctx->error = make_error(ctx, line_num, indent, 
                                     "Unexpected character \"*\"");
             return false;
+        }
+        
+        if (is_bare_block_opener(content, content_len)) {
+            block_opener = indent;
+        } else if (content_len >= 3 &&
+                   memcmp(content + content_len - 3, ": `", 3) == 0) {
+            block_opener = indent + (int)(content - rest);
         }
         
         /* Add the line */
@@ -1195,9 +1226,9 @@ static yay_value_t *parse_concatenated_strings(parse_ctx_t *ctx, size_t *idx, in
 
 static yay_value_t *parse_block_string_impl(parse_ctx_t *ctx, size_t *idx, 
                                              const char *first_line,
-                                             int base_indent) {
+                                             int base_indent,
+                                             bool is_property) {
     size_t i = *idx + 1;
-    bool is_property = (base_indent >= 0);
     
     /* Collect continuation lines */
     size_t line_cap = 16;
@@ -1214,8 +1245,8 @@ static yay_value_t *parse_block_string_impl(parse_ctx_t *ctx, size_t *idx,
     while (i < ctx->token_count && 
            (ctx->tokens[i].type == TOKEN_TEXT || 
             ctx->tokens[i].type == TOKEN_BREAK)) {
-        /* For property context, stop at lines at or below base indent */
-        if (is_property && ctx->tokens[i].type == TOKEN_TEXT &&
+        /* With a base indent, stop at lines at or below it */
+        if (base_indent >= 0 && ctx->tokens[i].type == TOKEN_TEXT &&
             ctx->tokens[i].indent <= base_indent) {
             break;
         }
@@ -1334,14 +1365,14 @@ static yay_value_t *parse_block_string_impl(parse_ctx_t *ctx, size_t *idx,
 /* Wrapper for standalone block strings */
 static yay_value_t *parse_block_string(parse_ctx_t *ctx, size_t *idx, 
                                         const char *first_line) {
-    return parse_block_string_impl(ctx, idx, first_line, -1);
+    return parse_block_string_impl(ctx, idx, first_line, -1, false);
 }
 
 /* Wrapper for property block strings (with base indent) */
 static yay_value_t *parse_property_block_string_indent(parse_ctx_t *ctx, size_t *idx, 
                                                         const char *first_line,
                                                         int base_indent) {
-    return parse_block_string_impl(ctx, idx, first_line, base_indent);
+    return parse_block_string_impl(ctx, idx, first_line, base_indent, true);
 }
 
 /* ============================================================================
@@ -2745,7 +2776,7 @@ static yay_value_t *parse_multiline_array_impl(parse_ctx_t *ctx, size_t *idx, in
             /* Block string in array context - use list_indent as base */
             if (strcmp(s, "`") == 0 || (s[0] == '`' && strlen(s) >= 2 && s[1] == ' ')) {
                 const char *first_line = strlen(s) > 2 ? s + 2 : "";
-                yay_value_t *value = parse_block_string_impl(ctx, idx, first_line, list_indent);
+                yay_value_t *value = parse_block_string_impl(ctx, idx, first_line, list_indent, false);
                 if (ctx->error) {
                     yay_free(arr);
                     return NULL;

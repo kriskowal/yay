@@ -155,6 +155,10 @@ function scan(source, ctx = {}) {
   }
   const lines = [];
   const lineStrings = source.split(/\n/);
+  // While inside a block string, the column that ends it: the indent of a
+  // bare opener, or the key's column for a property opener. Its content
+  // lines are literal: no list leaders, no "-" or "*" checks, no comments.
+  let blockOpener = -1;
   for (let i = 0; i < lineStrings.length; i++) {
     const lineStr = lineStrings[i];
     if (lineStr.length > 0 && lineStr.charCodeAt(lineStr.length - 1) === 0x20) {
@@ -167,6 +171,13 @@ function scan(source, ctx = {}) {
       indent++;
     }
     const rest = lineStr.slice(indent);
+    if (blockOpener >= 0) {
+      if (lineStr.length === 0 || indent > blockOpener) {
+        lines.push({ line: rest, indent, leader: "", lineNum: i });
+        continue;
+      }
+      blockOpener = -1;
+    }
     if (rest.startsWith("#") && indent === 0) {
       continue; // comment only at column 0
     }
@@ -204,9 +215,23 @@ function scan(source, ctx = {}) {
     ) {
       throw new Error('Unexpected character "*"' + locSuffix(ctx, i, indent));
     }
+    if (isBareBlockOpener(line)) {
+      blockOpener = indent;
+    } else if (line.endsWith(": `")) {
+      blockOpener = indent + (rest.length - line.length);
+    }
     lines.push({ line, indent, leader, lineNum: i });
   }
   return lines;
+}
+
+/**
+ * Whether a line's content (after any list leader) is a bare "`" or
+ * "` text" block string opener.
+ * @param {string} line
+ */
+function isBareBlockOpener(line) {
+  return line === "`" || line.startsWith("` ");
 }
 
 // --- Outline Lexer: lines -> tokens { type, text, indent?, lineNum?, col? } ---

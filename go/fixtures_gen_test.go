@@ -256,7 +256,13 @@ var fixtures = map[string]any{
 	"string-block-deeply-nested": map[string]any{
 		"level1": map[string]any{"level2": map[string]any{"text": "Hello\nWorld\n"}},
 	},
-	"string-block-empty-middle": "\nI'm getting better!\n\nNo you're not.\n",
+	"string-block-empty-middle":   "\nI'm getting better!\n\nNo you're not.\n",
+	"string-block-markdown-array": []any{"\n- a\n  - b\n* item\n", "---\n-x\n", "end"},
+	"string-block-markdown-property": map[string]any{
+		"body": "# Heading\n- a\n  - b\n* item\n---\n-x\n",
+		"next": big.NewInt(1),
+	},
+	"string-block-markdown-root": "\n# Heading\n- a\n  - b\n* item\n---\n-x\n",
 	"string-block-nested-in-object-and-array": map[string]any{
 		"parrot": map[string]any{
 			"condition": "No, no, it's just resting!\n",

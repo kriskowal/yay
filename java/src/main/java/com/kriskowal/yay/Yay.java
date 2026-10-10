@@ -36,13 +36,24 @@ public class Yay {
     int indent;
     String leader;
     int lineNum;
+    boolean literal; // A line inside a block string
 
     ScanLine(String content, int indent, String leader, int lineNum) {
+      this(content, indent, leader, lineNum, false);
+    }
+
+    ScanLine(String content, int indent, String leader, int lineNum, boolean literal) {
       this.content = content;
       this.indent = indent;
       this.leader = leader;
       this.lineNum = lineNum;
+      this.literal = literal;
     }
+  }
+
+  /** Whether a line's content (after any list leader) is a bare "`" or "` text" opener. */
+  private static boolean isBareBlockOpener(String content) {
+    return content.equals("`") || content.startsWith("` ");
   }
 
   private static boolean isAllowedCodePoint(int cp) {
@@ -86,6 +97,10 @@ public class Yay {
 
     List<ScanLine> lines = new ArrayList<>();
     String[] rawLines = source.split("\n", -1);
+    // While inside a block string, the column that ends it: the indent of a
+    // bare opener, or the key's column for a property opener. Its content
+    // lines are literal: no list leaders, no "-", "*" or "$" checks, no comments.
+    int blockOpener = -1;
 
     for (int i = 0; i < rawLines.length; i++) {
       String line = rawLines[i];
@@ -102,6 +117,14 @@ public class Yay {
       }
 
       String rest = line.substring(indent);
+
+      if (blockOpener >= 0) {
+        if (line.isEmpty() || indent > blockOpener) {
+          lines.add(new ScanLine(rest, indent, "", i, true));
+          continue;
+        }
+        blockOpener = -1;
+      }
 
       // Empty line or comment-only at column 0
       if (rest.isEmpty() || (rest.startsWith("#") && indent == 0)) {
@@ -137,6 +160,12 @@ public class Yay {
           && !rest.equals("-infinity")) {
         // Compact list syntax (-value without space) is not allowed
         throw new YayException("Expected space after \"-\"", filename, i + 1, indent + 2);
+      }
+
+      if (isBareBlockOpener(content)) {
+        blockOpener = indent;
+      } else if (content.endsWith(": `")) {
+        blockOpener = indent + leader.length();
       }
 
       lines.add(new ScanLine(content, indent, leader, i));
@@ -179,6 +208,14 @@ public class Yay {
     boolean lastWasBreak = false;
 
     for (ScanLine sl : scanLines) {
+      // A block string's text lines are literal: text at the line's own
+      // indent, closing no open block.
+      if (sl.literal && !sl.content.isEmpty()) {
+        tokens.add(new Token(TokenType.TEXT, sl.content, sl.indent, sl.lineNum, sl.indent));
+        lastWasBreak = false;
+        continue;
+      }
+
       // Handle blank lines
       if (sl.content.isEmpty() && sl.leader.isEmpty()) {
         if (!lastWasBreak && !tokens.isEmpty()) {
