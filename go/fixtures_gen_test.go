@@ -252,10 +252,18 @@ var fixtures = map[string]any{
 	"object-multiline-singlequote-key": map[string]any{"key-name": big.NewInt(2)},
 	"object-nested-empty-inline":       map[string]any{"outer": map[string]any{"inner": map[string]any{}}},
 	"object-nested-empty-property":     map[string]any{"outer": map[string]any{"inner": map[string]any{}}},
-	"string-block-blank-run-array":     []any{"\nx\n\n\ny\n", "p\n\n\nq\n"},
-	"string-block-blank-run-property":  map[string]any{"a": "x\n\n\ny\n", "b": big.NewInt(1)},
-	"string-block-blank-run-root":      "\na\n\n\nb\n",
-	"string-block-deep-indent":         map[string]any{"message": "Line 1\n  Indented\nLine 2\n"},
+	"string-block-array-in-property": map[string]any{
+		"items": []any{"a\n- b\n", "\n* c\n\n\n---\n"},
+		"next":  big.NewInt(1),
+	},
+	"string-block-array-item-property": []any{
+		map[string]any{"body": "- x\n", "title": "a"},
+		map[string]any{"body": "# Heading\n\n\n* y\n", "title": "b"},
+	},
+	"string-block-blank-run-array":    []any{"\nx\n\n\ny\n", "p\n\n\nq\n"},
+	"string-block-blank-run-property": map[string]any{"a": "x\n\n\ny\n", "b": big.NewInt(1)},
+	"string-block-blank-run-root":     "\na\n\n\nb\n",
+	"string-block-deep-indent":        map[string]any{"message": "Line 1\n  Indented\nLine 2\n"},
 	"string-block-deeply-nested": map[string]any{
 		"level1": map[string]any{"level2": map[string]any{"text": "Hello\nWorld\n"}},
 	},

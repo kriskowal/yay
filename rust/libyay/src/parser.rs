@@ -642,10 +642,11 @@ fn parse_block_string(tokens: &[Token], mut i: usize, first_line: &str) -> Resul
     if !first_line.is_empty() {
         lines.push(first_line.to_string());
     }
+    let opener_indent = tokens[i].indent;
     i += 1;
 
     // Collect continuation lines with their indentation
-    let (continuation_lines, new_i) = collect_block_string_lines(tokens, i);
+    let (continuation_lines, new_i) = collect_block_string_lines(tokens, i, opener_indent);
     i = new_i;
 
     // Normalize indentation
@@ -664,12 +665,18 @@ fn parse_block_string(tokens: &[Token], mut i: usize, first_line: &str) -> Resul
     Ok((Value::String(result), i))
 }
 
-/// Gather continuation lines for a block string.
-fn collect_block_string_lines(tokens: &[Token], mut i: usize) -> (Vec<BlockLine>, usize) {
+/// Gather continuation lines for a block string: blank lines and lines
+/// indented deeper than the line that opened it.
+fn collect_block_string_lines(
+    tokens: &[Token],
+    mut i: usize,
+    opener_indent: usize,
+) -> (Vec<BlockLine>, usize) {
     let mut lines = Vec::new();
 
     while i < tokens.len()
-        && (tokens[i].typ == TokenType::Text || tokens[i].typ == TokenType::Break)
+        && ((tokens[i].typ == TokenType::Text && tokens[i].indent > opener_indent)
+            || tokens[i].typ == TokenType::Break)
     {
         if tokens[i].typ == TokenType::Break {
             lines.push(BlockLine {
@@ -1648,6 +1655,18 @@ fn parse_block_bytes_from_property(
     Ok((Value::Bytes(result), i))
 }
 
+/// The column of the property key on line `i`: the line's indent, plus the
+/// list leader when the property opens a list item (`- key: \``).
+fn key_column(tokens: &[Token], i: usize) -> usize {
+    let t = &tokens[i];
+    match i.checked_sub(1).map(|p| &tokens[p]) {
+        Some(prev) if prev.typ == TokenType::Start && prev.line_num == t.line_num => {
+            t.indent + prev.text.len()
+        }
+        _ => t.indent,
+    }
+}
+
 /// Parse block string from a property context (key: `)
 fn parse_block_string_from_property(
     tokens: &[Token],
@@ -2061,7 +2080,7 @@ fn parse_key_value_pair(
 
     // Block string: "key: `" followed by indented content
     if value_part == "`" && !key.is_empty() {
-        let (body, next) = parse_block_string_from_property(tokens, i, t.indent)?;
+        let (body, next) = parse_block_string_from_property(tokens, i, key_column(tokens, i))?;
         let mut obj = HashMap::new();
         obj.insert(key, body);
         return Ok((Value::Object(obj), next));
@@ -2263,7 +2282,7 @@ fn parse_object_property_value(
 
     // Block string
     if v_part == "`" {
-        let (body, next) = parse_block_string_from_property(tokens, i, t.indent)?;
+        let (body, next) = parse_block_string_from_property(tokens, i, key_column(tokens, i))?;
         return Ok((body, next));
     }
 

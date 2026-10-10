@@ -1372,6 +1372,17 @@ static yay_value_t *parse_property_block_string_indent(parse_ctx_t *ctx, size_t 
     return parse_block_string_impl(ctx, idx, first_line, base_indent, true);
 }
 
+/* The column of the property key on token i: the line's indent, plus the
+ * list leader when the property opens a list item ("- key: `"). */
+static int key_column(parse_ctx_t *ctx, size_t i) {
+    token_t *t = &ctx->tokens[i];
+    if (i > 0 && ctx->tokens[i - 1].type == TOKEN_START &&
+        ctx->tokens[i - 1].line_num == t->line_num) {
+        return t->indent + (int)strlen(ctx->tokens[i - 1].text);
+    }
+    return t->indent;
+}
+
 /* ============================================================================
  * Block Bytes Parsing (> hex)
  * ============================================================================ */
@@ -2405,7 +2416,8 @@ static yay_value_t *parse_object_property_value(parse_ctx_t *ctx, size_t *idx,
             return NULL;
         }
         /* Block leader alone - content starts on next line */
-        return parse_property_block_string_indent(ctx, idx, "", t->indent);
+        return parse_property_block_string_indent(ctx, idx, "",
+                                                  key_column(ctx, *idx));
     }
     
     /* Block bytes starting on same line: key: > hex */

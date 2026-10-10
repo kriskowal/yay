@@ -1243,7 +1243,9 @@
                (let ((first-line (if (> (string-length s) 2)
                                      (substring s 2 (string-length s))
                                      "")))
-                 (parse-block-string-with-indent p first-line base-indent)))
+                 ;; The block ends at a line indented no deeper than the
+                 ;; opener's line.
+                 (parse-block-string-with-indent p first-line (token-indent t))))
               ;; Block bytes (>)
               ((and (string-starts-with? s ">")
                     (not (string-contains? s "<")))
@@ -1447,6 +1449,18 @@
                           (parser-advance! p)
                           (loop (cons (cons key (parse-angle-bytes value-part)) pairs)))
                         (yay-error "Unmatched angle bracket")))
+                   ;; Block string (backtick). The block ends at the key's
+                   ;; column, which for "- key: `" is past the list leader.
+                   ((or (string=? value-part "`")
+                        (and (string-starts-with? value-part "`")
+                             (>= (string-length value-part) 2)
+                             (char=? (string-ref value-part 1) #\space)))
+                    (parser-advance! p)
+                    (let ((first-line (if (> (string-length value-part) 2)
+                                          (substring value-part 2 (string-length value-part))
+                                          "")))
+                      (let ((str (parse-block-string-for-property p first-line sibling-indent)))
+                        (loop (cons (cons key str) pairs)))))
                    ;; Regular value
                    (else
                     (parser-advance! p)

@@ -336,6 +336,8 @@
            "object-multiline-singlequote-key"
            "object-nested-empty-inline"
            "object-nested-empty-property"
+           "string-block-array-in-property"
+           "string-block-array-item-property"
            "string-block-blank-run-array"
            "string-block-blank-run-property"
            "string-block-blank-run-root"

@@ -2066,6 +2066,15 @@ func parseKeyValuePair(tokens []token, i, colonIdx int, ctx *parseContext) (any,
 		return parseObjectOrNamedArray(tokens, i, key, ctx)
 	}
 
+	// Block string: "key: `" followed by indented content
+	if len(key) > 0 && valuePart == "`" {
+		body, j, err := parseBlockStringWithIndent(tokens, i, "", true, keyColumn(tokens, i))
+		if err != nil {
+			return nil, 0, err
+		}
+		return map[string]any{key: body}, j, nil
+	}
+
 	// Block bytes
 	if len(key) > 0 && isBlockBytesStart(valuePart) {
 		bytes, j, err := parseBlockBytesFromKeyLine(tokens, i, ctx, t.indent, valuePart)
@@ -2089,6 +2098,17 @@ func parseKeyValuePair(tokens []token, i, colonIdx int, ctx *parseContext) (any,
 	}
 
 	return nil, i + 1, nil
+}
+
+// keyColumn returns the column of the property key on token i: the line's
+// indent, plus the list leader when the property opens a list item
+// ("- key: `").
+func keyColumn(tokens []token, i int) int {
+	t := tokens[i]
+	if i > 0 && tokens[i-1].typ == tokenStart && tokens[i-1].lineNum == t.lineNum {
+		return t.indent + len(tokens[i-1].text)
+	}
+	return t.indent
 }
 
 // isBlockBytesStart checks if valuePart starts block bytes.
@@ -2296,7 +2316,7 @@ func parseObjectPropertyValue(tokens []token, i int, t token, key, vPart string,
 
 	// Block string in property context: backtick alone on line
 	if strings.TrimSpace(vPart) == "`" {
-		body, next, err := parseBlockStringWithIndent(tokens, i, "", true, t.indent)
+		body, next, err := parseBlockStringWithIndent(tokens, i, "", true, keyColumn(tokens, i))
 		if err != nil {
 			return nil, 0, err
 		}

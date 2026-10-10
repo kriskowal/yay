@@ -422,7 +422,8 @@ public class Yay {
       // Block string (backtick)
       if (s.equals("`") || (s.startsWith("`") && s.length() >= 2 && s.charAt(1) == ' ')) {
         String firstLine = s.length() > 2 ? s.substring(2) : "";
-        return parseBlockString(firstLine, -1);
+        // The block ends at a line indented no deeper than the opener's line.
+        return parseBlockString(firstLine, t.col, false);
       }
 
       // Block bytes (>)
@@ -592,9 +593,8 @@ public class Yay {
       return out.toString();
     }
 
-    private String parseBlockString(String firstLine, int baseIndent) {
+    private String parseBlockString(String firstLine, int baseIndent, boolean isProperty) {
       pos++;
-      boolean isProperty = baseIndent >= 0;
 
       List<String> lines = new ArrayList<>();
       List<Integer> indents = new ArrayList<>();
@@ -607,7 +607,7 @@ public class Yay {
       while (pos < tokens.size()) {
         Token t = tokens.get(pos);
         if (t.type == TokenType.TEXT) {
-          if (isProperty && t.indent <= baseIndent) {
+          if (t.indent <= baseIndent) {
             break;
           }
           lines.add(t.text);
@@ -1255,7 +1255,7 @@ public class Yay {
               t.lineNum + 1,
               t.col + colonIdx + 3);
         }
-        obj.put(key, parseBlockString(firstLine, t.indent));
+        obj.put(key, parseBlockString(firstLine, t.indent, true));
         return obj;
       }
 

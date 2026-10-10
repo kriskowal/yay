@@ -220,6 +220,14 @@ public class FixturesGen {
     FIXTURES.put("object-multiline", map("answer", bi(42), "error", bi(404)));
     FIXTURES.put("object-nested-empty-inline", map("outer", map("inner", map())));
     FIXTURES.put("object-nested-empty-property", map("outer", map("inner", map())));
+    FIXTURES.put(
+        "string-block-array-in-property",
+        map("items", list("a\n- b\n", "\n* c\n\n\n---\n"), "next", bi(1)));
+    FIXTURES.put(
+        "string-block-array-item-property",
+        list(
+            map("body", "- x\n", "title", "a"),
+            map("body", "# Heading\n\n\n* y\n", "title", "b")));
     FIXTURES.put("string-block-blank-run-array", list("\nx\n\n\ny\n", "p\n\n\nq\n"));
     FIXTURES.put("string-block-blank-run-property", map("a", "x\n\n\ny\n", "b", bi(1)));
     FIXTURES.put("string-block-blank-run-root", "\na\n\n\nb\n");

@@ -137,7 +137,13 @@ fn scan_lines(source: &str, ctx: &ParseContext) -> Result<ScanResult> {
         let (leader, content) = extract_leader(rest, line_num, indent, ctx)?;
 
         if opens_block_string(content) {
-            block_opener = Some(indent);
+            // A property's block ends at its key's column, which follows the
+            // list leader in `- key: \``.
+            block_opener = Some(if is_bare_block_opener(content) {
+                indent
+            } else {
+                indent + leader.len()
+            });
         }
 
         lines.push(ScanLine {
@@ -157,7 +163,13 @@ fn scan_lines(source: &str, ctx: &ParseContext) -> Result<ScanResult> {
 /// Whether a line's content (after any list leader) opens a block string:
 /// a property `key: \``, or a bare `\`` / `\` text` at root or as a list item.
 fn opens_block_string(content: &str) -> bool {
-    content == "`" || content.starts_with("` ") || content.ends_with(": `")
+    is_bare_block_opener(content) || content.ends_with(": `")
+}
+
+/// Whether a line's content is a bare `\`` or `\` text` opener rather than a
+/// property.
+fn is_bare_block_opener(content: &str) -> bool {
+    content == "`" || content.starts_with("` ")
 }
 
 /// Count the number of leading spaces in a line.

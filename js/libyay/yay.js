@@ -1977,12 +1977,14 @@ function parseObjectBlock(tokens, i, baseIndent, ctx = {}, inlineIndent) {
     }
     // Block string in property context: backtick alone on line
     if (vPart.trim() === "`") {
+      // The block ends at the key's column, which for "- key: `" is past
+      // the list leader.
       const [body, next] = parseBlockStringWithIndent(
         tokens,
         i,
         "",
         true,
-        t.indent ?? 0,
+        indent,
       );
       obj[k] = body;
       i = next;

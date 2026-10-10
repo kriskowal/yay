@@ -363,8 +363,14 @@ impl<'a> MehParser<'a> {
         } else if find_colon_outside_quotes(value_part).is_some() {
             // Nested property on same line (e.g., "- a: 1")
             let mut nested_item = self.parse_inline_property(value_part, indent + 2)?;
-            // If the property has no inline value, parse its block content
-            if nested_item.value.is_none() {
+            if is_block_string_property(value_part) {
+                // "- a: `": the block string ends at the key's column
+                let block_str = self.parse_block_string(indent + 2)?;
+                nested_item.value = Some(PropertyValue::Inline(CstValue::String(
+                    CstString::Block(block_str),
+                )));
+            } else if nested_item.value.is_none() {
+                // If the property has no inline value, parse its block content
                 let prop_block = self.parse_block(indent + 2)?;
                 if !prop_block.items.is_empty() {
                     nested_item.value = Some(PropertyValue::Block(prop_block));
@@ -785,6 +791,12 @@ impl<'a> MehParser<'a> {
 
 fn count_indent(line: &str) -> usize {
     line.bytes().take_while(|&b| b == b' ').count()
+}
+
+/// Whether a property (`key: value`) opens a block string (`key: \``).
+fn is_block_string_property(s: &str) -> bool {
+    find_colon_outside_quotes(s)
+        .is_some_and(|colon| split_inline_comment(s[colon + 1..].trim_start()).0 == "`")
 }
 
 fn find_colon_outside_quotes(s: &str) -> Option<usize> {
@@ -2175,10 +2187,19 @@ impl Formatter {
                     v,
                     CstValue::Bytes(CstBytes::Block(_)) | CstValue::String(CstString::Block(_))
                 );
+                // The key sits one level in from the list leader, and a block
+                // string's body one level in from the key.
+                let is_block_string = matches!(v, CstValue::String(CstString::Block(_)));
 
                 self.write_char(' ');
                 self.in_property_value = true;
+                if is_block_string {
+                    self.indent += 1;
+                }
                 self.format_value(v);
+                if is_block_string {
+                    self.indent -= 1;
+                }
                 self.in_property_value = false;
 
                 if !is_block_value {
