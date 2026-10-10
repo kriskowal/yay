@@ -1,0 +1,5 @@
+body: "\n# Heading\n\nProse.\n"
+head:
+  count: 3
+  tags: ["one", "two"]
+  title: "Front matter"

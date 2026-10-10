@@ -3,9 +3,9 @@
 //! Usage: yay [OPTIONS] [FILE|DIR]
 //!
 //! Options:
-//!       -f, --from <FORMAT>    Input format (meh, yay, json, yson, yaml, toml, cbor)
+//!       -f, --from <FORMAT>    Input format (meh, yay, json, yson, yaml, toml, cbor, md, yd)
 //!                              [default: meh, or yay when --check]
-//!   -t, --to <FORMAT>      Output format (yay, json, yson, js, go, python, rust, c, java, scheme, yaml, toml, cbor, diag)
+//!   -t, --to <FORMAT>      Output format (yay, json, yson, js, go, python, rust, c, java, scheme, yaml, toml, cbor, diag, md, yd)
 //!   -w, --write            Write output to file with inferred name
 //!   -o, --output <FILE>    Write output to specified file
 //!   --check                Check if file is valid (exit 0 if valid, 1 if invalid)
@@ -22,6 +22,7 @@ use std::io::{self, Read, Write};
 use std::path::Path;
 use std::process;
 
+mod markdown;
 mod transcode;
 
 /// Check whether a string is a recognized format name for -f or -t.
@@ -48,6 +49,8 @@ fn is_format_name(s: &str) -> bool {
             | "toml"
             | "cbor"
             | "diag"
+            | "md"
+            | "yd"
     )
 }
 
@@ -335,9 +338,16 @@ fn main() {
     process::exit(exit_code);
 }
 
+/// Mehdown (md) and Yaydown (yd) write the same document: canonical YAY
+/// front matter is both.
+fn is_markdown(format: &str) -> bool {
+    matches!(format, "md" | "yd")
+}
+
 fn parse_format(s: &str) -> Format {
     match s {
-        "yay" | "meh" => Format::Yay,
+        // Markdown is a record {head?, body}; its head is YAY.
+        "yay" | "meh" | "md" | "yd" => Format::Yay,
         "json" => Format::Json,
         "yson" => Format::Yson,
         "js" | "javascript" => Format::JavaScript,
@@ -447,6 +457,20 @@ fn process_input(
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| p.to_string())
     });
+
+    if from_format == "md" || from_format == "yd" {
+        return process_markdown(
+            input,
+            input_file,
+            filename.as_deref(),
+            from_format == "yd",
+            output_format_str,
+            output_format,
+            output_file,
+            write_back,
+            check_only,
+        );
+    }
 
     // For strict YAY mode (--from yay), validate with strict parser first
     if from_format == "yay" {
@@ -693,6 +717,10 @@ fn process_input(
         return 0;
     }
 
+    if is_markdown(output_format_str) {
+        return output_markdown(&value, output_file, write_back, input_file);
+    }
+
     // Check for JSON incompatibility
     if output_format == Format::Json {
         if let Some(reason) = value.json_incompatibility() {
@@ -779,6 +807,10 @@ fn output_value(
     write_back: bool,
     input_file: Option<&str>,
 ) -> i32 {
+    if is_markdown(output_format_str) {
+        return output_markdown(value, output_file, write_back, input_file);
+    }
+
     // For SHON → YAY, encode via the standard encoder
     if output_format_str == "yay" {
         let output = encode(value, Format::Yay);
@@ -848,6 +880,138 @@ fn output_value(
         }
     }
 
+    0
+}
+
+/// Read a markdown document: its front matter as a YAY head (strict for
+/// yd, lenient MEH for md) and the rest as its body, byte for byte.
+#[allow(clippy::too_many_arguments)]
+fn process_markdown(
+    input: &str,
+    input_file: Option<&str>,
+    filename: Option<&str>,
+    strict: bool,
+    output_format_str: &str,
+    output_format: Format,
+    output_file: Option<&str>,
+    write_back: bool,
+    check_only: bool,
+) -> i32 {
+    let report = |e: &dyn std::fmt::Display| {
+        if let Some(path) = input_file {
+            eprintln!("{}: {}", path, e);
+        } else {
+            eprintln!("Parse error: {}", e);
+        }
+    };
+    let doc = match markdown::split(input) {
+        Ok(d) => d,
+        Err(e) => {
+            report(&e);
+            return 1;
+        }
+    };
+    // The canonical head text: the MEH formatter keeps key order and comments.
+    let mut head_text = String::new();
+    let mut head_value = None;
+    if let Some(h) = doc.head.filter(|h| !h.trim().is_empty()) {
+        // Parse with one leading blank line standing in for the opening fence,
+        // so error locations are lines of the file, not of the head.
+        let padded = format!("\n{}", h);
+        if strict {
+            if let Err(e) = parse_with_filename(&padded, filename) {
+                report(&format!("in front matter: {}", e));
+                return 1;
+            }
+        }
+        head_text = match format_yay(&padded) {
+            Ok(t) => t,
+            Err(e) => {
+                report(&format!("in front matter: {}", e));
+                return 1;
+            }
+        };
+        head_value = match parse(&head_text) {
+            Ok(v) => Some(v),
+            Err(e) => {
+                report(&format!("in front matter: {}", e));
+                return 1;
+            }
+        };
+    }
+    if check_only {
+        if let Some(path) = input_file {
+            println!("{}: ok", path);
+        }
+        return 0;
+    }
+    if is_markdown(output_format_str) {
+        let out = markdown::render(&head_text, doc.body);
+        return write_markdown(&out, output_file, write_back, input_file);
+    }
+    let value = markdown::to_value(head_value, doc.body);
+    output_value(
+        &value,
+        output_format_str,
+        output_format,
+        output_file,
+        write_back,
+        input_file,
+    )
+}
+
+/// Write a record {head?, body} as markdown with YAY front matter.
+fn output_markdown(
+    value: &Value,
+    output_file: Option<&str>,
+    write_back: bool,
+    input_file: Option<&str>,
+) -> i32 {
+    match markdown::from_value(value) {
+        Ok(out) => write_markdown(&out, output_file, write_back, input_file),
+        Err(e) => {
+            eprintln!("Error: Cannot convert to markdown: {}", e);
+            1
+        }
+    }
+}
+
+/// Markdown output is written exactly: no newline is added to the body.
+fn write_markdown(
+    output: &str,
+    output_file: Option<&str>,
+    write_back: bool,
+    input_file: Option<&str>,
+) -> i32 {
+    let target = if let Some(path) = output_file {
+        Some(path.to_string())
+    } else if write_back {
+        match input_file {
+            Some(p) => Some(
+                Path::new(p)
+                    .with_extension("md")
+                    .to_string_lossy()
+                    .to_string(),
+            ),
+            None => {
+                eprintln!("Error: --write requires an input file");
+                return 1;
+            }
+        }
+    } else {
+        None
+    };
+    match target {
+        Some(path) => {
+            if let Err(e) = fs::write(&path, output) {
+                eprintln!("Error writing {}: {}", path, e);
+                return 1;
+            }
+        }
+        None => {
+            print!("{}", output);
+        }
+    }
     0
 }
 
@@ -932,7 +1096,9 @@ ARGS:
 
 OPTIONS:
     -f, --from <FORMAT>    Input format [default: meh, or yay when --check]
-                           Supported: meh, yay, json, yson, yaml, toml, cbor
+                           Supported: meh, yay, json, yson, yaml, toml, cbor,
+                           md (Mehdown: markdown, front matter read as MEH),
+                           yd (Yaydown: markdown, strict YAY front matter)
                            
                            'meh' (default) accepts loose formatting and reformats
                            to canonical YAY. 'yay' enforces strict YAY syntax
@@ -943,7 +1109,7 @@ OPTIONS:
     
     -t, --to <FORMAT>      Output format
                            Supported: yay, json, yson, js, go, python, rust, c,
-                                      java, scheme, yaml, toml, cbor, diag
+                                      java, scheme, yaml, toml, cbor, diag, md, yd
     
     -w, --write            Write output to file with inferred extension
     

@@ -44,8 +44,8 @@ When a directory is specified, processes all `.yay` files recursively.
 
 | Option | Description |
 |--------|-------------|
-| `-f, --from FORMAT` | Input format (default: `meh`); supported: `meh`, `yay`, `json`, `yson` |
-| `-t, --to FORMAT` | Output format (default: `yay`); supported: `yay`, `json`, `yson`, `js`, `go`, `python`, `rust`, `c`, `java`, `scheme` |
+| `-f, --from FORMAT` | Input format (default: `meh`); supported: `meh`, `yay`, `json`, `yson`, `md`, `yd` |
+| `-t, --to FORMAT` | Output format (default: `yay`); supported: `yay`, `json`, `yson`, `js`, `go`, `python`, `rust`, `c`, `java`, `scheme`, `md`, `yd` |
 | `-w, --write` | Write output to file with inferred extension |
 | `-o, --output FILE` | Write output to specified file (not valid with directory input) |
 | `--check` | Validate without producing output (exit 0 if valid, 1 if invalid) |
@@ -60,6 +60,9 @@ When a directory is specified, processes all `.yay` files recursively.
   Use this to validate that files conform to the canonical format.
 - **`json`**: Standard JSON input.
 - **`yson`**: JSON extended with YAY features (big integers, byte arrays).
+- **`md`** (Mehdown): Markdown with YAY front matter, read as a record (see
+  [Markdown](#markdown)). The front matter is read leniently, as MEH.
+- **`yd`** (Yaydown): The same, with strict YAY front matter.
 
 ## Output Formats
 
@@ -162,6 +165,42 @@ Generates Scheme code representing the value.
 ```bash
 yay -t scheme input.yay
 ```
+
+## Markdown
+
+binyay reads markdown with YAY front matter in two flavors, named for how
+strictly they read the front matter: **Mehdown** (`md`) reads it leniently, as
+MEH, and **Yaydown** (`yd`) as strict YAY.
+
+A markdown document is a record with an optional `head`, its front matter, and
+a `body`, everything after the front matter, byte for byte.
+Front matter opens with a `---` line at the very start of the document and ends
+at the next line that is exactly `---`; its content is a YAY value.
+A document without front matter has only a `body`.
+
+```bash
+yay -f md -t md README.md        # Reformat the front matter, leave the body alone
+yay -f md -t yson README.md      # {"head": {...}, "body": "..."}
+yay -f yd --check README.md      # Strict front matter
+yay -f yson -t md record.yson    # A {head, body} record back to markdown
+```
+
+Writing markdown emits front matter only when there is a head: an absent,
+null or empty head writes the body alone, so `-f md -t md` drops empty fences.
+Errors in front matter report the line of the file.
+`-t md` and `-t yd` write the same document, its front matter in canonical
+YAY, which is both valid Mehdown and valid Yaydown.
+
+```markdown
+---
+created: "2026-10-10"
+author: "kris"
+---
+
+# Title
+```
+
+reads as `{head: {created: "2026-10-10", author: "kris"}, body: "\n# Title\n"}`.
 
 ## Validation Mode
 

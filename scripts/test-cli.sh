@@ -9,6 +9,7 @@
 #   - Error: Invalid .nay files are rejected
 #   - Transcode: YAY -> YAML/TOML/CBOR against golden fixtures
 #   - Ingest: YAML/TOML/CBOR -> YAY against golden fixtures
+#   - Markdown: front matter normalized, body untouched; md <-> record
 #
 # Exit codes: 0=pass, 1=fail, 2=skip
 
@@ -507,6 +508,88 @@ run_cli_examples_tests() {
 }
 
 # =============================================================================
+# Markdown Tests (markdown with YAY front matter)
+# =============================================================================
+
+run_markdown_tests() {
+  echo "=== Markdown Tests (front matter → YAY head, body untouched) ==="
+  echo ""
+
+  local tmp name base expected_file input_file
+  tmp=$(mktemp)
+  trap 'rm -f "$tmp"' RETURN
+
+  # Normalize: test/md/<name>.<variant>.md → test/md/<name>.md, and the
+  # expected file is a strict fixed point.
+  for input_file in "$TEST_DIR"/md/*.*.md; do
+    [[ -f "$input_file" ]] || continue
+    name=$(basename "$input_file")
+    base=${name%%.*}
+    expected_file="$TEST_DIR/md/$base.md"
+    if [[ ! -f "$expected_file" ]]; then
+      skip "markdown/normalize/$name (no expected .md file)"
+      continue
+    fi
+    if "$YAY" -f md -t md "$input_file" >"$tmp" 2>/dev/null && cmp -s "$tmp" "$expected_file"; then
+      pass "markdown/normalize/$name"
+    else
+      fail "markdown/normalize/$name (output differs from expected)"
+      diff "$expected_file" "$tmp" | head -10 | sed 's/^/    /'
+    fi
+    if "$YAY" -f yd -t md "$expected_file" >"$tmp" 2>/dev/null && cmp -s "$tmp" "$expected_file"; then
+      pass "markdown/idempotent/$base.md"
+    else
+      fail "markdown/idempotent/$base.md (not a strict fixed point)"
+    fi
+    if "$YAY" -f md -t yd "$input_file" >"$tmp" 2>/dev/null && cmp -s "$tmp" "$expected_file"; then
+      pass "markdown/to-yd/$name"
+    else
+      fail "markdown/to-yd/$name (-t yd differs from -t md)"
+    fi
+  done
+
+  # Read as a record: test/from-md/<name>.md → <name>.yay, or <name>.error;
+  # and the record writes back to markdown that reads as the same record.
+  for input_file in "$TEST_DIR"/from-md/*.md; do
+    [[ -f "$input_file" ]] || continue
+    base=$(basename "$input_file" .md)
+    if [[ -f "$TEST_DIR/from-md/$base.error" ]]; then
+      if "$YAY" -f md -t yay "$input_file" >/dev/null 2>&1; then
+        fail "markdown/from-md/$base (should have failed)"
+      else
+        pass "markdown/from-md/$base (expected error)"
+      fi
+      continue
+    fi
+    if "$YAY" -f md -t yay "$input_file" >"$tmp" 2>/dev/null && cmp -s "$tmp" "$TEST_DIR/from-md/$base.yay"; then
+      pass "markdown/from-md/$base"
+    else
+      fail "markdown/from-md/$base (output differs)"
+      diff "$TEST_DIR/from-md/$base.yay" "$tmp" | head -5 | sed 's/^/    /'
+    fi
+    if "$YAY" -f md -t yson "$input_file" | "$YAY" -f yson -t md >"$tmp" 2>/dev/null &&
+      cmp -s <("$YAY" -f md -t yson "$tmp") <("$YAY" -f md -t yson "$input_file"); then
+      pass "markdown/round-trip/$base"
+    else
+      fail "markdown/round-trip/$base (record → markdown → record changed)"
+    fi
+  done
+
+  # Strict front matter: test/nmd/*.md must be refused by --from yd.
+  for input_file in "$TEST_DIR"/nmd/*.md; do
+    [[ -f "$input_file" ]] || continue
+    name=$(basename "$input_file")
+    if "$YAY" -f yd --check "$input_file" >/dev/null 2>&1; then
+      fail "markdown/strict/$name (should have been refused)"
+    else
+      pass "markdown/strict/$name (refused)"
+    fi
+  done
+
+  echo ""
+}
+
+# =============================================================================
 # Main
 # =============================================================================
 
@@ -538,12 +621,15 @@ while [[ $# -gt 0 ]]; do
   examples | ex)
     TESTS_TO_RUN="$TESTS_TO_RUN examples"
     ;;
+  markdown | md)
+    TESTS_TO_RUN="$TESTS_TO_RUN markdown"
+    ;;
   all | "")
-    TESTS_TO_RUN="idempotence reformat roundtrip output error transcode ingest examples"
+    TESTS_TO_RUN="idempotence reformat roundtrip output error transcode ingest examples markdown"
     ;;
   *)
     echo "Unknown test category: $1"
-    echo "Usage: $0 [idempotence|reformat|roundtrip|output|error|transcode|ingest|examples|all]"
+    echo "Usage: $0 [idempotence|reformat|roundtrip|output|error|transcode|ingest|examples|markdown|all]"
     exit 1
     ;;
   esac
@@ -552,7 +638,7 @@ done
 
 # Default to all tests
 if [[ -z "$TESTS_TO_RUN" ]]; then
-  TESTS_TO_RUN="idempotence reformat roundtrip output error transcode ingest examples"
+  TESTS_TO_RUN="idempotence reformat roundtrip output error transcode ingest examples markdown"
 fi
 
 # Run selected tests
@@ -566,6 +652,7 @@ for test in $TESTS_TO_RUN; do
   transcode) run_transcode_tests ;;
   ingest) run_ingest_tests ;;
   examples) run_cli_examples_tests ;;
+  markdown) run_markdown_tests ;;
   esac
 done
 
