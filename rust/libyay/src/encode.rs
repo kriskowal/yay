@@ -1268,8 +1268,10 @@ fn encode_yson_string(s: &str) -> String {
         .unwrap_or(false);
 
     if needs_escape {
-        // Escape with ! prefix
-        format!("\"!{}\"", &encode_json_string(s)[1..s.len() + 1])
+        // Escape with ! prefix. Slice the ENCODED string: escapes make it
+        // longer than s, and slicing by s.len() cut the tail off.
+        let json = encode_json_string(s);
+        format!("\"!{}", &json[1..])
     } else {
         encode_json_string(s)
     }
@@ -1289,6 +1291,17 @@ mod tests {
     fn test_encode_go_integer() {
         let value = Value::Integer(42.into());
         assert_eq!(encode(&value, Format::Go), "big.NewInt(42)");
+    }
+
+    #[test]
+    fn test_encode_yson_escaped_string_with_escapes() {
+        // A string with a reserved prefix is escaped with "!"; JSON escapes
+        // inside it must not shorten the result.
+        let value = Value::String("# Title\n\nBody with \"quotes\".\n".to_string());
+        assert_eq!(
+            encode(&value, Format::Yson),
+            "\"!# Title\\n\\nBody with \\\"quotes\\\".\\n\""
+        );
     }
 
     #[test]
