@@ -2,11 +2,11 @@
 """
 Test harness for the YAY parser.
 
-Runs against all .yay fixture files and compares with expected .js output.
+Runs against all .yay fixture files and compares with expected .py output.
 Runs against all .nay fixture files and verifies errors are raised.
 """
 
-import json
+import ast
 import math
 import os
 import re
@@ -16,134 +16,33 @@ sys.path.insert(0, os.path.dirname(__file__))
 import libyay as yay
 
 
-def parse_js_value(js_content: str):
+def parse_py_value(py_content: str):
     """
-    Parse a JavaScript value literal into Python equivalent.
+    Evaluate an expected-value fixture from test/py/.
 
-    Handles:
-    - BigInt literals (10n -> 10)
-    - Infinity, -Infinity, NaN
-    - Uint8Array.fromHex("...") -> bytes
-    - new Uint8Array(0) -> b''
-    - Arrays and objects
+    The fixtures are Python literals, plus calls to bytes.fromhex("...") and
+    float("inf"), float("-inf") or float("nan"). Nothing else is evaluated.
     """
-    js_content = js_content.strip()
 
-    # Handle special float values
-    if js_content == "Infinity":
-        return float("inf")
-    if js_content == "-Infinity":
-        return float("-inf")
-    if js_content == "NaN":
-        return float("nan")
+    def evaluate(node):
+        if isinstance(node, ast.Call) and len(node.args) == 1 and not node.keywords:
+            func = ast.unparse(node.func)
+            arg = ast.literal_eval(node.args[0])
+            if func == "bytes.fromhex" and isinstance(arg, str):
+                return bytes.fromhex(arg)
+            if func == "float" and arg in ("inf", "-inf", "nan"):
+                return float(arg)
+            raise ValueError(f"Unexpected call in fixture: {ast.unparse(node)}")
+        if isinstance(node, ast.List):
+            return [evaluate(item) for item in node.elts]
+        if isinstance(node, ast.Dict):
+            return {
+                ast.literal_eval(key): evaluate(value)
+                for key, value in zip(node.keys, node.values)
+            }
+        return ast.literal_eval(node)
 
-    # Handle null
-    if js_content == "null":
-        return None
-
-    # Handle booleans
-    if js_content == "true":
-        return True
-    if js_content == "false":
-        return False
-
-    # Handle empty Uint8Array
-    if js_content == "new Uint8Array(0)":
-        return b""
-
-    # Handle Uint8Array.fromHex("...")
-    if js_content.startswith("Uint8Array.fromHex("):
-        hex_str = js_content[20:-2]  # Extract hex string
-        return bytes.fromhex(hex_str)
-
-    # Handle BigInt literals (e.g., 10n, -10n)
-    if (
-        js_content.endswith("n")
-        and not js_content.startswith('"')
-        and not js_content.startswith("'")
-    ):
-        try:
-            return int(js_content[:-1])
-        except ValueError:
-            pass
-
-    # Handle negative numbers
-    if js_content.startswith("-"):
-        rest = js_content[1:]
-        if rest.endswith("n"):
-            return -int(rest[:-1])
-
-    # Try parsing as JSON (handles strings, numbers, arrays, objects)
-    try:
-        # First, preprocess to handle BigInt in arrays/objects
-        processed = preprocess_js_for_json(js_content)
-        return json.loads(processed)
-    except json.JSONDecodeError:
-        pass
-
-    # Handle plain integers
-    try:
-        return int(js_content)
-    except ValueError:
-        pass
-
-    # Handle floats
-    try:
-        return float(js_content)
-    except ValueError:
-        pass
-
-    raise ValueError(f"Cannot parse JS value: {js_content!r}")
-
-
-def preprocess_js_for_json(js: str) -> str:
-    """
-    Preprocess JavaScript to be valid JSON.
-
-    - Remove BigInt 'n' suffix
-    - Quote unquoted object keys
-    - Handle single-quoted strings
-    """
-    result = []
-    i = 0
-    in_string = False
-    string_char = None
-
-    while i < len(js):
-        ch = js[i]
-
-        if in_string:
-            if ch == "\\" and i + 1 < len(js):
-                result.append(ch)
-                result.append(js[i + 1])
-                i += 2
-                continue
-            if ch == string_char:
-                in_string = False
-                result.append('"')  # Always output double quote
-                i += 1
-                continue
-            result.append(ch)
-            i += 1
-            continue
-
-        if ch in "\"'":
-            in_string = True
-            string_char = ch
-            result.append('"')  # Always output double quote
-            i += 1
-            continue
-
-        # Handle BigInt suffix
-        if ch == "n" and result and result[-1].isdigit():
-            # Skip the 'n'
-            i += 1
-            continue
-
-        result.append(ch)
-        i += 1
-
-    return "".join(result)
+    return evaluate(ast.parse(py_content.strip(), mode="eval").body)
 
 
 def values_equal(a, b) -> bool:
@@ -177,7 +76,7 @@ def values_equal(a, b) -> bool:
 
 def run_valid_tests(test_root: str, verbose: bool = False) -> tuple[int, int, list]:
     """
-    Run all .yay tests from test_root/yay/, checking against test_root/js/.
+    Run all .yay tests from test_root/yay/, checking against test_root/py/.
 
     Returns (passed, failed, errors) where errors is a list of (filename, error_message).
     """
@@ -186,12 +85,12 @@ def run_valid_tests(test_root: str, verbose: bool = False) -> tuple[int, int, li
     errors = []
 
     yay_dir = os.path.join(test_root, "yay")
-    js_dir = os.path.join(test_root, "js")
+    py_dir = os.path.join(test_root, "py")
     yay_files = sorted(f for f in os.listdir(yay_dir) if f.endswith(".yay"))
 
     for fname in yay_files:
         yay_path = os.path.join(yay_dir, fname)
-        js_path = os.path.join(js_dir, fname[:-4] + ".js")
+        py_path = os.path.join(py_dir, fname[:-4] + ".py")
 
         try:
             with open(yay_path, "rb") as fp:
@@ -200,26 +99,19 @@ def run_valid_tests(test_root: str, verbose: bool = False) -> tuple[int, int, li
 
             result = yay.loads(yay_content)
 
-            # Check against expected output if .js file exists
-            if os.path.exists(js_path):
-                with open(js_path) as fp:
-                    js_content = fp.read()
-
-                try:
-                    expected = parse_js_value(js_content)
-                    if not values_equal(result, expected):
-                        failed += 1
-                        errors.append(
-                            (
-                                fname,
-                                f"Value mismatch: got {result!r}, expected {expected!r}",
-                            )
+            # Check against expected output if .py file exists
+            if os.path.exists(py_path):
+                with open(py_path) as fp:
+                    expected = parse_py_value(fp.read())
+                if not values_equal(result, expected):
+                    failed += 1
+                    errors.append(
+                        (
+                            fname,
+                            f"Value mismatch: got {result!r}, expected {expected!r}",
                         )
-                        continue
-                except ValueError as e:
-                    # Can't parse expected value, just check parsing succeeded
-                    if verbose:
-                        print(f"  {fname}: Could not parse expected JS: {e}")
+                    )
+                    continue
 
             passed += 1
             if verbose:
