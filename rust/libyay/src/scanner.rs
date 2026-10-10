@@ -93,6 +93,11 @@ fn validate_code_points(source: &str, ctx: &ParseContext) -> Result<()> {
 fn scan_lines(source: &str, ctx: &ParseContext) -> Result<ScanResult> {
     let mut lines = Vec::new();
     let mut had_comments = false;
+    // While inside a block string, the indent of the line that opened it.
+    // Its content lines are literal: no list leaders, no `-`/`*` checks, no
+    // comments. The block ends at the next non-empty line indented the same or
+    // less than its opener.
+    let mut block_opener: Option<usize> = None;
 
     for (line_num, line_str) in source.split('\n').enumerate() {
         // Validate: No trailing spaces
@@ -109,6 +114,19 @@ fn scan_lines(source: &str, ctx: &ParseContext) -> Result<ScanResult> {
 
         let rest = &line_str[indent..];
 
+        if let Some(opener) = block_opener {
+            if line_str.is_empty() || indent > opener {
+                lines.push(ScanLine {
+                    line: rest.to_string(),
+                    indent,
+                    leader: String::new(),
+                    line_num,
+                });
+                continue;
+            }
+            block_opener = None;
+        }
+
         // Skip top-level comments but track that we saw them
         if rest.starts_with('#') && indent == 0 {
             had_comments = true;
@@ -117,6 +135,10 @@ fn scan_lines(source: &str, ctx: &ParseContext) -> Result<ScanResult> {
 
         // Extract leader (list marker) and content
         let (leader, content) = extract_leader(rest, line_num, indent, ctx)?;
+
+        if opens_block_string(content) {
+            block_opener = Some(indent);
+        }
 
         lines.push(ScanLine {
             line: content.to_string(),
@@ -130,6 +152,12 @@ fn scan_lines(source: &str, ctx: &ParseContext) -> Result<ScanResult> {
         lines,
         had_comments,
     })
+}
+
+/// Whether a line's content (after any list leader) opens a block string:
+/// a property `key: \``, or a bare `\`` / `\` text` at root or as a list item.
+fn opens_block_string(content: &str) -> bool {
+    content == "`" || content.starts_with("` ") || content.ends_with(": `")
 }
 
 /// Count the number of leading spaces in a line.
@@ -178,6 +206,17 @@ fn extract_leader<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_block_string_lines_are_literal() {
+        let ctx = ParseContext::new(None);
+        let result = scan("body: `\n  - item\n  * star\n  ---\n  -x\nnext: 1", &ctx).unwrap();
+        assert_eq!(result.lines.len(), 6);
+        assert_eq!(result.lines[1].line, "- item");
+        assert_eq!(result.lines[1].leader, "");
+        assert_eq!(result.lines[3].line, "---");
+        assert_eq!(result.lines[5].line, "next: 1");
+    }
 
     #[test]
     fn test_count_indent() {
