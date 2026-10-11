@@ -1392,9 +1392,13 @@
 ;; Parse object block inside an array item
 ;; first-indent is the indent of the first key (right after -)
 ;; array-indent is the indent of the array item marker
-;; We accept keys at first-indent OR at array-indent + 2
+;; We accept keys at first-indent on the item's own line, OR at
+;; array-indent + 2. A later line at first-indent is the next key of an
+;; enclosing object when the list sits at its key's indent
+;; ("items:\n- a: 1\nnext: 1").
 (define (parse-object-block-in-array p first-indent array-indent)
-  (let ((sibling-indent (+ array-indent 2)))
+  (let ((sibling-indent (+ array-indent 2))
+        (item-line (token-linenum (parser-peek p))))
     (let loop ((pairs '()))
       (let ((t (parser-peek p)))
         (cond
@@ -1410,9 +1414,10 @@
          ((eq? (token-type t) 'break)
           (parser-advance! p)
           (loop pairs))
-         ;; Accept text at first-indent or sibling-indent
+         ;; Accept text at first-indent on the item's line, or sibling-indent
          ((and (eq? (token-type t) 'text)
-               (or (= (token-indent t) first-indent)
+               (or (and (= (token-indent t) first-indent)
+                        (= (token-linenum t) item-line))
                    (= (token-indent t) sibling-indent)))
           (let* ((s (token-text t))
                  (current-indent (token-indent t))

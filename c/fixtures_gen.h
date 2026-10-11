@@ -86,6 +86,19 @@ static yay_value_t *make_expected_array_multiline_nested(void) {
 );
 }
 
+static yay_value_t *make_expected_array_multiline_object_items_at_key_indent(void) {
+    return YAY_OBJECT(
+    "items", YAY_ARRAY(
+        YAY_OBJECT("a", yay_int(1), "b", yay_int(2)),
+        YAY_OBJECT(
+            "body", yay_string("First.\n\nSecond.\n"),
+            "title", yay_string("a")
+        )
+    ),
+    "next", yay_int(1)
+);
+}
+
 static yay_value_t *make_expected_array_multiline_triple_nested(void) {
     return YAY_ARRAY(YAY_ARRAY(YAY_ARRAY(yay_string("hello"))));
 }
@@ -737,6 +750,7 @@ static test_fixture_t test_fixtures[] = {
     {"array_multiline_named", "complaints:\n- \"I didn't vote for you.\"\n- \"Help, help, I'm being repressed!\"\n", make_expected_array_multiline_named},
     {"array_multiline_nested_multiline_object", "- x: 10\n  y: 20\n- x: 30\n  y: 40\n", make_expected_array_multiline_nested_multiline_object},
     {"array_multiline_nested", "- - \"a\"\n  - \"b\"\n- - 1\n  - 2\n", make_expected_array_multiline_nested},
+    {"array_multiline_object_items_at_key_indent", "items:\n- a: 1\n  b: 2\n- title: \"a\"\n  body: `\n    First.\n\n    Second.\nnext: 1\n", make_expected_array_multiline_object_items_at_key_indent},
     {"array_multiline_triple_nested", "- - - 'hello'\n", make_expected_array_multiline_triple_nested},
     {"array_multiline", "- 5\n- 3\n", make_expected_array_multiline},
     {"at_a_glance", "roses-are-red: true      # There is no \"yes\" or \"on\".\nviolets-are-blue: false  # Violets are violet.\narrays:\n  - \"may\"\n  - \"have\"\n  - \"many\"\n  - \"values\"\nand-objects-too:\n  integers-are-distinct: 42\n  from-their-floating-friends: 6.283 185 307 179 586  # digit grouping\ninline:\n  string: \"is concise\"\n  array: [infinity, -infinity, nan]\n  object: {bigint: 1, float64: 2.0}\n  bytes: <f33d face>\nblock:\n  string: `\n    This is a string.\n    There are many like it.\n  array:\n    - \"But\"\n    - \"this\"\n    - \"one's\"\n  object:\n    mine: null\n  bytes: >\n    b0 b5  c0 ff  # Bob's Coffee\n    fe fa  ca de  # Facade.\nconcatenated:\n  \"I'm not dead yet. \"\n  \"I feel happy!\"\nunicode-code-point: \"\\u{1F600}\"  # UTF-16 surrogates are inexpressible\n\"name with spaces\": 'works too'\n", make_expected_at_a_glance},
@@ -855,7 +869,7 @@ static test_fixture_t test_fixtures[] = {
     {NULL, NULL, NULL}
 };
 
-#define TEST_FIXTURE_COUNT 125
+#define TEST_FIXTURE_COUNT 126
 
 static error_fixture_t error_fixtures[] = {
     {"array_inline_invalid_multiline", "array-inline-invalid-multiline.nay", "[\n  1,\n  2\n]\n", 13, "Unexpected newline in inline array at 1:1 of <array-inline-invalid-multiline.nay>"},

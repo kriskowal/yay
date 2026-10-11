@@ -52,6 +52,13 @@ var fixtures = map[string]any{
 		map[string]any{"x": big.NewInt(10), "y": big.NewInt(20)},
 		map[string]any{"x": big.NewInt(30), "y": big.NewInt(40)},
 	},
+	"array-multiline-object-items-at-key-indent": map[string]any{
+		"items": []any{
+			map[string]any{"a": big.NewInt(1), "b": big.NewInt(2)},
+			map[string]any{"body": "First.\n\nSecond.\n", "title": "a"},
+		},
+		"next": big.NewInt(1),
+	},
 	"array-multiline-triple-nested": []any{[]any{[]any{"hello"}}},
 	"at-a-glance": map[string]any{
 		"and-objects-too": map[string]any{

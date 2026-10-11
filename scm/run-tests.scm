@@ -254,6 +254,7 @@
            "array-multiline-named"
            "array-multiline-nested"
            "array-multiline-nested-multiline-object"
+           "array-multiline-object-items-at-key-indent"
            "array-multiline-triple-nested"
            "boolean-false"
            "boolean-true"

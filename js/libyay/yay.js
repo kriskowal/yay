@@ -1753,8 +1753,8 @@ function parseObjectOrNamedArray(tokens, i, key, ctx = {}) {
     }
   }
   if (first && first.type === "start" && first.text === "-") {
-    const [arr] = parseListArray(tokens, i);
-    return [{ [key]: arr }, skipToNextKey(tokens, i, baseIndent)];
+    const [arr, next] = parseListArray(tokens, i);
+    return [{ [key]: arr }, next];
   }
   // Note: '*' syntax for multiline bytes is rejected by the scanner
   // Note: "key: <" without closing ">" is invalid - inline byte arrays must be closed on the same line
@@ -1905,17 +1905,6 @@ function parseObjectOrNamedArray(tokens, i, key, ctx = {}) {
     }
   }
   return [{ [key]: Object.keys(obj).length ? obj : undefined }, i];
-}
-
-function skipToNextKey(tokens, i, baseIndent) {
-  while (
-    i < tokens.length &&
-    tokens[i].type !== "stop" &&
-    (tokens[i].indent ?? 0) > baseIndent
-  )
-    i++;
-  while (i < tokens.length && tokens[i].type === "stop") i++;
-  return i;
 }
 
 /**

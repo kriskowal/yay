@@ -83,6 +83,15 @@ public class FixturesGen {
         "array-multiline-nested-multiline-object",
         list(map("x", bi(10), "y", bi(20)), map("x", bi(30), "y", bi(40))));
     FIXTURES.put("array-multiline-nested", list(list("a", "b"), list(bi(1), bi(2))));
+    FIXTURES.put(
+        "array-multiline-object-items-at-key-indent",
+        map(
+            "items",
+            list(
+                map("a", bi(1), "b", bi(2)),
+                map("body", "First.\n\nSecond.\n", "title", "a")),
+            "next",
+            bi(1)));
     FIXTURES.put("array-multiline-triple-nested", list(list(list("hello"))));
     FIXTURES.put("array-multiline", list(bi(5), bi(3)));
     FIXTURES.put("bigint-one", bi(1));

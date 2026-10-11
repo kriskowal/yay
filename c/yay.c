@@ -2396,7 +2396,7 @@ static yay_value_t *parse_scalar_impl(parse_ctx_t *ctx, const char *s,
  * ============================================================================ */
 
 static yay_value_t *parse_nested_object(parse_ctx_t *ctx, size_t *idx, 
-                                         int base_indent);
+                                         int base_indent, int item_line);
 
 static yay_value_t *parse_object_property_value(parse_ctx_t *ctx, size_t *idx,
                                                  token_t *t, const char *v_part,
@@ -2525,7 +2525,7 @@ static yay_value_t *parse_object_property_value(parse_ctx_t *ctx, size_t *idx,
     /* Nested object */
     if (next_t->type == TOKEN_TEXT && next_t->indent > t->indent) {
         *idx = j;
-        return parse_nested_object(ctx, idx, next_t->indent);
+        return parse_nested_object(ctx, idx, next_t->indent, -1);
     }
     
     /* Empty property with no nested content is invalid */
@@ -2573,8 +2573,11 @@ static bool validate_object_property(parse_ctx_t *ctx, const char *text,
     return true;
 }
 
+/* item_line is the line of a list item's "- key: value", or -1. A list item's
+ * object ends at a later line indented no deeper than its dash, which matters
+ * when the list sits at its key's indent ("items:\n- a: 1\nnext: 1"). */
 static yay_value_t *parse_nested_object(parse_ctx_t *ctx, size_t *idx, 
-                                         int base_indent) {
+                                         int base_indent, int item_line) {
     yay_value_t *obj = yay_object();
     
     while (*idx < ctx->token_count) {
@@ -2592,6 +2595,9 @@ static yay_value_t *parse_nested_object(parse_ctx_t *ctx, size_t *idx,
         
         int colon_idx = find_colon_outside_quotes(t->text);
         if (colon_idx < 0 || t->indent < base_indent) {
+            break;
+        }
+        if (item_line >= 0 && t->line_num != item_line && t->indent <= base_indent) {
             break;
         }
         
@@ -2772,7 +2778,7 @@ static yay_value_t *parse_multiline_array_impl(parse_ctx_t *ctx, size_t *idx, in
         /* Object in array */
         else if (next->type == TOKEN_TEXT && find_colon_outside_quotes(next->text) >= 0) {
             /* Use list_indent as base so sibling properties at higher indent are included */
-            yay_value_t *obj = parse_nested_object(ctx, idx, list_indent);
+            yay_value_t *obj = parse_nested_object(ctx, idx, list_indent, next->line_num);
             if (ctx->error) {
                 yay_free(arr);
                 return NULL;
