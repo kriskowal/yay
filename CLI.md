@@ -49,6 +49,7 @@ When a directory is specified, processes all `.yay` files recursively.
 | `-w, --write` | Write output to file with inferred extension |
 | `-o, --output FILE` | Write output to specified file (not valid with directory input) |
 | `--check` | Validate without producing output (exit 0 if valid, 1 if invalid) |
+| `--canonical` | Validate, and require the canonical form: what `-t yay` (or `-t md`, `-t yd`) would write. Implies `--check` |
 | `-h, --help` | Print help |
 | `-V, --version` | Print version |
 
@@ -216,6 +217,16 @@ For strict validation (ensuring files conform to canonical YAY syntax):
 ```bash
 yay --from yay --check input.yay        # Strict validation
 yay --from yay --check directory/       # Strict validation of all files
+```
+
+To require the canonical form as well, use `--canonical`. A document passes
+when the formatter would write it unchanged; otherwise binyay names the first
+line that differs, and `yay -t yay` (or `yay -f md -t md`) fixes it. It reads
+strict YAY by default, and takes `--from meh`, `md` (Mehdown) or `yd` (Yaydown).
+
+```bash
+yay --canonical input.yay               # Strict and canonical
+yay -f yd --canonical README.md         # Yaydown: front matter strict, document canonical
 ```
 
 ## Formatting Behavior

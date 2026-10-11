@@ -292,7 +292,8 @@ The blank line never changes a value.
 Trailing empty lines are not content (they collapse to the single trailing
 newline), so a reader cannot take the separating blank line for part of the
 string, and reads a document the same with or without it.
-Readers accept both forms, and `yay -t yay` writes the canonical one.
+Readers accept both forms. `yay -t yay` writes the canonical one, and
+`yay --canonical` refuses a document that is not in it.
 
 It follows that a block string's value always ends in exactly one newline,
 after a line that is not empty.

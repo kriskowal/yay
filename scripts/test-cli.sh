@@ -146,6 +146,42 @@ run_reformat_tests() {
       echo "  Got:"
       diff "$expected_file" "$tmp" | head -10 | sed 's/^/    /'
     fi
+
+    # --canonical refuses a document the formatter would change
+    if cmp -s "$meh_file" "$expected_file"; then
+      continue
+    fi
+    if "$YAY" --canonical -f meh "$meh_file" >/dev/null 2>&1; then
+      fail "canonical/$name (should have been refused)"
+    else
+      pass "canonical/$name (refused)"
+    fi
+  done
+
+  # --canonical accepts every expected output
+  for expected_file in "$MEH_DIR"/*.yay; do
+    [[ -f "$expected_file" ]] || continue
+    name=$(basename "$expected_file")
+    if "$YAY" --canonical "$expected_file" >/dev/null 2>&1; then
+      pass "canonical/$name"
+    else
+      fail "canonical/$name (refused)"
+      "$YAY" --canonical "$expected_file" 2>&1 | head -3 | sed 's/^/    /'
+    fi
+  done
+
+  # Both forms of a block string read the same: a blank line after it, or
+  # none, or a run of them.
+  for meh_file in "$MEH_DIR"/block-string-*.meh; do
+    [[ -f "$meh_file" ]] || continue
+    name=$(basename "$meh_file")
+    base=${name%.*}
+    base=${base%.*}.yay
+    if cmp -s <("$YAY" -f meh -t yson "$meh_file" 2>&1) <("$YAY" -f yay -t yson "$MEH_DIR/$base" 2>&1); then
+      pass "same-value/$name"
+    else
+      fail "same-value/$name (reads differently from $base)"
+    fi
   done
 
   echo ""
@@ -545,6 +581,18 @@ run_markdown_tests() {
       pass "markdown/to-yd/$name"
     else
       fail "markdown/to-yd/$name (-t yd differs from -t md)"
+    fi
+    if "$YAY" -f yd --canonical "$expected_file" >/dev/null 2>&1; then
+      pass "markdown/canonical/$base.md"
+    else
+      fail "markdown/canonical/$base.md (refused)"
+    fi
+    if ! cmp -s "$input_file" "$expected_file"; then
+      if "$YAY" -f md --canonical "$input_file" >/dev/null 2>&1; then
+        fail "markdown/canonical/$name (should have been refused)"
+      else
+        pass "markdown/canonical/$name (refused)"
+      fi
     fi
   done
 
