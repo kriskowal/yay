@@ -691,6 +691,48 @@ static yay_value_t *make_expected_string_block_root_same_line(void) {
     return yay_string("I think you ought to know I'm feeling very depressed.\nThis will all end in tears.\n");
 }
 
+static yay_value_t *make_expected_string_block_separated_array(void) {
+    return YAY_OBJECT(
+    "items", YAY_ARRAY(
+        yay_string("\nBare.\n"),
+        yay_string("Same line.\n"),
+        YAY_OBJECT(
+            "body", yay_string("Last property of a list item.\n"),
+            "title", yay_string("a")
+        ),
+        YAY_OBJECT(
+            "body", yay_string("First property of a list item.\n"),
+            "title", yay_string("b")
+        )
+    ),
+    "next", yay_int(1)
+);
+}
+
+static yay_value_t *make_expected_string_block_separated_end(void) {
+    return YAY_OBJECT(
+    "body", yay_string("The last thing in the file\n\nends at the end of the file.\n"),
+    "title", yay_string("end")
+);
+}
+
+static yay_value_t *make_expected_string_block_separated_nested(void) {
+    return YAY_OBJECT(
+    "after", yay_int(1),
+    "outer", YAY_OBJECT(
+        "inner", YAY_OBJECT("text", yay_string("Two levels in.\n")),
+        "sibling", yay_string("One level in.\n")
+    )
+);
+}
+
+static yay_value_t *make_expected_string_block_separated_property(void) {
+    return YAY_OBJECT(
+    "message", yay_string("We shall fight on the beaches.\n\nWe shall never surrender.\n"),
+    "next", yay_int(1)
+);
+}
+
 static yay_value_t *make_expected_string_block_trailing_empty(void) {
     return yay_string("\nHello\n");
 }
@@ -854,6 +896,10 @@ static test_fixture_t test_fixtures[] = {
     {"string_block_root_hash", "` # this is not a comment\n  it is content\n", make_expected_string_block_root_hash},
     {"string_block_root_next_line", "`\n  I've calculated your chance of survival,\n  but I don't think you'll like it.\n", make_expected_string_block_root_next_line},
     {"string_block_root_same_line", "` I think you ought to know I'm feeling very depressed.\n  This will all end in tears.\n", make_expected_string_block_root_same_line},
+    {"string_block_separated_array", "items:\n- `\n  Bare.\n\n- ` Same line.\n\n- title: \"a\"\n  body: `\n    Last property of a list item.\n\n- body: `\n    First property of a list item.\n\n  title: \"b\"\nnext: 1\n", make_expected_string_block_separated_array},
+    {"string_block_separated_end", "title: \"end\"\nbody: `\n  The last thing in the file\n\n  ends at the end of the file.\n", make_expected_string_block_separated_end},
+    {"string_block_separated_nested", "outer:\n  inner:\n    text: `\n      Two levels in.\n\n  sibling: `\n    One level in.\n\nafter: 1\n", make_expected_string_block_separated_nested},
+    {"string_block_separated_property", "message: `\n  We shall fight on the beaches.\n\n  We shall never surrender.\n\nnext: 1\n", make_expected_string_block_separated_property},
     {"string_block_trailing_empty", "`\n  Hello\n\n\n", make_expected_string_block_trailing_empty},
     {"string_inline_doublequote_apostrophe", "\"I'm getting better!\"\n", make_expected_string_inline_doublequote_apostrophe},
     {"string_inline_doublequote_basic", "\"This will all end in tears.\"\n", make_expected_string_inline_doublequote_basic},
@@ -869,7 +915,7 @@ static test_fixture_t test_fixtures[] = {
     {NULL, NULL, NULL}
 };
 
-#define TEST_FIXTURE_COUNT 126
+#define TEST_FIXTURE_COUNT 130
 
 static error_fixture_t error_fixtures[] = {
     {"array_inline_invalid_multiline", "array-inline-invalid-multiline.nay", "[\n  1,\n  2\n]\n", 13, "Unexpected newline in inline array at 1:1 of <array-inline-invalid-multiline.nay>"},

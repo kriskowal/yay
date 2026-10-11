@@ -300,9 +300,33 @@ var fixtures = map[string]any{
 		"message": "By Grabthar's hammer... what a savings.\n",
 		"next":    big.NewInt(1),
 	},
-	"string-block-root-hash":                           "# this is not a comment\nit is content\n",
-	"string-block-root-next-line":                      "\nI've calculated your chance of survival,\nbut I don't think you'll like it.\n",
-	"string-block-root-same-line":                      "I think you ought to know I'm feeling very depressed.\nThis will all end in tears.\n",
+	"string-block-root-hash":      "# this is not a comment\nit is content\n",
+	"string-block-root-next-line": "\nI've calculated your chance of survival,\nbut I don't think you'll like it.\n",
+	"string-block-root-same-line": "I think you ought to know I'm feeling very depressed.\nThis will all end in tears.\n",
+	"string-block-separated-array": map[string]any{
+		"items": []any{
+			"\nBare.\n",
+			"Same line.\n",
+			map[string]any{"body": "Last property of a list item.\n", "title": "a"},
+			map[string]any{"body": "First property of a list item.\n", "title": "b"},
+		},
+		"next": big.NewInt(1),
+	},
+	"string-block-separated-end": map[string]any{
+		"body":  "The last thing in the file\n\nends at the end of the file.\n",
+		"title": "end",
+	},
+	"string-block-separated-nested": map[string]any{
+		"after": big.NewInt(1),
+		"outer": map[string]any{
+			"inner":   map[string]any{"text": "Two levels in.\n"},
+			"sibling": "One level in.\n",
+		},
+	},
+	"string-block-separated-property": map[string]any{
+		"message": "We shall fight on the beaches.\n\nWe shall never surrender.\n",
+		"next":    big.NewInt(1),
+	},
 	"string-block-trailing-empty":                      "\nHello\n",
 	"string-inline-doublequote-apostrophe":             "I'm getting better!",
 	"string-inline-doublequote-basic":                  "This will all end in tears.",

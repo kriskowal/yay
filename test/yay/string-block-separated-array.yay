@@ -1,0 +1,15 @@
+items:
+- `
+  Bare.
+
+- ` Same line.
+
+- title: "a"
+  body: `
+    Last property of a list item.
+
+- body: `
+    First property of a list item.
+
+  title: "b"
+next: 1

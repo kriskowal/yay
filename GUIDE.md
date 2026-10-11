@@ -23,6 +23,20 @@ The `test/meh/` fixtures with `.yay` extension test this.
 The expected `.yay` file is both the expected output and a valid input that
 should reproduce itself.
 
+### Canonical Form
+
+The formatter writes canonical YAY, and `yay --canonical` refuses a document
+that is not in it.
+In canonical YAY a block string is followed by exactly one blank line, unless
+it is the last thing in the document, at every depth and whatever follows it
+(a sibling property, a key at a lesser indent, or the next list item).
+Readers accept both forms: the blank line is never part of the value, because
+trailing empty lines collapse to the block string's one final newline.
+So a block string's value always ends in exactly one newline after a line that
+is not empty, and a string that does not, such as `"a\n\n"` or `"a\nb"`, is
+written double-quoted.
+See [GRAMMAR.md](GRAMMAR.md) for the rule and its examples.
+
 ### Round-Trip Correctness
 
 Parsing and re-encoding must preserve semantic meaning.

@@ -1917,8 +1917,11 @@ impl Formatter {
             self.format_item(item);
         }
 
-        // Ensure trailing newline
-        if !self.output.is_empty() && !self.output.ends_with('\n') {
+        // End with exactly one newline: a block string's blank line does not
+        // follow it at the end of the document.
+        let len = self.output.trim_end_matches('\n').len();
+        self.output.truncate(len);
+        if !self.output.is_empty() {
             self.output.push('\n');
         }
 
@@ -2275,7 +2278,17 @@ impl Formatter {
 
                 let base_indent = "  ".repeat(self.indent + 1);
 
-                for line in &b.lines {
+                // Trailing blank lines are not part of the value, and the
+                // canonical form ends every block string with exactly one
+                // blank line, which format_document trims at the end of the
+                // document.
+                let end = b
+                    .lines
+                    .iter()
+                    .rposition(|l| !l.content.is_empty())
+                    .map_or(0, |i| i + 1);
+
+                for line in &b.lines[..end] {
                     if line.content.is_empty() {
                         // Empty lines should have no indent (no trailing spaces)
                         self.newline();
@@ -2290,6 +2303,7 @@ impl Formatter {
                         self.newline();
                     }
                 }
+                self.newline();
             }
         }
     }

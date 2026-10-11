@@ -1,0 +1,11 @@
+after = 1
+
+[outer]
+sibling = """
+One level in.
+"""
+
+[outer.inner]
+text = """
+Two levels in.
+"""

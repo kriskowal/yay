@@ -1,0 +1,15 @@
+{
+  "items": [
+    "\nBare.\n",
+    "Same line.\n",
+    {
+      "body": "Last property of a list item.\n",
+      "title": "a"
+    },
+    {
+      "body": "First property of a list item.\n",
+      "title": "b"
+    }
+  ],
+  "next": 1
+}

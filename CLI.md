@@ -301,6 +301,24 @@ data: >
   00 11 22 33  44 55 66 77
 ```
 
+### Block Strings
+
+A block string keeps its content lines and the runs of blank lines within
+them. Its trailing blank lines are dropped, since they are not part of its
+value, and it is followed by exactly one blank line, unless it is the last
+thing in the document:
+
+```yay
+summary: `
+  First paragraph.
+
+  Second paragraph.
+
+author: "Ada Lovelace"
+notes: `
+  The last field.
+```
+
 ## Environment Variables
 
 | Variable | Description |

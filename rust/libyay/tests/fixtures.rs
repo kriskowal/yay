@@ -961,6 +961,20 @@ fn run_meh_reformat_test(meh_path: &str, yay_path: &str) -> Result<(), String> {
         ));
     }
 
+    // The expected output is canonical: formatting it changes nothing.
+    let reformatted = libyay::format_yay(&expected_yay).map_err(|e| {
+        format!(
+            "{}: MEH format of the expected output failed: {}",
+            meh_filename, e
+        )
+    })?;
+    if reformatted != expected_yay {
+        return Err(format!(
+            "{}: the expected output is not a fixed point of the formatter",
+            meh_filename
+        ));
+    }
+
     println!("  {} => OK", meh_filename);
     Ok(())
 }

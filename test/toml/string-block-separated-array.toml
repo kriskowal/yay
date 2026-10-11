@@ -1,0 +1,11 @@
+items = ["""
+
+Bare.
+""", """
+Same line.
+""", { body = """
+Last property of a list item.
+""", title = "a" }, { body = """
+First property of a list item.
+""", title = "b" }]
+next = 1

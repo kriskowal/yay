@@ -261,6 +261,45 @@ Semantics:
 - No escape sequences are recognized; backslash and `#` are literal content.
 - Tab characters are forbidden.
 
+**Canonical form:**
+
+In canonical YAY, a block string is followed by exactly one blank line,
+unless it is the last thing in the document, which then ends at the string's
+last line.
+The rule holds at every depth and whatever follows the string: a sibling
+property, a key at a lesser indent, or the next list item.
+
+```yay
+notes:
+  summary: `
+    First paragraph.
+
+    Second paragraph.
+
+  author: "Ada Lovelace"
+items:
+- ` One.
+
+- title: "two"
+  body: `
+    Two.
+
+end: `
+  The last thing in the document.
+```
+
+The blank line never changes a value.
+Trailing empty lines are not content (they collapse to the single trailing
+newline), so a reader cannot take the separating blank line for part of the
+string, and reads a document the same with or without it.
+Readers accept both forms, and `yay -t yay` writes the canonical one.
+
+It follows that a block string's value always ends in exactly one newline,
+after a line that is not empty.
+A string whose last line is empty (`"a\n\n"`), or that does not end in a
+newline (`"a\nb"`), cannot be written as a block string; canonical YAY writes
+it as a double-quoted string with `\n` escapes.
+
 ### Concatenated Strings
 
 Multiple quoted strings on consecutive lines at the same deeper indent are

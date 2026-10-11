@@ -276,6 +276,38 @@ public class FixturesGen {
     FIXTURES.put(
         "string-block-root-same-line",
         "I think you ought to know I'm feeling very depressed.\nThis will all end in tears.\n");
+    FIXTURES.put(
+        "string-block-separated-array",
+        map(
+            "items",
+            list(
+                "\nBare.\n",
+                "Same line.\n",
+                map("body", "Last property of a list item.\n", "title", "a"),
+                map("body", "First property of a list item.\n", "title", "b")),
+            "next",
+            bi(1)));
+    FIXTURES.put(
+        "string-block-separated-end",
+        map(
+            "body",
+            "The last thing in the file\n\nends at the end of the file.\n",
+            "title",
+            "end"));
+    FIXTURES.put(
+        "string-block-separated-nested",
+        map(
+            "after",
+            bi(1),
+            "outer",
+            map("inner", map("text", "Two levels in.\n"), "sibling", "One level in.\n")));
+    FIXTURES.put(
+        "string-block-separated-property",
+        map(
+            "message",
+            "We shall fight on the beaches.\n\nWe shall never surrender.\n",
+            "next",
+            bi(1)));
     FIXTURES.put("string-block-trailing-empty", "\nHello\n");
     FIXTURES.put("string-inline-doublequote-apostrophe", "I'm getting better!");
     FIXTURES.put("string-inline-doublequote-basic", "This will all end in tears.");

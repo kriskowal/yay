@@ -570,6 +570,31 @@ YAY_OBJECT(
 )
 ```
 
+In canonical YAY, a block string is followed by one blank line, unless it is
+the last thing in the document.
+The blank line is not part of the value, since trailing empty lines never are,
+so a document reads the same with or without it.
+A string whose last line is empty, like `"a\n\n"`, cannot be a block string
+and is written with double quotes.
+
+[string-block-separated-property.yay](https://github.com/kriskowal/yay/blob/main/test/yay/string-block-separated-property.yay)
+```yay
+message: `
+  We shall fight on the beaches.
+
+  We shall never surrender.
+
+next: 1
+```
+
+[string-block-separated-property.c](https://github.com/kriskowal/yay/blob/main/test/c/string-block-separated-property.c)
+```c
+YAY_OBJECT(
+    "message", yay_string("We shall fight on the beaches.\n\nWe shall never surrender.\n"),
+    "next", yay_int(1)
+)
+```
+
 ## Inline Strings
 
 Strings may be quoted with double or single quotes.
