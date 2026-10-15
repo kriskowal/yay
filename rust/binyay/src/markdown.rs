@@ -623,7 +623,7 @@ mod tests {
     /// Parts of the space the generator covers that libyay could not yet
     /// carry through a document. Each is switched on by the commit that fixes
     /// what stood in its way.
-    const UNICODE: bool = false;
+    const UNICODE: bool = true;
     const WIDE_KEYS: bool = false;
     const NESTED_BLOCKS: bool = false;
 

@@ -805,7 +805,7 @@ fn find_colon_outside_quotes(s: &str) -> Option<usize> {
     let mut escape = false;
     let mut depth: i32 = 0;
 
-    for (i, c) in s.chars().enumerate() {
+    for (i, c) in s.char_indices() {
         if escape {
             escape = false;
             continue;
@@ -2482,5 +2482,15 @@ mod tests {
     fn test_wrap_comment_text_empty() {
         let result = wrap_comment_text("   ", 80);
         assert_eq!(result.len(), 1);
+    }
+
+    #[test]
+    fn test_non_ascii_keys() {
+        assert_eq!(format_yay("é: 1\n").unwrap(), "é: 1\n");
+        assert_eq!(format_yay("\"é\": 1\n").unwrap(), "\"é\": 1\n");
+        assert_eq!(
+            format_yay("\"日本\":  \"ü\"\n").unwrap(),
+            "\"日本\": \"ü\"\n"
+        );
     }
 }

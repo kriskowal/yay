@@ -1066,7 +1066,8 @@ fn parse_inline_key(
     let i = s
         .chars()
         .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
-        .count();
+        .map(char::len_utf8)
+        .sum();
     if i == 0 {
         return Err(ParseError::InvalidKey(String::new()).with_location(ctx, line_num, col));
     }
@@ -1170,7 +1171,7 @@ fn find_matching_bracket(s: &str) -> Option<usize> {
     let mut string_char = '\0';
     let mut escape = false;
 
-    for (i, c) in s.chars().enumerate() {
+    for (i, c) in s.char_indices() {
         if escape {
             escape = false;
             continue;
@@ -1211,7 +1212,7 @@ fn find_matching_brace(s: &str) -> Option<usize> {
     let mut string_char = '\0';
     let mut escape = false;
 
-    for (i, c) in s.chars().enumerate() {
+    for (i, c) in s.char_indices() {
         if escape {
             escape = false;
             continue;
@@ -1254,7 +1255,7 @@ fn parse_inline_single_quoted_string(s: &str) -> Result<(String, usize)> {
     let mut out = String::new();
     let mut escape = false;
 
-    for (i, c) in s.chars().enumerate().skip(1) {
+    for (i, c) in s.char_indices().skip(1) {
         if escape {
             match c {
                 '\'' | '\\' => out.push(c),
@@ -1391,7 +1392,9 @@ fn parse_inline_string(
         }
 
         if c == '"' {
-            return Ok((out, i + 1));
+            // The length consumed, in bytes, closing quote included.
+            let consumed = chars[..=i].iter().map(|c| c.len_utf8()).sum();
+            return Ok((out, consumed));
         }
 
         out.push(c);
@@ -2117,7 +2120,7 @@ fn find_colon_outside_quotes(s: &str) -> Option<usize> {
     let mut in_double = false;
     let mut in_single = false;
 
-    for (i, c) in s.chars().enumerate() {
+    for (i, c) in s.char_indices() {
         if c == '"' && !in_single {
             in_double = !in_double;
         } else if c == '\'' && !in_double {
@@ -2775,6 +2778,48 @@ mod tests {
         assert_eq!(
             crate::parse("a:\n  \"x: \"\n  \"y\"\n").unwrap(),
             obj(&[("a", Value::String("x: y".to_string()))])
+        );
+    }
+
+    #[test]
+    fn test_non_ascii_text_before_a_delimiter() {
+        let obj = |pairs: &[(&str, Value)]| {
+            Value::Object(
+                pairs
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.clone()))
+                    .collect(),
+            )
+        };
+        let s = |t: &str| Value::String(t.to_string());
+        // Offsets are bytes: a character before a colon, quote or bracket
+        // must not shift where the next token starts.
+        assert_eq!(find_colon_outside_quotes("é: 1"), Some(2));
+        assert_eq!(find_colon_outside_quotes("\"日本\": 1"), Some(8));
+        assert_eq!(find_matching_bracket("[\"é\"]"), Some(5));
+        assert_eq!(find_matching_brace("{a: \"é\"}"), Some(8));
+        assert_eq!(
+            crate::parse("é: 1\n").unwrap(),
+            obj(&[("é", Value::Integer(1.into()))])
+        );
+        assert_eq!(
+            crate::parse("\"é\": 1\n").unwrap(),
+            obj(&[("é", Value::Integer(1.into()))])
+        );
+        assert_eq!(
+            crate::parse("a: [\"é\", 'ü', \"x\"]\n").unwrap(),
+            obj(&[("a", Value::Array(vec![s("é"), s("ü"), s("x")]))])
+        );
+        assert_eq!(
+            crate::parse("a: {b: \"😀\", é: \"ü\", \"日本\": 1}\n").unwrap(),
+            obj(&[(
+                "a",
+                obj(&[
+                    ("b", s("😀")),
+                    ("é", s("ü")),
+                    ("日本", Value::Integer(1.into()))
+                ])
+            )])
         );
     }
 }
