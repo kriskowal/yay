@@ -180,8 +180,8 @@ fn parse_text_value(tokens: &[Token], i: usize, ctx: &ParseContext) -> Result<(V
         return parse_block_string(tokens, i, first_line);
     }
 
-    // Try quoted string
-    if is_quoted_string(s) {
+    // Try quoted string, unless the quotes open a property's key
+    if is_quoted_string(s) && find_colon_outside_quotes(s).is_none() {
         let str_val = parse_quoted_string(s, ctx, t.line_num, t.col)?;
         return Ok((Value::String(str_val), i + 1));
     }
@@ -2870,5 +2870,42 @@ mod tests {
             );
         }
         assert!(crate::parse("\"a\" \"b\": 1\n").is_err());
+    }
+
+    #[test]
+    fn test_array_item_object_with_quoted_keys() {
+        let obj = |pairs: &[(&str, Value)]| {
+            Value::Object(
+                pairs
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.clone()))
+                    .collect(),
+            )
+        };
+        let one = Value::Integer(1.into());
+        let x = Value::String("x".to_string());
+        let item = obj(&[("a", one.clone()), ("b", x.clone())]);
+        // The quoted key opens the item, or follows its first property.
+        for text in [
+            "- \"a\": 1\n  \"b\": \"x\"\n",
+            "- a: 1\n  \"b\": \"x\"\n",
+            "- 'a': 1\n  b: \"x\"\n",
+        ] {
+            assert_eq!(
+                crate::parse(text).unwrap(),
+                Value::Array(vec![item.clone()]),
+                "{:?}",
+                text
+            );
+        }
+        assert_eq!(
+            crate::parse("k:\n  - a: 1\n    \"b\": \"x\"\n").unwrap(),
+            obj(&[("k", Value::Array(vec![item.clone()]))])
+        );
+        // A quoted string with a colon inside is still a string.
+        assert_eq!(
+            crate::parse("- \"a: b\"\n").unwrap(),
+            Value::Array(vec![Value::String("a: b".to_string())])
+        );
     }
 }

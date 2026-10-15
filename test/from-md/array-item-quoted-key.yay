@@ -1,0 +1,4 @@
+content: "Two array items, each an object with a quoted key.\n"
+people:
+- {born: 1815, "full name": "Ada Lovelace"}
+  - {born: 1906, "full name": "Grace Hopper"}
