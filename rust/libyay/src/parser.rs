@@ -2069,6 +2069,8 @@ fn parse_key_value_pair(
 
     let key_raw = s[..colon_idx].trim();
     let key = parse_key_name(key_raw, ctx, t.line_num, t.col)?;
+    // A quoted empty key ("") is a key; only a missing one is not.
+    let has_key = !key_raw.is_empty();
 
     // Calculate the column where the value part starts
     let after_colon = &s[colon_idx + 1..];
@@ -2077,12 +2079,12 @@ fn parse_key_value_pair(
     let value_part = after_colon.trim();
 
     // Empty value part means nested content follows
-    if value_part.is_empty() && !key.is_empty() {
+    if value_part.is_empty() && has_key {
         return parse_object_or_named_array(tokens, i, &key, ctx);
     }
 
     // Block bytes: "key: >" followed by indented hex lines
-    if value_part == ">" && !key.is_empty() {
+    if value_part == ">" && has_key {
         let (bytes, next) = parse_block_bytes_from_property(tokens, i, t.indent, ctx)?;
         let mut obj = HashMap::new();
         obj.insert(key, bytes);
@@ -2090,7 +2092,7 @@ fn parse_key_value_pair(
     }
 
     // Block string: "key: `" followed by indented content
-    if value_part == "`" && !key.is_empty() {
+    if value_part == "`" && has_key {
         let (body, next) = parse_block_string_from_property(tokens, i, key_column(tokens, i))?;
         let mut obj = HashMap::new();
         obj.insert(key, body);
@@ -2101,7 +2103,7 @@ fn parse_key_value_pair(
 
     // Inline value (strip inline comments first)
     let value_part_no_comment = strip_inline_comment(value_part);
-    if !key.is_empty() {
+    if has_key {
         let value = if !value_part_no_comment.is_empty() {
             parse_scalar(value_part_no_comment, ctx, t.line_num, value_col)?
         } else {
@@ -2906,6 +2908,37 @@ mod tests {
         assert_eq!(
             crate::parse("- \"a: b\"\n").unwrap(),
             Value::Array(vec![Value::String("a: b".to_string())])
+        );
+    }
+
+    #[test]
+    fn test_empty_key_in_a_property_line() {
+        let obj = |pairs: &[(&str, Value)]| {
+            Value::Object(
+                pairs
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.clone()))
+                    .collect(),
+            )
+        };
+        let item = obj(&[
+            ("", Value::Integer(1.into())),
+            ("b", Value::Integer(2.into())),
+        ]);
+        for text in ["- \"\": 1\n  b: 2\n", "- b: 2\n  \"\": 1\n"] {
+            assert_eq!(
+                crate::parse(text).unwrap(),
+                Value::Array(vec![item.clone()]),
+                "{:?}",
+                text
+            );
+        }
+        assert_eq!(
+            crate::parse("k:\n  - \"\":\n      c: 3\n").unwrap(),
+            obj(&[(
+                "k",
+                Value::Array(vec![obj(&[("", obj(&[("c", Value::Integer(3.into()))]))])])
+            )])
         );
     }
 }
