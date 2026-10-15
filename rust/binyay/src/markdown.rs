@@ -624,7 +624,7 @@ mod tests {
     /// carry through a document. Each is switched on by the commit that fixes
     /// what stood in its way.
     const UNICODE: bool = true;
-    const WIDE_KEYS: bool = false;
+    const WIDE_KEYS: bool = true;
     const NESTED_BLOCKS: bool = false;
 
     /// A small seeded generator (xorshift64*), so that failures reproduce.

@@ -2068,7 +2068,7 @@ fn parse_key_value_pair(
     let s = &t.text;
 
     let key_raw = s[..colon_idx].trim();
-    let key = parse_key_name(key_raw);
+    let key = parse_key_name(key_raw, ctx, t.line_num, t.col)?;
 
     // Calculate the column where the value part starts
     let after_colon = &s[colon_idx + 1..];
@@ -2119,8 +2119,17 @@ fn parse_key_value_pair(
 fn find_colon_outside_quotes(s: &str) -> Option<usize> {
     let mut in_double = false;
     let mut in_single = false;
+    let mut escape = false;
 
     for (i, c) in s.char_indices() {
+        if escape {
+            escape = false;
+            continue;
+        }
+        if c == '\\' && (in_double || in_single) {
+            escape = true;
+            continue;
+        }
         if c == '"' && !in_single {
             in_double = !in_double;
         } else if c == '\'' && !in_double {
@@ -2133,21 +2142,25 @@ fn find_colon_outside_quotes(s: &str) -> Option<usize> {
 }
 
 /// Extract the key name, handling quoted keys.
-fn parse_key_name(s: &str) -> String {
+fn parse_key_name(s: &str, ctx: &ParseContext, line_num: usize, col: usize) -> Result<String> {
     let s = s.trim();
 
-    // Double-quoted key
+    // Double-quoted key: escapes as in a double-quoted string, the same as
+    // a key in an inline object
     if s.starts_with('"') && s.ends_with('"') && s.len() >= 2 {
-        let inner = &s[1..s.len() - 1];
-        return inner.replace("\\\"", "\"").replace("\\\\", "\\");
+        let (key, consumed) = parse_inline_string(s, ctx, line_num, col)?;
+        if consumed != s.len() {
+            return Err(ParseError::InvalidKey(String::new()).with_location(ctx, line_num, col));
+        }
+        return Ok(key);
     }
 
     // Single-quoted key
     if s.starts_with('\'') && s.ends_with('\'') && s.len() >= 2 {
-        return s[1..s.len() - 1].to_string();
+        return Ok(s[1..s.len() - 1].to_string());
     }
 
-    s.to_string()
+    Ok(s.to_string())
 }
 
 /// Parse content after "key:" (no inline value).
@@ -2253,10 +2266,11 @@ fn parse_nested_object_content(
             }
 
             let k_raw = t.text[..colon_idx].trim();
-            let k = parse_key_name(k_raw);
+            let k = parse_key_name(k_raw, ctx, t.line_num, t.col)?;
             let v_part = t.text[colon_idx + 1..].trim();
 
-            if k.is_empty() {
+            // A quoted empty key ("") is a key; only a missing one is skipped.
+            if k_raw.is_empty() {
                 i += 1;
                 continue;
             }
@@ -2409,7 +2423,7 @@ fn parse_root_object(tokens: &[Token], mut i: usize, ctx: &ParseContext) -> Resu
             }
         }
 
-        let k = parse_key_name(k_trimmed);
+        let k = parse_key_name(k_trimmed, ctx, t.line_num, t.col)?;
         let after_colon = &t.text[colon_idx + 1..];
 
         // Validate: must have exactly one space after colon (if there's a value)
@@ -2821,5 +2835,40 @@ mod tests {
                 ])
             )])
         );
+    }
+
+    #[test]
+    fn test_block_object_quoted_keys() {
+        let one = |k: &str| {
+            Value::Object(
+                [(k.to_string(), Value::Integer(1.into()))]
+                    .into_iter()
+                    .collect(),
+            )
+        };
+        // A quoted key in a block object reads as it would in an inline one.
+        for (text, key) in [
+            ("\"a\\nb\": 1\n", "a\nb"),
+            ("\"a\\\"b\": 1\n", "a\"b"),
+            ("\"a\\\\\": 1\n", "a\\"),
+            ("\"a\\/b\": 1\n", "a/b"),
+            ("\"\\u{41}\\t\": 1\n", "A\t"),
+            ("\"a: b\": 1\n", "a: b"),
+            ("\"\": 1\n", ""),
+        ] {
+            assert_eq!(crate::parse(text).unwrap(), one(key), "{:?}", text);
+            let nested = format!("x:\n  {}  y: 2\n", text);
+            let mut expected = one(key);
+            if let Value::Object(m) = &mut expected {
+                m.insert("y".to_string(), Value::Integer(2.into()));
+            }
+            assert_eq!(
+                crate::parse(&nested).unwrap(),
+                Value::Object([("x".to_string(), expected)].into_iter().collect()),
+                "{:?}",
+                nested
+            );
+        }
+        assert!(crate::parse("\"a\" \"b\": 1\n").is_err());
     }
 }
