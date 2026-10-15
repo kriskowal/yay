@@ -1,5 +1,4 @@
-body: "\n# Heading\n\nProse.\n"
-head:
-  count: 3
-  tags: ["one", "two"]
-  title: "Front matter"
+content: "# Heading\n\nProse.\n"
+count: 3
+tags: ["one", "two"]
+title: "Front matter"

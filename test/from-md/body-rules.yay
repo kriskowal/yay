@@ -1,2 +1,1 @@
-body: "Above.\n\n---\n\nBelow a rule.\n---\n"
-head: {kind: "rules"}
+{content: "Above.\n\n---\n\nBelow a rule.\n---\n", kind: "rules"}

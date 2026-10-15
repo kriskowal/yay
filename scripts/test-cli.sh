@@ -9,7 +9,7 @@
 #   - Error: Invalid .nay files are rejected
 #   - Transcode: YAY -> YAML/TOML/CBOR against golden fixtures
 #   - Ingest: YAML/TOML/CBOR -> YAY against golden fixtures
-#   - Markdown: front matter normalized, body untouched; md <-> record
+#   - Markdown: front matter normalized, body untouched; md <-> {...head, content}
 #
 # Exit codes: 0=pass, 1=fail, 2=skip
 
@@ -548,7 +548,7 @@ run_cli_examples_tests() {
 # =============================================================================
 
 run_markdown_tests() {
-  echo "=== Markdown Tests (front matter → YAY head, body untouched) ==="
+  echo "=== Markdown Tests (front matter and body ↔ {...head, content}) ==="
   echo ""
 
   local tmp name base expected_file input_file
@@ -596,8 +596,8 @@ run_markdown_tests() {
     fi
   done
 
-  # Read as a record: test/from-md/<name>.md → <name>.yay, or <name>.error;
-  # and the record writes back to markdown that reads as the same record.
+  # Read as an object: test/from-md/<name>.md → <name>.yay, or <name>.error;
+  # and the object writes back to markdown that reads as the same object.
   for input_file in "$TEST_DIR"/from-md/*.md; do
     [[ -f "$input_file" ]] || continue
     base=$(basename "$input_file" .md)
@@ -619,11 +619,40 @@ run_markdown_tests() {
       cmp -s <("$YAY" -f md -t yson "$tmp") <("$YAY" -f md -t yson "$input_file"); then
       pass "markdown/round-trip/$base"
     else
-      fail "markdown/round-trip/$base (record → markdown → record changed)"
+      fail "markdown/round-trip/$base (object → markdown → object changed)"
     fi
   done
 
-  # Strict front matter: test/nmd/*.md must be refused by --from yd.
+  # Write from an object: test/to-md/<name>.yay → exactly <name>.md, and
+  # <name>.md reads back as exactly <name>.yay; or <name>.error, refused.
+  for input_file in "$TEST_DIR"/to-md/*.yay; do
+    [[ -f "$input_file" ]] || continue
+    base=$(basename "$input_file" .yay)
+    if [[ -f "$TEST_DIR/to-md/$base.error" ]]; then
+      if "$YAY" -f yay -t md "$input_file" >/dev/null 2>&1; then
+        fail "markdown/to-md/$base (should have failed)"
+      else
+        pass "markdown/to-md/$base (expected error)"
+      fi
+      continue
+    fi
+    expected_file="$TEST_DIR/to-md/$base.md"
+    if "$YAY" -f yay -t md "$input_file" >"$tmp" 2>/dev/null && cmp -s "$tmp" "$expected_file"; then
+      pass "markdown/to-md/$base"
+    else
+      fail "markdown/to-md/$base (output differs)"
+      diff "$expected_file" "$tmp" | head -5 | sed 's/^/    /'
+    fi
+    if "$YAY" -f yd -t yay "$expected_file" >"$tmp" 2>/dev/null && cmp -s "$tmp" "$input_file"; then
+      pass "markdown/to-md/$base (reads back)"
+    else
+      fail "markdown/to-md/$base (does not read back as $base.yay)"
+      diff "$input_file" "$tmp" | head -5 | sed 's/^/    /'
+    fi
+  done
+
+  # Strict front matter: test/nmd/*.md must be refused by --from yd, which
+  # also wants exactly one blank line between the front matter and a body.
   for input_file in "$TEST_DIR"/nmd/*.md; do
     [[ -f "$input_file" ]] || continue
     name=$(basename "$input_file")
@@ -631,6 +660,17 @@ run_markdown_tests() {
       fail "markdown/strict/$name (should have been refused)"
     else
       pass "markdown/strict/$name (refused)"
+    fi
+    # Mehdown reads a document whose only fault is the blank line after the
+    # front matter, and writes it with one.
+    if [[ $name == *blank-line* ]]; then
+      if "$YAY" -f md --check "$input_file" >/dev/null 2>&1 &&
+        "$YAY" -f md -t yd "$input_file" >"$tmp" 2>/dev/null &&
+        "$YAY" -f yd --canonical "$tmp" >/dev/null 2>&1; then
+        pass "markdown/lenient/$name"
+      else
+        fail "markdown/lenient/$name (-f md refused it, or wrote it without one blank line)"
+      fi
     fi
   done
 

@@ -1,0 +1,4 @@
+---
+content: "\nA body that begins with a blank line.\n"
+title: "Leading blank line"
+---

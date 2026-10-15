@@ -359,7 +359,7 @@ fn is_markdown(format: &str) -> bool {
 
 fn parse_format(s: &str) -> Format {
     match s {
-        // Markdown is a record {head?, body}; its head is YAY.
+        // Markdown is an object {...head, content}; its front matter is YAY.
         "yay" | "meh" | "md" | "yd" => Format::Yay,
         "json" => Format::Json,
         "yson" => Format::Yson,
@@ -906,8 +906,8 @@ fn output_value(
     0
 }
 
-/// Read a markdown document: its front matter as a YAY head (strict for
-/// yd, lenient MEH for md) and the rest as its body, byte for byte.
+/// Read a markdown document as an object {...head, content}: its front matter
+/// (strict for yd, lenient MEH for md) and its body as `content`.
 #[allow(clippy::too_many_arguments)]
 fn process_markdown(
     input: &str,
@@ -928,44 +928,16 @@ fn process_markdown(
             eprintln!("Parse error: {}", e);
         }
     };
-    let doc = match markdown::split(input) {
-        Ok(d) => d,
+    let read = match markdown::read(input, filename, strict) {
+        Ok(r) => r,
         Err(e) => {
             report(&e);
             return 1;
         }
     };
-    // The canonical head text: the MEH formatter keeps key order and comments.
-    let mut head_text = String::new();
-    let mut head_value = None;
-    if let Some(h) = doc.head.filter(|h| !h.trim().is_empty()) {
-        // Parse with one leading blank line standing in for the opening fence,
-        // so error locations are lines of the file, not of the head.
-        let padded = format!("\n{}", h);
-        if strict {
-            if let Err(e) = parse_with_filename(&padded, filename) {
-                report(&format!("in front matter: {}", e));
-                return 1;
-            }
-        }
-        head_text = match format_yay(&padded) {
-            Ok(t) => t,
-            Err(e) => {
-                report(&format!("in front matter: {}", e));
-                return 1;
-            }
-        };
-        head_value = match parse(&head_text) {
-            Ok(v) => Some(v),
-            Err(e) => {
-                report(&format!("in front matter: {}", e));
-                return 1;
-            }
-        };
-    }
     if check_only {
         if canonical {
-            let out = markdown::render(&head_text, doc.body);
+            let out = markdown::normalize(&read);
             if let Some(e) = canonical_difference(input, &out) {
                 report_not_canonical(input_file, &e);
                 return 1;
@@ -977,12 +949,11 @@ fn process_markdown(
         return 0;
     }
     if is_markdown(output_format_str) {
-        let out = markdown::render(&head_text, doc.body);
+        let out = markdown::normalize(&read);
         return write_markdown(&out, output_file, write_back, input_file);
     }
-    let value = markdown::to_value(head_value, doc.body);
     output_value(
-        &value,
+        &read.value,
         output_format_str,
         output_format,
         output_file,
@@ -991,7 +962,7 @@ fn process_markdown(
     )
 }
 
-/// Write a record {head?, body} as markdown with YAY front matter.
+/// Write an object {...head, content} as markdown with YAY front matter.
 fn output_markdown(
     value: &Value,
     output_file: Option<&str>,
