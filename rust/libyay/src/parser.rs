@@ -2281,7 +2281,10 @@ fn parse_nested_object_content(
             obj.insert(k, value);
             i = next_i;
         } else {
-            i += 1;
+            // A list item's start: the next item of an enclosing list, which
+            // ends this object. (A list under one of its keys was read with
+            // that key.)
+            break;
         }
     }
 
@@ -2939,6 +2942,38 @@ mod tests {
                 "k",
                 Value::Array(vec![obj(&[("", obj(&[("c", Value::Integer(3.into()))]))])])
             )])
+        );
+    }
+
+    #[test]
+    fn test_array_item_with_nested_object_then_another_item() {
+        let obj = |pairs: &[(&str, Value)]| {
+            Value::Object(
+                pairs
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.clone()))
+                    .collect(),
+            )
+        };
+        let n = |i: i32| Value::Integer(i.into());
+        let items = Value::Array(vec![obj(&[("k", obj(&[("a", n(1))]))]), n(2)]);
+        // At the root, under a key with the list at the key's column or
+        // indented, and two keys deep.
+        assert_eq!(crate::parse("- k:\n    a: 1\n- 2\n").unwrap(), items);
+        for text in [
+            "x:\n- k:\n    a: 1\n- 2\n",
+            "x:\n  - k:\n      a: 1\n  - 2\n",
+        ] {
+            assert_eq!(
+                crate::parse(text).unwrap(),
+                obj(&[("x", items.clone())]),
+                "{:?}",
+                text
+            );
+        }
+        assert_eq!(
+            crate::parse("x:\n  y:\n    - k:\n        a: 1\n    - 2\nz: 3\n").unwrap(),
+            obj(&[("x", obj(&[("y", items.clone())])), ("z", n(3))])
         );
     }
 }

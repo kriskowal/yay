@@ -625,7 +625,10 @@ mod tests {
     /// what stood in its way.
     const UNICODE: bool = true;
     const WIDE_KEYS: bool = true;
-    const NESTED_BLOCKS: bool = false;
+    const NESTED_BLOCKS: bool = true;
+    /// Still left out: a list directly in a list holds only scalars, since
+    /// libyay's Rust parser reads `- - p: 1` as a scalar, not an object.
+    const LISTS_IN_LISTS_OF_BLOCKS: bool = false;
 
     /// A small seeded generator (xorshift64*), so that failures reproduce.
     struct Gen(u64);
@@ -686,8 +689,9 @@ mod tests {
             }
         }
 
-        /// A value; `top` is true for a front matter property's own value.
-        fn value(&mut self, depth: usize, top: bool) -> Value {
+        /// A value; `top` is true for a front matter property's own value, and
+        /// `in_list` for an item of a list.
+        fn value(&mut self, depth: usize, top: bool, in_list: bool) -> Value {
             let blocks = depth > 0 && (top || NESTED_BLOCKS);
             match self.below(if blocks { 9 } else { 7 }) {
                 0 => Value::Null,
@@ -707,11 +711,18 @@ mod tests {
                 }
                 4 | 5 => Value::String(self.text()),
                 6 => Value::Bytes((0..self.below(4)).map(|_| self.next() as u8).collect()),
-                7 => Value::Array(
-                    (0..self.below(4))
-                        .map(|_| self.value(depth - 1, false))
-                        .collect(),
-                ),
+                7 => {
+                    let depth = if in_list && !LISTS_IN_LISTS_OF_BLOCKS {
+                        0
+                    } else {
+                        depth - 1
+                    };
+                    Value::Array(
+                        (0..self.below(4))
+                            .map(|_| self.value(depth, false, true))
+                            .collect(),
+                    )
+                }
                 _ => self.object(depth - 1, false),
             }
         }
@@ -720,7 +731,7 @@ mod tests {
             let n = self.below(5);
             Value::Object(
                 (0..n)
-                    .map(|_| (self.key(), self.value(depth, top)))
+                    .map(|_| (self.key(), self.value(depth, top, false)))
                     .collect(),
             )
         }
@@ -734,7 +745,7 @@ mod tests {
                         map.remove(CONTENT);
                     }
                     1 => {
-                        let v = self.value(2, true);
+                        let v = self.value(2, true, false);
                         map.insert(CONTENT.to_string(), v);
                     }
                     _ => {
