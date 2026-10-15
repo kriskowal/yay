@@ -184,11 +184,13 @@ fn encode_yay_bytes(bytes: &[u8]) -> String {
 }
 
 fn encode_yay_key(key: &str) -> String {
-    // Check if key needs quoting
+    // Check if key needs quoting; a key that begins with "-" would read as a
+    // list item
     if key
         .chars()
         .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
         && !key.is_empty()
+        && !key.starts_with('-')
     {
         key.to_string()
     } else {
@@ -1338,5 +1340,19 @@ mod tests {
     fn test_encode_yson_neg_infinity() {
         let value = Value::Float(f64::NEG_INFINITY);
         assert_eq!(encode(&value, Format::Yson), "\"#-Infinity\"");
+    }
+
+    #[test]
+    fn test_encode_yay_key_beginning_with_dash() {
+        // In block form, a bare key that begins with "-" reads as a list item.
+        let value = Value::Object(
+            [("-a", 1), ("---", 2), ("a-b", 3), ("b", 4)]
+                .iter()
+                .map(|(k, v)| (k.to_string(), Value::Integer((*v).into())))
+                .collect(),
+        );
+        let text = encode(&value, Format::Yay);
+        assert_eq!(text, "\"---\": 2\n\"-a\": 1\na-b: 3\nb: 4");
+        assert_eq!(crate::parse(&text).unwrap(), value);
     }
 }
