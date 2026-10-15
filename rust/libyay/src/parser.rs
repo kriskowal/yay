@@ -1722,6 +1722,14 @@ fn parse_block_string_from_property(
     Ok((Value::String(result), i))
 }
 
+/// Whether a line is one of a run of concatenated quoted strings, not a
+/// property whose key is quoted (`"key": "value"` also starts and ends with
+/// a quote).
+fn is_concatenated_string_line(s: &str) -> bool {
+    ((s.starts_with('"') && s.ends_with('"')) || (s.starts_with('\'') && s.ends_with('\'')))
+        && find_colon_outside_quotes(s).is_none()
+}
+
 /// Parse concatenated quoted strings (multiple quoted strings on consecutive lines).
 /// Each line must be a complete quoted string that gets concatenated together.
 fn parse_concatenated_strings(
@@ -2318,9 +2326,7 @@ fn parse_object_property_value(
     // Concatenated quoted strings (multiple quoted strings on consecutive lines)
     if next_t.typ == TokenType::Text && next_t.indent > t.indent {
         let trimmed = next_t.text.trim();
-        if (trimmed.starts_with('"') && trimmed.ends_with('"'))
-            || (trimmed.starts_with('\'') && trimmed.ends_with('\''))
-        {
+        if is_concatenated_string_line(trimmed) {
             let (concat_str, next) = parse_concatenated_strings(tokens, j, next_t.indent, ctx)?;
             return Ok((concat_str, next));
         }
@@ -2583,9 +2589,7 @@ fn parse_root_nested_content(
     // Concatenated quoted strings (multiple quoted strings on consecutive lines)
     if next_t.typ == TokenType::Text && next_t.indent > 0 {
         let trimmed = next_t.text.trim();
-        if (trimmed.starts_with('"') && trimmed.ends_with('"'))
-            || (trimmed.starts_with('\'') && trimmed.ends_with('\''))
-        {
+        if is_concatenated_string_line(trimmed) {
             let (concat_str, next) = parse_concatenated_strings(tokens, j, next_t.indent, ctx)?;
             return Ok((concat_str, next));
         }
@@ -2738,5 +2742,39 @@ mod tests {
         assert_eq!(find_colon_outside_quotes("a: 1"), Some(1));
         assert_eq!(find_colon_outside_quotes("\"a:b\": 1"), Some(5));
         assert_eq!(find_colon_outside_quotes("'a:b': 1"), Some(5));
+    }
+
+    #[test]
+    fn test_nested_property_with_quoted_key_and_value() {
+        let obj = |pairs: &[(&str, Value)]| {
+            Value::Object(
+                pairs
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.clone()))
+                    .collect(),
+            )
+        };
+        let x = Value::String("x".to_string());
+        // Under a root property, and under a nested one.
+        assert_eq!(
+            crate::parse("b:\n  \"k\": \"x\"\n").unwrap(),
+            obj(&[("b", obj(&[("k", x.clone())]))])
+        );
+        assert_eq!(
+            crate::parse("b:\n  'k': 'x'\n  t: 1\n").unwrap(),
+            obj(&[(
+                "b",
+                obj(&[("k", x.clone()), ("t", Value::Integer(1.into()))])
+            )])
+        );
+        assert_eq!(
+            crate::parse("a:\n  b:\n    \"k s\": \"x\"\n").unwrap(),
+            obj(&[("a", obj(&[("b", obj(&[("k s", x.clone())]))]))])
+        );
+        // Concatenated strings, including one with a colon inside, still join.
+        assert_eq!(
+            crate::parse("a:\n  \"x: \"\n  \"y\"\n").unwrap(),
+            obj(&[("a", Value::String("x: y".to_string()))])
+        );
     }
 }
