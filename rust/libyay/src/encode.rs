@@ -70,8 +70,6 @@ pub fn encode(value: &Value, format: Format) -> String {
 // =============================================================================
 
 fn encode_yay(value: &Value, indent: usize) -> String {
-    let pad = "  ".repeat(indent);
-
     match value {
         Value::Null => "null".to_string(),
         Value::Bool(true) => "true".to_string(),
@@ -121,34 +119,51 @@ fn encode_yay(value: &Value, indent: usize) -> String {
                     .collect();
                 format!("{{{}}}", items.join(", "))
             } else {
-                let mut keys: Vec<&String> = obj.keys().collect();
-                keys.sort();
-                let items: Vec<String> = keys
-                    .iter()
-                    .map(|k| {
-                        let v = &obj[*k];
-                        if is_block_value(v) {
-                            // Nested block value: put on next line
-                            format!(
-                                "{}{}:\n{}",
-                                pad,
-                                encode_yay_key(k),
-                                encode_yay(v, indent + 1)
-                            )
-                        } else {
-                            format!(
-                                "{}{}: {}",
-                                pad,
-                                encode_yay_key(k),
-                                encode_yay(v, indent + 1)
-                            )
-                        }
-                    })
-                    .collect();
-                items.join("\n")
+                encode_yay_multiline_object(obj, indent)
             }
         }
     }
+}
+
+// A block value at `indent` is encoded with its first line unindented, for
+// the caller to place (at the start of a line, after "- ", or after its own
+// indentation), and every later line indented in full.
+
+/// A block object: each key at `indent`, a block value beneath its key one
+/// level deeper.
+fn encode_yay_multiline_object(obj: &HashMap<String, Value>, indent: usize) -> String {
+    let pad = "  ".repeat(indent);
+    let inner_pad = "  ".repeat(indent + 1);
+    let mut keys: Vec<&String> = obj.keys().collect();
+    keys.sort();
+    let items: Vec<String> = keys
+        .iter()
+        .map(|k| {
+            let v = &obj[*k];
+            if is_block_value(v) {
+                format!(
+                    "{}:\n{}{}",
+                    encode_yay_key(k),
+                    inner_pad,
+                    encode_yay(v, indent + 1)
+                )
+            } else {
+                format!("{}: {}", encode_yay_key(k), encode_yay(v, indent + 1))
+            }
+        })
+        .collect();
+    items.join(&format!("\n{}", pad))
+}
+
+/// A block array: each "- " at `indent`, an item's block value beside its
+/// dash, one level deeper.
+fn encode_yay_multiline_array(arr: &[Value], indent: usize) -> String {
+    let pad = "  ".repeat(indent);
+    let items: Vec<String> = arr
+        .iter()
+        .map(|v| format!("- {}", encode_yay(v, indent + 1)))
+        .collect();
+    items.join(&format!("\n{}", pad))
 }
 
 fn encode_yay_string(s: &str) -> String {
@@ -223,75 +238,6 @@ fn is_block_value(v: &Value) -> bool {
         Value::Array(arr) => !can_inline_array(arr),
         Value::Object(obj) => !can_inline_object(obj),
         _ => false,
-    }
-}
-
-fn encode_yay_multiline_array(arr: &[Value], indent: usize) -> String {
-    let pad = "  ".repeat(indent);
-    let mut result = Vec::new();
-
-    for (i, v) in arr.iter().enumerate() {
-        if i == 0 {
-            // First item: no leading pad (caller handles it)
-            let encoded = encode_yay_array_item(v, indent);
-            result.push(format!("- {}", encoded));
-        } else {
-            let encoded = encode_yay_array_item(v, indent);
-            result.push(format!("{}- {}", pad, encoded));
-        }
-    }
-
-    result.join("\n")
-}
-
-fn encode_yay_array_item(v: &Value, indent: usize) -> String {
-    match v {
-        Value::Array(arr) if !can_inline_array(arr) => {
-            // Nested multiline array: first item on same line, rest indented
-            let inner_pad = "  ".repeat(indent + 1);
-            let mut items = Vec::new();
-            for (i, item) in arr.iter().enumerate() {
-                let encoded = encode_yay_array_item(item, indent + 1);
-                if i == 0 {
-                    // First item: add "- " prefix on same line
-                    items.push(format!("- {}", encoded));
-                } else {
-                    items.push(format!("{}- {}", inner_pad, encoded));
-                }
-            }
-            items.join("\n")
-        }
-        Value::Object(obj) if !can_inline_object(obj) => {
-            // Nested multiline object
-            let inner_pad = "  ".repeat(indent + 1);
-            let mut keys: Vec<&String> = obj.keys().collect();
-            keys.sort();
-            let items: Vec<String> = keys
-                .iter()
-                .enumerate()
-                .map(|(i, k)| {
-                    let v = &obj[*k];
-                    if is_block_value(v) {
-                        // Block value: put on next line with proper indentation
-                        let encoded = encode_yay(v, indent + 2);
-                        if i == 0 {
-                            format!("{}:\n{}", encode_yay_key(k), encoded)
-                        } else {
-                            format!("{}{}:\n{}", inner_pad, encode_yay_key(k), encoded)
-                        }
-                    } else {
-                        let encoded = encode_yay(v, indent + 2);
-                        if i == 0 {
-                            format!("{}: {}", encode_yay_key(k), encoded)
-                        } else {
-                            format!("{}{}: {}", inner_pad, encode_yay_key(k), encoded)
-                        }
-                    }
-                })
-                .collect();
-            items.join("\n")
-        }
-        _ => encode_yay(v, indent + 1),
     }
 }
 
@@ -1354,5 +1300,45 @@ mod tests {
         let text = encode(&value, Format::Yay);
         assert_eq!(text, "\"---\": 2\n\"-a\": 1\na-b: 3\nb: 4");
         assert_eq!(crate::parse(&text).unwrap(), value);
+    }
+
+    #[test]
+    fn test_encode_yay_nested_blocks() {
+        fn n(i: i32) -> Value {
+            Value::Integer(i.into())
+        }
+        fn obj(pairs: Vec<(&str, Value)>) -> Value {
+            Value::Object(pairs.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
+        }
+        // An array under a key is indented under it, and each later item is
+        // at its first item's indent, at every depth.
+        let big = obj(vec![("p", n(1)), ("q", n(2)), ("r", n(3)), ("s", n(4))]);
+        let cases = vec![
+            (
+                obj(vec![(
+                    "a",
+                    Value::Array(vec![Value::Array(vec![n(1)]), big.clone(), n(2)]),
+                )]),
+                "a:\n  - [1]\n  - p: 1\n    q: 2\n    r: 3\n    s: 4\n  - 2",
+            ),
+            (
+                obj(vec![(
+                    "x",
+                    obj(vec![
+                        ("k", Value::Array(vec![n(1), n(2), big.clone()])),
+                        ("t", obj(vec![])),
+                    ]),
+                )]),
+                "x:\n  k:\n    - 1\n    - 2\n    - p: 1\n      q: 2\n      r: 3\n      s: 4\n  t: {}",
+            ),
+            (
+                Value::Array(vec![obj(vec![("a", big.clone()), ("b", n(2))]), n(3)]),
+                "- a:\n    p: 1\n    q: 2\n    r: 3\n    s: 4\n  b: 2\n- 3",
+            ),
+        ];
+        for (value, text) in cases {
+            assert_eq!(encode(&value, Format::Yay), text);
+            assert_eq!(crate::parse(text).unwrap(), value, "{}", text);
+        }
     }
 }
