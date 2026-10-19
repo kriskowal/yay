@@ -173,7 +173,6 @@ fn encode_yay_string(s: &str) -> String {
         match c {
             '"' => result.push_str("\\\""),
             '\\' => result.push_str("\\\\"),
-            '/' => result.push_str("\\/"),
             '\n' => result.push_str("\\n"),
             '\r' => result.push_str("\\r"),
             '\t' => result.push_str("\\t"),
@@ -989,7 +988,6 @@ fn encode_scheme_string(s: &str) -> String {
         match c {
             '"' => result.push_str("\\\""),
             '\\' => result.push_str("\\\\"),
-            '/' => result.push_str("\\/"),
             '\n' => result.push_str("\\n"),
             '\r' => result.push_str("\\r"),
             '\t' => result.push_str("\\t"),
@@ -1286,6 +1284,27 @@ mod tests {
     fn test_encode_yson_neg_infinity() {
         let value = Value::Float(f64::NEG_INFINITY);
         assert_eq!(encode(&value, Format::Yson), "\"#-Infinity\"");
+    }
+
+    #[test]
+    fn test_encode_slash_unescaped() {
+        // "\/" is a legal escape to read, but "/" needs none: the encoders
+        // write it as itself.
+        let value = Value::Object(
+            [(
+                "a/b".to_string(),
+                Value::String("kriskowal.com/go/cask".into()),
+            )]
+            .into_iter()
+            .collect(),
+        );
+        let text = encode(&value, Format::Yay);
+        assert_eq!(text, "{\"a/b\": \"kriskowal.com/go/cask\"}");
+        assert_eq!(crate::parse(&text).unwrap(), value);
+        assert_eq!(
+            encode(&Value::String("a/b".into()), Format::Scheme),
+            "\"a/b\""
+        );
     }
 
     #[test]

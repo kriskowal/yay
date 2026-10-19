@@ -100,18 +100,21 @@
 ;; Replace \/ with a placeholder, then restore after read
 (define (preprocess-fixture-escapes s)
   ;; Replace \/ with just / since Scheme doesn't need the escape
-  ;; We do this carefully to avoid breaking other escapes
+  ;; We do this carefully to avoid breaking other escapes: each escape is
+  ;; consumed whole, so the / in \\/ (an escaped backslash, then /) stays
   (let ((len (string-length s)))
     (let loop ((i 0) (acc '()))
       (if (>= i len)
           (list->string (reverse acc))
           (let ((ch (string-ref s i)))
-            (if (and (char=? ch #\\)
-                     (< (+ i 1) len)
-                     (char=? (string-ref s (+ i 1)) #\/))
-                ;; Skip the backslash, keep the /
-                (loop (+ i 2) (cons #\/ acc))
-                (loop (+ i 1) (cons ch acc))))))))
+            (cond
+             ((and (char=? ch #\\) (< (+ i 1) len))
+              (let ((next (string-ref s (+ i 1))))
+                (if (char=? next #\/)
+                    ;; Skip the backslash, keep the /
+                    (loop (+ i 2) (cons #\/ acc))
+                    (loop (+ i 2) (cons next (cons ch acc))))))
+             (else (loop (+ i 1) (cons ch acc)))))))))
 
 ;; Convert a Scheme value read from .scm fixture to YAY internal representation
 (define (fixture->yay-value v)

@@ -1692,7 +1692,6 @@
                          (cond
                           ((char=? c #\") (loop (+ i 1) (string-append acc "\\\"")))
                           ((char=? c #\\) (loop (+ i 1) (string-append acc "\\\\")))
-                          ((char=? c #\/) (loop (+ i 1) (string-append acc "\\/")))
                           ((char=? c #\newline) (loop (+ i 1) (string-append acc "\\n")))
                           ((char=? c #\return) (loop (+ i 1) (string-append acc "\\r")))
                           ((char=? c #\tab) (loop (+ i 1) (string-append acc "\\t")))

@@ -493,7 +493,7 @@ A double-quoted string with escape sequences.
 
 [string-inline-doublequote-escapes.scm](https://github.com/kriskowal/yay/blob/main/test/scm/string-inline-doublequote-escapes.scm)
 ```scheme
-"\"\\\/\b\f\n\r\t\u263A"
+"\"\\/\b\f\n\r\t\u263A"
 ```
 
 A double-quoted string with a Unicode emoji (literal UTF-8).
