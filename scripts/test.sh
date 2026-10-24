@@ -107,10 +107,10 @@ main() {
   echo
 
   for target in "${targets_to_run[@]}"; do
-    set +e
-    run_test "$target"
-    local result=$?
-    set -e
+    # run_test restores errexit before it returns, so take its status here
+    # rather than let a skip or a failure end the run.
+    local result=0
+    run_test "$target" || result=$?
 
     case $result in
     "$RC_PASS") ((passed++)) || true ;;
