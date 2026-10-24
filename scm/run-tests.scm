@@ -253,6 +253,7 @@
            "array-inline-integers"
            "array-inline-nested"
            "array-inline-singlequote"
+           "array-item-nested-object-then-item"
            "array-item-object-empty-key"
            "array-item-object-quoted-key"
            "array-multiline"

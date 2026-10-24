@@ -40,6 +40,12 @@ var fixtures = map[string]any{
 		[]any{"And there was much rejoicing.", "yay."},
 	},
 	"array-inline-singlequote": []any{"a", "b"},
+	"array-item-nested-object-then-item": map[string]any{
+		"steps": []any{
+			map[string]any{"run": map[string]any{"command": "make"}},
+			"a plain item after an item holding an object",
+		},
+	},
 	"array-item-object-empty-key": map[string]any{
 		"items": []any{
 			map[string]any{"": "the empty key opens this item", "b": big.NewInt(2)},

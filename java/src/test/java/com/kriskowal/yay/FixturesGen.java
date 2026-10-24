@@ -37,6 +37,7 @@ public class FixturesGen {
 
   static {
     FIXTURES = new LinkedHashMap<>();
+    FIXTURES.put("array-item-nested-object-then-item", map("steps", list(map("run", map("command", "make")), "a plain item after an item holding an object")));
     FIXTURES.put("array-item-object-empty-key", map("items", list(map("", "the empty key opens this item", "b", bi(2)))));
     FIXTURES.put("array-item-object-quoted-key", map("people", list(map("born", bi(1815), "full name", "Ada Lovelace"), map("born", bi(1906), "full name", "Grace Hopper"))));
     FIXTURES.put(

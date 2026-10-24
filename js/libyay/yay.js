@@ -1933,6 +1933,9 @@ function parseObjectBlock(tokens, i, baseIndent, ctx = {}, inlineIndent) {
       i++;
       continue;
     }
+    // A list leader outdented past this object begins the next item of an
+    // enclosing list.
+    if (t.type === "start" && (t.indent ?? 0) < baseIndent) break;
     if (t.type !== "text") {
       i++;
       continue;

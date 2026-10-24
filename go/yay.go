@@ -2280,6 +2280,12 @@ func parseNestedObjectContent(tokens []token, i, baseIndent int, ctx *parseConte
 			continue
 		}
 
+		// A list leader outdented past this object begins the next item of an
+		// enclosing list.
+		if t.typ == tokenStart && t.indent < baseIndent {
+			break
+		}
+
 		if t.typ == tokenText {
 			// Reject inline values on separate line (they look like keys starting with special chars)
 			if len(t.text) > 0 && (t.text[0] == '{' || t.text[0] == '[' || t.text[0] == '<') {

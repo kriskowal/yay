@@ -63,6 +63,15 @@ static yay_value_t *make_expected_array_inline_singlequote(void) {
     return YAY_ARRAY(yay_string("a"), yay_string("b"));
 }
 
+static yay_value_t *make_expected_array_item_nested_object_then_item(void) {
+    return YAY_OBJECT(
+    "steps", YAY_ARRAY(
+        YAY_OBJECT("run", YAY_OBJECT("command", yay_string("make"))),
+        yay_string("a plain item after an item holding an object")
+    )
+);
+}
+
 static yay_value_t *make_expected_array_item_object_empty_key(void) {
     return YAY_OBJECT(
     "items", YAY_ARRAY(
@@ -834,6 +843,7 @@ static test_fixture_t test_fixtures[] = {
     {"array_inline_integers", "[42, 404, 418]\n", make_expected_array_inline_integers},
     {"array_inline_nested", "[[\"I feel happy!\", \"yay.\"], [\"And there was much rejoicing.\", \"yay.\"]]\n", make_expected_array_inline_nested},
     {"array_inline_singlequote", "['a', 'b']\n", make_expected_array_inline_singlequote},
+    {"array_item_nested_object_then_item", "steps:\n  - run:\n      command: \"make\"\n  - \"a plain item after an item holding an object\"\n", make_expected_array_item_nested_object_then_item},
     {"array_item_object_empty_key", "items:\n  - \"\": \"the empty key opens this item\"\n    b: 2\n", make_expected_array_item_object_empty_key},
     {"array_item_object_quoted_key", "people:\n  - \"full name\": \"Ada Lovelace\"\n    born: 1815\n  - born: 1906\n    \"full name\": \"Grace Hopper\"\n", make_expected_array_item_object_quoted_key},
     {"array_multiline_named", "complaints:\n- \"I didn't vote for you.\"\n- \"Help, help, I'm being repressed!\"\n", make_expected_array_multiline_named},
@@ -964,7 +974,7 @@ static test_fixture_t test_fixtures[] = {
     {NULL, NULL, NULL}
 };
 
-#define TEST_FIXTURE_COUNT 134
+#define TEST_FIXTURE_COUNT 135
 
 static error_fixture_t error_fixtures[] = {
     {"array_inline_invalid_multiline", "array-inline-invalid-multiline.nay", "[\n  1,\n  2\n]\n", 13, "Unexpected newline in inline array at 1:1 of <array-inline-invalid-multiline.nay>"},
