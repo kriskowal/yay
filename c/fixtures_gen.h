@@ -63,6 +63,32 @@ static yay_value_t *make_expected_array_inline_singlequote(void) {
     return YAY_ARRAY(yay_string("a"), yay_string("b"));
 }
 
+static yay_value_t *make_expected_array_item_object_empty_key(void) {
+    return YAY_OBJECT(
+    "items", YAY_ARRAY(
+        YAY_OBJECT(
+            "", yay_string("the empty key opens this item"),
+            "b", yay_int(2)
+        )
+    )
+);
+}
+
+static yay_value_t *make_expected_array_item_object_quoted_key(void) {
+    return YAY_OBJECT(
+    "people", YAY_ARRAY(
+        YAY_OBJECT(
+            "born", yay_int(1815),
+            "full name", yay_string("Ada Lovelace")
+        ),
+        YAY_OBJECT(
+            "born", yay_int(1906),
+            "full name", yay_string("Grace Hopper")
+        )
+    )
+);
+}
+
 static yay_value_t *make_expected_array_multiline_named(void) {
     return YAY_OBJECT(
     "complaints", YAY_ARRAY(
@@ -808,6 +834,8 @@ static test_fixture_t test_fixtures[] = {
     {"array_inline_integers", "[42, 404, 418]\n", make_expected_array_inline_integers},
     {"array_inline_nested", "[[\"I feel happy!\", \"yay.\"], [\"And there was much rejoicing.\", \"yay.\"]]\n", make_expected_array_inline_nested},
     {"array_inline_singlequote", "['a', 'b']\n", make_expected_array_inline_singlequote},
+    {"array_item_object_empty_key", "items:\n  - \"\": \"the empty key opens this item\"\n    b: 2\n", make_expected_array_item_object_empty_key},
+    {"array_item_object_quoted_key", "people:\n  - \"full name\": \"Ada Lovelace\"\n    born: 1815\n  - born: 1906\n    \"full name\": \"Grace Hopper\"\n", make_expected_array_item_object_quoted_key},
     {"array_multiline_named", "complaints:\n- \"I didn't vote for you.\"\n- \"Help, help, I'm being repressed!\"\n", make_expected_array_multiline_named},
     {"array_multiline_nested_multiline_object", "- x: 10\n  y: 20\n- x: 30\n  y: 40\n", make_expected_array_multiline_nested_multiline_object},
     {"array_multiline_nested", "- - \"a\"\n  - \"b\"\n- - 1\n  - 2\n", make_expected_array_multiline_nested},
@@ -936,7 +964,7 @@ static test_fixture_t test_fixtures[] = {
     {NULL, NULL, NULL}
 };
 
-#define TEST_FIXTURE_COUNT 132
+#define TEST_FIXTURE_COUNT 134
 
 static error_fixture_t error_fixtures[] = {
     {"array_inline_invalid_multiline", "array-inline-invalid-multiline.nay", "[\n  1,\n  2\n]\n", 13, "Unexpected newline in inline array at 1:1 of <array-inline-invalid-multiline.nay>"},

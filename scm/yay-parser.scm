@@ -970,9 +970,7 @@
                      ((and next (eq? (token-type next) 'text))
                       (let* ((text (token-text next))
                              (text-indent (token-indent next)))
-                        (if (and (string-index text #\:)
-                                 (not (string-starts-with? text "\""))
-                                 (not (string-starts-with? text "'"))
+                        (if (and (find-colon-outside-quotes text)
                                  (not (string-starts-with? text "{")))
                             ;; It's a key:value - parse as object block
                             ;; Use list-indent + 2 as base to capture sibling properties

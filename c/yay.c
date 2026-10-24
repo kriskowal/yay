@@ -2629,7 +2629,9 @@ static yay_value_t *parse_nested_object(parse_ctx_t *ctx, size_t *idx,
         int v_col = t->col + colon_idx + 1;
         while (*v_part == ' ') { v_part++; v_col++; }
         
-        if (strlen(key) == 0) {
+        /* A missing key, nothing before the colon, is no key; the empty key
+         * "" is a key. */
+        if (colon_idx == 0) {
             free(key);
             (*idx)++;
             continue;

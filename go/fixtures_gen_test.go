@@ -40,7 +40,18 @@ var fixtures = map[string]any{
 		[]any{"And there was much rejoicing.", "yay."},
 	},
 	"array-inline-singlequote": []any{"a", "b"},
-	"array-multiline":          []any{big.NewInt(5), big.NewInt(3)},
+	"array-item-object-empty-key": map[string]any{
+		"items": []any{
+			map[string]any{"": "the empty key opens this item", "b": big.NewInt(2)},
+		},
+	},
+	"array-item-object-quoted-key": map[string]any{
+		"people": []any{
+			map[string]any{"born": big.NewInt(1815), "full name": "Ada Lovelace"},
+			map[string]any{"born": big.NewInt(1906), "full name": "Grace Hopper"},
+		},
+	},
+	"array-multiline": []any{big.NewInt(5), big.NewInt(3)},
 	"array-multiline-named": map[string]any{
 		"complaints": []any{
 			"I didn't vote for you.",

@@ -529,8 +529,8 @@ func parseTextValue(tokens []token, i int, ctx *parseContext) (any, int, error) 
 		return parseBlockStringWithIndent(tokens, i, firstLine, false, t.indent)
 	}
 
-	// Try quoted string
-	if isQuotedString(s) {
+	// Try quoted string, unless it is a quoted key followed by a colon
+	if isQuotedString(s) && findColonOutsideQuotes(s) < 0 {
 		str, err := parseQuotedString(s, ctx, t.lineNum, t.col)
 		if err != nil {
 			return nil, 0, err
@@ -2061,13 +2061,16 @@ func parseKeyValuePair(tokens []token, i, colonIdx int, ctx *parseContext) (any,
 		valueCol += valueOffset
 	}
 
+	// A missing key, nothing before the colon, is no key; the empty key "" is
+	// a key.
+
 	// Empty value part means nested content follows
-	if valuePart == "" && len(key) > 0 {
+	if valuePart == "" && keyRaw != "" {
 		return parseObjectOrNamedArray(tokens, i, key, ctx)
 	}
 
 	// Block string: "key: `" followed by indented content
-	if len(key) > 0 && valuePart == "`" {
+	if keyRaw != "" && valuePart == "`" {
 		body, j, err := parseBlockStringWithIndent(tokens, i, "", true, keyColumn(tokens, i))
 		if err != nil {
 			return nil, 0, err
@@ -2076,7 +2079,7 @@ func parseKeyValuePair(tokens []token, i, colonIdx int, ctx *parseContext) (any,
 	}
 
 	// Block bytes
-	if len(key) > 0 && isBlockBytesStart(valuePart) {
+	if keyRaw != "" && isBlockBytesStart(valuePart) {
 		bytes, j, err := parseBlockBytesFromKeyLine(tokens, i, ctx, t.indent, valuePart)
 		if err != nil {
 			return nil, 0, err
@@ -2085,7 +2088,7 @@ func parseKeyValuePair(tokens []token, i, colonIdx int, ctx *parseContext) (any,
 	}
 
 	// Inline value
-	if len(key) > 0 {
+	if keyRaw != "" {
 		var value any
 		if valuePart != "" {
 			var err error
@@ -2296,7 +2299,7 @@ func parseNestedObjectContent(tokens []token, i, baseIndent int, ctx *parseConte
 			k := parseKeyName(kRaw)
 			vPart := strings.TrimSpace(t.text[colonIdx+1:])
 
-			if k == "" {
+			if kRaw == "" {
 				i++
 				continue
 			}
