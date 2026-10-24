@@ -538,6 +538,10 @@ run_cli_examples_tests() {
 
   if [[ $status -ne 0 ]]; then
     echo -e "${RED}CLI examples tests failed${NC}"
+    # A run that stops before its summary still fails.
+    if [[ ${example_failed:-0} -eq 0 ]]; then
+      FAILED=$((FAILED + 1))
+    fi
   fi
 
   echo ""
