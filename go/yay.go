@@ -2566,8 +2566,11 @@ func parseRootNestedContent(tokens []token, i int, ctx *parseContext) (any, int,
 	// Concatenated quoted strings (multiple quoted strings on consecutive lines)
 	if nextT.typ == tokenText && nextT.indent > 0 {
 		trimmed := strings.TrimSpace(nextT.text)
-		if (strings.HasPrefix(trimmed, "\"") && strings.HasSuffix(trimmed, "\"") && len(trimmed) >= 2) ||
-			(strings.HasPrefix(trimmed, "'") && strings.HasSuffix(trimmed, "'") && len(trimmed) >= 2) {
+		// A quoted line with a colon outside its quotes is a property with a
+		// quoted key, which opens a nested object.
+		if ((strings.HasPrefix(trimmed, "\"") && strings.HasSuffix(trimmed, "\"") && len(trimmed) >= 2) ||
+			(strings.HasPrefix(trimmed, "'") && strings.HasSuffix(trimmed, "'") && len(trimmed) >= 2)) &&
+			findColonOutsideQuotes(trimmed) < 0 {
 			concatStr, next, err := parseConcatenatedStrings(tokens, j, nextT.indent, ctx)
 			if err != nil {
 				return nil, 0, err

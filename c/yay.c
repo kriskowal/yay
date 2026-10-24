@@ -2510,7 +2510,9 @@ static yay_value_t *parse_object_property_value(parse_ctx_t *ctx, size_t *idx,
         bool is_double_quoted = trimmed_len >= 2 && trimmed[0] == '"' && trimmed[trimmed_len-1] == '"';
         bool is_single_quoted = trimmed_len >= 2 && trimmed[0] == '\'' && trimmed[trimmed_len-1] == '\'';
         
-        if (is_double_quoted || is_single_quoted) {
+        /* A quoted line with a colon outside its quotes is a property with a
+         * quoted key, which opens a nested object. */
+        if ((is_double_quoted || is_single_quoted) && find_colon_outside_quotes(trimmed) < 0) {
             *idx = j;
             yay_value_t *result = parse_concatenated_strings(ctx, idx, next_t->indent);
             if (result != NULL) {

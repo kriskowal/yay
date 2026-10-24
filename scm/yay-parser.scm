@@ -792,6 +792,20 @@
       (yay-error "Unexpected space after \":\"")))))
 
 ;; Split key:value
+;; Index of the first colon outside quotes, or #f
+(define (find-colon-outside-quotes s)
+  (let loop ((i 0) (in-double #f) (in-single #f) (escaped #f))
+    (if (>= i (string-length s))
+        #f
+        (let ((c (string-ref s i)))
+          (cond
+           (escaped (loop (+ i 1) in-double in-single #f))
+           ((and in-double (char=? c #\\)) (loop (+ i 1) in-double in-single #t))
+           ((and (char=? c #\") (not in-single)) (loop (+ i 1) (not in-double) in-single #f))
+           ((and (char=? c #\') (not in-double)) (loop (+ i 1) in-double (not in-single) #f))
+           ((and (char=? c #\:) (not in-double) (not in-single)) i)
+           (else (loop (+ i 1) in-double in-single #f)))))))
+
 (define (split-key-value s)
   (let ((colon-idx (string-index s #\:)))
     (if (not colon-idx)
@@ -1520,13 +1534,16 @@
                         (loop (cons (cons key arr) pairs))))
                      ((and next (eq? (token-type next) 'text)
                            (> (token-indent next) base-indent))
-                      ;; Check for concatenated quoted strings first
+                      ;; Check for concatenated quoted strings first. A quoted
+                      ;; line with a colon outside its quotes is a property with
+                      ;; a quoted key, which opens a nested object.
                       (let ((trimmed (string-trim (token-text next))))
                         (if (and (>= (string-length trimmed) 2)
                                  (or (and (char=? (string-ref trimmed 0) #\")
                                           (char=? (string-ref trimmed (- (string-length trimmed) 1)) #\"))
                                      (and (char=? (string-ref trimmed 0) #\')
-                                          (char=? (string-ref trimmed (- (string-length trimmed) 1)) #\'))))
+                                          (char=? (string-ref trimmed (- (string-length trimmed) 1)) #\')))
+                                 (not (find-colon-outside-quotes trimmed)))
                             ;; Try to parse concatenated strings
                             (let ((result (parse-concatenated-strings p (token-indent next))))
                               (if result

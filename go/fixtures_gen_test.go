@@ -259,6 +259,9 @@ var fixtures = map[string]any{
 	"object-multiline-singlequote-key": map[string]any{"key-name": big.NewInt(2)},
 	"object-nested-empty-inline":       map[string]any{"outer": map[string]any{"inner": map[string]any{}}},
 	"object-nested-empty-property":     map[string]any{"outer": map[string]any{"inner": map[string]any{}}},
+	"object-nested-quoted-key-first": map[string]any{
+		"meta": map[string]any{"A quoted key": "first in its object", "b": big.NewInt(2)},
+	},
 	"string-block-array-in-property": map[string]any{
 		"items": []any{"a\n- b\n", "\n* c\n\n\n---\n"},
 		"next":  big.NewInt(1),

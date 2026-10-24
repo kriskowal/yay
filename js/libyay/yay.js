@@ -1774,14 +1774,19 @@ function parseObjectOrNamedArray(tokens, i, key, ctx = {}) {
       "Unexpected indent" + locSuffix(ctx, first.lineNum ?? 0, 0),
     );
   }
-  // Concatenated quoted strings (multiple quoted strings on consecutive lines)
+  // Concatenated quoted strings (multiple quoted strings on consecutive lines).
+  // A quoted line with a colon outside its quotes is a property with a quoted
+  // key, which opens a nested object.
   if (first && first.type === "text") {
     const trimmed = first.text.trim();
     if (
-      (trimmed.startsWith('"') &&
+      ((trimmed.startsWith('"') &&
         trimmed.endsWith('"') &&
         trimmed.length >= 2) ||
-      (trimmed.startsWith("'") && trimmed.endsWith("'") && trimmed.length >= 2)
+        (trimmed.startsWith("'") &&
+          trimmed.endsWith("'") &&
+          trimmed.length >= 2)) &&
+      !splitKeyValue(first.text, first.col ?? 0, ctx, first.lineNum ?? 0)
     ) {
       const result = parseConcatenatedStrings(tokens, i, baseIndent, ctx);
       if (result !== null) {

@@ -229,6 +229,7 @@ public class FixturesGen {
     FIXTURES.put("object-multiline", map("answer", bi(42), "error", bi(404)));
     FIXTURES.put("object-nested-empty-inline", map("outer", map("inner", map())));
     FIXTURES.put("object-nested-empty-property", map("outer", map("inner", map())));
+    FIXTURES.put("object-nested-quoted-key-first", map("meta", map("A quoted key", "first in its object", "b", bi(2))));
     FIXTURES.put(
         "string-block-array-in-property",
         map("items", list("a\n- b\n", "\n* c\n\n\n---\n"), "next", bi(1)));

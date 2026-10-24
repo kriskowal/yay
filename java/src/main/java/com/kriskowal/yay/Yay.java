@@ -1319,11 +1319,14 @@ public class Yay {
       // Note: "key: <" without closing ">" is invalid - inline byte arrays must be closed on the
       // same line
 
-      // Concatenated quoted strings (multiple quoted strings on consecutive lines)
+      // Concatenated quoted strings (multiple quoted strings on consecutive lines). A quoted
+      // line with a colon outside its quotes is a property with a quoted key, which opens a
+      // nested object.
       if (next.type == TokenType.TEXT && next.indent > t.indent) {
         String trimmed = next.text.trim();
-        if ((trimmed.startsWith("\"") && trimmed.endsWith("\"") && trimmed.length() >= 2)
-            || (trimmed.startsWith("'") && trimmed.endsWith("'") && trimmed.length() >= 2)) {
+        if (((trimmed.startsWith("\"") && trimmed.endsWith("\"") && trimmed.length() >= 2)
+                || (trimmed.startsWith("'") && trimmed.endsWith("'") && trimmed.length() >= 2))
+            && findColonOutsideQuotes(trimmed) < 0) {
           String result = parseConcatenatedStrings(next.indent);
           if (result != null) {
             obj.put(key, result);
