@@ -128,6 +128,10 @@ var fixtures = map[string]any{
 	"bytearray-inline-named": map[string]any{
 		"data": []byte{0xb0, 0xb5, 0xc0, 0xff, 0xee, 0xfa, 0xca, 0xde},
 	},
+	"inline-non-ascii-strings": map[string]any{
+		"list":   []any{"é", "x"},
+		"object": map[string]any{"a": "😀", "b": big.NewInt(1)},
+	},
 	"integer-big":          big.NewInt(8675309),
 	"integer-big-basic":    big.NewInt(42),
 	"integer-big-negative": big.NewInt(-42),

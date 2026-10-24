@@ -251,6 +251,13 @@ static yay_value_t *make_expected_bytearray_inline_named(void) {
     return YAY_OBJECT("data", yay_bytes_from_hex("b0b5c0ffeefacade"));
 }
 
+static yay_value_t *make_expected_inline_non_ascii_strings(void) {
+    return YAY_OBJECT(
+    "list", YAY_ARRAY(yay_string("é"), yay_string("x")),
+    "object", YAY_OBJECT("a", yay_string("😀"), "b", yay_int(1))
+);
+}
+
 static yay_value_t *make_expected_integer_big_basic(void) {
     return yay_int(42);
 }
@@ -868,6 +875,7 @@ static test_fixture_t test_fixtures[] = {
     {"bytearray_inline_empty", "<>\n", make_expected_bytearray_inline_empty},
     {"bytearray_inline_even", "<b0b5c0ffeefacade>\n", make_expected_bytearray_inline_even},
     {"bytearray_inline_named", "data: <b0b5c0ffeefacade>\n", make_expected_bytearray_inline_named},
+    {"inline_non_ascii_strings", "list: [\"é\", \"x\"]\nobject: {a: \"😀\", b: 1}\n", make_expected_inline_non_ascii_strings},
     {"integer_big_basic", "42\n", make_expected_integer_big_basic},
     {"integer_big_negative", "-42\n", make_expected_integer_big_negative},
     {"integer_big", "867 5309\n", make_expected_integer_big},
@@ -974,7 +982,7 @@ static test_fixture_t test_fixtures[] = {
     {NULL, NULL, NULL}
 };
 
-#define TEST_FIXTURE_COUNT 135
+#define TEST_FIXTURE_COUNT 136
 
 static error_fixture_t error_fixtures[] = {
     {"array_inline_invalid_multiline", "array-inline-invalid-multiline.nay", "[\n  1,\n  2\n]\n", 13, "Unexpected newline in inline array at 1:1 of <array-inline-invalid-multiline.nay>"},

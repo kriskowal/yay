@@ -120,6 +120,7 @@ public class FixturesGen {
     FIXTURES.put(
         "bytearray-inline-named",
         map("data", bytes(0xb0, 0xb5, 0xc0, 0xff, 0xee, 0xfa, 0xca, 0xde)));
+    FIXTURES.put("inline-non-ascii-strings", map("list", list("é", "x"), "object", map("a", "😀", "b", bi(1))));
     FIXTURES.put("integer-big-basic", bi(42));
     FIXTURES.put("integer-big-negative", bi(-42));
     FIXTURES.put("integer-big", bi(8675309));

@@ -277,6 +277,7 @@
            "bytearray-inline-even"
            "bytearray-inline-named"
            "bigint-one"
+           "inline-non-ascii-strings"
            "integer-big"
            "integer-big-basic"
            "integer-big-negative"
