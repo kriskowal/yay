@@ -262,6 +262,13 @@ var fixtures = map[string]any{
 	"object-nested-quoted-key-first": map[string]any{
 		"meta": map[string]any{"A quoted key": "first in its object", "b": big.NewInt(2)},
 	},
+	"object-quoted-key-escapes": map[string]any{
+		"":            "the empty key",
+		"a\"b":        "an escaped quote",
+		"a/b":         "a slash",
+		"a\\b":        "an escaped backslash",
+		"line\nbreak": "an escaped newline",
+	},
 	"string-block-array-in-property": map[string]any{
 		"items": []any{"a\n- b\n", "\n* c\n\n\n---\n"},
 		"next":  big.NewInt(1),

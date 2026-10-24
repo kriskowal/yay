@@ -341,6 +341,7 @@
            "object-nested-empty-inline"
            "object-nested-empty-property"
            "object-nested-quoted-key-first"
+           "object-quoted-key-escapes"
            "string-block-array-in-property"
            "string-block-array-item-property"
            "string-block-blank-run-array"

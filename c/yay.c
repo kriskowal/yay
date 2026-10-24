@@ -826,6 +826,9 @@ static int find_colon_outside_quotes(const char *s) {
     return -1;
 }
 
+static yay_value_t *parse_double_quoted_string(parse_ctx_t *ctx, const char *s,
+                                                int line_num, int col);
+
 /* Parse key name (handles quoted keys) */
 static char *parse_key_name(const char *s) {
     /* Skip leading whitespace */
@@ -833,8 +836,17 @@ static char *parse_key_name(const char *s) {
     
     size_t len = strlen(s);
     
-    /* Double-quoted key */
+    /* Double-quoted key, with the same escapes as a double-quoted string */
     if (len >= 2 && s[0] == '"' && s[len-1] == '"') {
+        parse_ctx_t key_ctx = {0};
+        yay_value_t *parsed = parse_double_quoted_string(&key_ctx, s, 0, 0);
+        if (parsed && !key_ctx.error && parsed->type == YAY_STRING) {
+            char *key = str_dup(parsed->data.string);
+            yay_free(parsed);
+            return key;
+        }
+        if (parsed) yay_free(parsed);
+        if (key_ctx.error) yay_error_free(key_ctx.error);
         return str_dup_len(s + 1, len - 2);
     }
     

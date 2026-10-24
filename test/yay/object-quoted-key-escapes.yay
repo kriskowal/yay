@@ -1,0 +1,5 @@
+"": "the empty key"
+"a\"b": "an escaped quote"
+"a\\b": "an escaped backslash"
+"a/b": "a slash"
+"line\nbreak": "an escaped newline"

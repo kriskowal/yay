@@ -2121,9 +2121,14 @@ func isBlockBytesStart(valuePart string) bool {
 func findColonOutsideQuotes(s string) int {
 	inDouble := false
 	inSingle := false
+	escaped := false
 
 	for i, c := range s {
-		if c == '"' && !inSingle {
+		if escaped {
+			escaped = false
+		} else if c == '\\' && inDouble {
+			escaped = true
+		} else if c == '"' && !inSingle {
 			inDouble = !inDouble
 		} else if c == '\'' && !inDouble {
 			inSingle = !inSingle
@@ -2138,8 +2143,11 @@ func findColonOutsideQuotes(s string) int {
 func parseKeyName(s string) string {
 	s = strings.TrimSpace(s)
 
-	// Double-quoted key
+	// Double-quoted key, with the same escapes as a double-quoted string
 	if strings.HasPrefix(s, "\"") && strings.HasSuffix(s, "\"") && len(s) >= 2 {
+		if key, err := parseDoubleQuotedString(s, &parseContext{}, 0, 0); err == nil {
+			return key
+		}
 		inner := s[1 : len(s)-1]
 		inner = strings.ReplaceAll(inner, "\\\"", "\"")
 		inner = strings.ReplaceAll(inner, "\\\\", "\\")

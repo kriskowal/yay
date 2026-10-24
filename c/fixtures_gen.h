@@ -593,6 +593,16 @@ static yay_value_t *make_expected_object_nested_quoted_key_first(void) {
 );
 }
 
+static yay_value_t *make_expected_object_quoted_key_escapes(void) {
+    return YAY_OBJECT(
+    "", yay_string("the empty key"),
+    "a\"b", yay_string("an escaped quote"),
+    "a/b", yay_string("a slash"),
+    "a\\b", yay_string("an escaped backslash"),
+    "line\nbreak", yay_string("an escaped newline")
+);
+}
+
 static yay_value_t *make_expected_string_block_array_in_property(void) {
     return YAY_OBJECT(
     "items", YAY_ARRAY(yay_string("a\n- b\n"), yay_string("\n* c\n\n\n---\n")),
@@ -888,6 +898,7 @@ static test_fixture_t test_fixtures[] = {
     {"object_nested_empty_inline", "outer:\n  inner: {}\n", make_expected_object_nested_empty_inline},
     {"object_nested_empty_property", "outer:\n  inner: {}\n", make_expected_object_nested_empty_property},
     {"object_nested_quoted_key_first", "meta:\n  \"A quoted key\": \"first in its object\"\n  b: 2\n", make_expected_object_nested_quoted_key_first},
+    {"object_quoted_key_escapes", "\"\": \"the empty key\"\n\"a\\\"b\": \"an escaped quote\"\n\"a\\\\b\": \"an escaped backslash\"\n\"a/b\": \"a slash\"\n\"line\\nbreak\": \"an escaped newline\"\n", make_expected_object_quoted_key_escapes},
     {"string_block_array_in_property", "items:\n- ` a\n  - b\n- `\n  * c\n\n\n  ---\nnext: 1\n", make_expected_string_block_array_in_property},
     {"string_block_array_item_property", "- title: \"a\"\n  body: `\n    - x\n- body: `\n    # Heading\n\n\n    * y\n  title: \"b\"\n", make_expected_string_block_array_item_property},
     {"string_block_blank_run_array", "- `\n  x\n\n\n  y\n\n\n- ` p\n\n\n  q\n", make_expected_string_block_blank_run_array},
@@ -925,7 +936,7 @@ static test_fixture_t test_fixtures[] = {
     {NULL, NULL, NULL}
 };
 
-#define TEST_FIXTURE_COUNT 131
+#define TEST_FIXTURE_COUNT 132
 
 static error_fixture_t error_fixtures[] = {
     {"array_inline_invalid_multiline", "array-inline-invalid-multiline.nay", "[\n  1,\n  2\n]\n", 13, "Unexpected newline in inline array at 1:1 of <array-inline-invalid-multiline.nay>"},
