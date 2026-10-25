@@ -1,6 +1,6 @@
 {
   "name": "binyay",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "YAY command-line tool for parsing, formatting, and transcoding YAY documents",
   "license": "Apache-2.0",
   "repository": {
@@ -28,11 +28,11 @@
     "postinstall": "node scripts/postinstall.js"
   },
   "optionalDependencies": {
-    "binyay-darwin-arm64": "1.1.0",
-    "binyay-darwin-x64": "1.1.0",
-    "binyay-linux-arm64": "1.1.0",
-    "binyay-linux-x64": "1.1.0",
-    "binyay-win32-x64": "1.1.0"
+    "binyay-darwin-arm64": "1.1.1",
+    "binyay-darwin-x64": "1.1.1",
+    "binyay-linux-arm64": "1.1.1",
+    "binyay-linux-x64": "1.1.1",
+    "binyay-win32-x64": "1.1.1"
   },
   "engines": {
     "node": ">=14"
