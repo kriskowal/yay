@@ -33,7 +33,7 @@ pub use shon::{
     parse_shon_bracket, parse_shon_file_bytes, parse_shon_file_string, parse_shon_hex, ShonError,
 };
 pub use value::Value;
-pub use yson::parse_yson;
+pub use yson::{parse_json, parse_yson};
 
 /// Parse a YAY document from a string.
 ///

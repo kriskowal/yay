@@ -20,12 +20,24 @@ use std::collections::HashMap;
 
 /// Parse a YSON string into a YAY Value.
 pub fn parse_yson(input: &str) -> Result<Value, String> {
+    parse_document(input, true)
+}
+
+/// Parse a JSON string into a YAY Value.
+///
+/// Unlike [`parse_yson`], strings are taken as written: a string that
+/// begins with `#`, `*` or `!` is still a string.
+pub fn parse_json(input: &str) -> Result<Value, String> {
+    parse_document(input, false)
+}
+
+fn parse_document(input: &str, yson: bool) -> Result<Value, String> {
     let input = input.trim();
     if input.is_empty() {
         return Err("Empty input".to_string());
     }
 
-    let (value, rest) = parse_value(input)?;
+    let (value, rest) = parse_value(input, yson)?;
     let rest = rest.trim();
     if !rest.is_empty() {
         return Err(format!("Unexpected content after value: {}", rest));
@@ -33,7 +45,7 @@ pub fn parse_yson(input: &str) -> Result<Value, String> {
     Ok(value)
 }
 
-fn parse_value(input: &str) -> Result<(Value, &str), String> {
+fn parse_value(input: &str, yson: bool) -> Result<(Value, &str), String> {
     let input = input.trim_start();
 
     if input.is_empty() {
@@ -44,9 +56,9 @@ fn parse_value(input: &str) -> Result<(Value, &str), String> {
         'n' => parse_null(input),
         't' => parse_true(input),
         'f' => parse_false(input),
-        '"' => parse_string(input),
-        '[' => parse_array(input),
-        '{' => parse_object(input),
+        '"' => parse_string(input, yson),
+        '[' => parse_array(input, yson),
+        '{' => parse_object(input, yson),
         '-' | '0'..='9' => parse_number(input),
         c => Err(format!("Unexpected character: {}", c)),
     }
@@ -76,8 +88,11 @@ fn parse_false(input: &str) -> Result<(Value, &str), String> {
     }
 }
 
-fn parse_string(input: &str) -> Result<(Value, &str), String> {
+fn parse_string(input: &str, yson: bool) -> Result<(Value, &str), String> {
     let (s, rest) = parse_json_string(input)?;
+    if !yson {
+        return Ok((Value::String(s), rest));
+    }
 
     // Check for YSON extensions
     if let Some(first) = s.chars().next() {
@@ -264,7 +279,7 @@ fn parse_number(input: &str) -> Result<(Value, &str), String> {
     Ok((Value::Float(f), rest))
 }
 
-fn parse_array(input: &str) -> Result<(Value, &str), String> {
+fn parse_array(input: &str, yson: bool) -> Result<(Value, &str), String> {
     if !input.starts_with('[') {
         return Err("Expected '['".to_string());
     }
@@ -277,7 +292,7 @@ fn parse_array(input: &str) -> Result<(Value, &str), String> {
     }
 
     loop {
-        let (value, new_rest) = parse_value(rest)?;
+        let (value, new_rest) = parse_value(rest, yson)?;
         items.push(value);
         rest = new_rest.trim_start();
 
@@ -291,7 +306,7 @@ fn parse_array(input: &str) -> Result<(Value, &str), String> {
     }
 }
 
-fn parse_object(input: &str) -> Result<(Value, &str), String> {
+fn parse_object(input: &str, yson: bool) -> Result<(Value, &str), String> {
     if !input.starts_with('{') {
         return Err("Expected '{'".to_string());
     }
@@ -318,7 +333,7 @@ fn parse_object(input: &str) -> Result<(Value, &str), String> {
         rest = rest[1..].trim_start();
 
         // Parse value
-        let (value, new_rest) = parse_value(rest)?;
+        let (value, new_rest) = parse_value(rest, yson)?;
         obj.insert(key, value);
         rest = new_rest.trim_start();
 
@@ -579,5 +594,37 @@ mod tests {
         let result = parse_yson("[[1, 2], {\"a\": [3]}]").unwrap();
         let arr = result.as_array().unwrap();
         assert_eq!(arr.len(), 2);
+    }
+
+    #[test]
+    fn test_json_strings_keep_yson_prefixes() {
+        for text in [
+            "# Hello", "#", "#12", "#NaN", "*cafe", "*", "!x", "!*x", "/x",
+        ] {
+            let json = format!("{{\"t\": \"{}\"}}", text);
+            let result = parse_json(&json).unwrap();
+            let obj = result.as_object().unwrap();
+            assert_eq!(obj["t"].as_str().unwrap(), text, "{}", json);
+        }
+    }
+
+    #[test]
+    fn test_json_strings_in_arrays_and_keys() {
+        let result = parse_json("[\"# a\", {\"#k\": [\"*b\", \"!c\"]}]").unwrap();
+        let arr = result.as_array().unwrap();
+        assert_eq!(arr[0].as_str().unwrap(), "# a");
+        let inner = arr[1].as_object().unwrap()["#k"].as_array().unwrap();
+        assert_eq!(inner[0].as_str().unwrap(), "*b");
+        assert_eq!(inner[1].as_str().unwrap(), "!c");
+    }
+
+    #[test]
+    fn test_yson_still_reads_prefixes() {
+        assert!(parse_yson("\"# Hello\"").is_err());
+        assert_eq!(
+            parse_yson("\"!# Hello\"").unwrap().as_str().unwrap(),
+            "# Hello"
+        );
+        assert!(matches!(parse_yson("\"*cafe\"").unwrap(), Value::Bytes(_)));
     }
 }
