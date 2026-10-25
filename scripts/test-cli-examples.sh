@@ -47,6 +47,17 @@ if [[ ! -x "$YAY" ]]; then
   exit 1
 fi
 
+# Put the built yay first on PATH, so that an example the rewrite below
+# misses (such as "YAY_WRAP=120 yay ...") runs the built binary, not
+# whatever yay is installed, nor none.
+mkdir "$TEMP_DIR/bin"
+ln -s "$(cd "$(dirname "$YAY")" && pwd)/yay" "$TEMP_DIR/bin/yay"
+export PATH="$TEMP_DIR/bin:$PATH"
+if [[ "$(command -v yay)" != "$TEMP_DIR/bin/yay" ]]; then
+  echo "Error: yay on PATH is not the built binary"
+  exit 1
+fi
+
 # Create sample test files in temp directory
 create_test_files() {
   # config.yay - simple config file
