@@ -9,5 +9,8 @@
   },
   "os": ["linux"],
   "cpu": ["arm64"],
-  "files": ["bin"]
+  "files": ["bin"],
+  "scripts": {
+    "prepublishOnly": "test -x bin/yay || { echo \"bin/yay is missing: run scripts/build-npm-packages.sh\" >&2; exit 1; }"
+  }
 }

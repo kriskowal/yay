@@ -1,2 +1,6 @@
 coverage
 node_modules
+# Platform binaries, filled by scripts/build-npm-packages.sh. Ignored here
+# rather than in each bin/, where npm would read the rule and leave the
+# binary out of the package.
+binyay-*/bin/

@@ -52,3 +52,7 @@ jobs:
       - name: CLI tests
         working-directory: .
         run: ./scripts/test-cli.sh
+
+      - name: npm package checks
+        working-directory: .
+        run: ./scripts/test-npm.sh
