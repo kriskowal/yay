@@ -85,6 +85,21 @@ mkdir -p "$JS_DIR/binyay-$other/bin"
 cp "$yay" "$JS_DIR/binyay-$other/bin/yay"
 expect fail "refuses a binary built for another platform" "$other"
 
+# Install binyay from the packed tarballs, as `npm install binyay` would.
+mkdir "$work/packs" "$work/app"
+(cd "$pkg" && npm pack --silent --pack-destination "$work/packs") >/dev/null
+(cd "$JS_DIR/binyay" && npm pack --silent --pack-destination "$work/packs") >/dev/null
+echo '{"name": "app", "private": true}' >"$work/app/package.json"
+if (cd "$work/app" && npm install --offline --no-audit --no-fund "$work/packs/"*.tgz) >"$work/out" 2>&1 &&
+  printed=$("$work/app/node_modules/.bin/yay" --version 2>&1) &&
+  [[ "$printed" == "yay $(node -p 'require(process.argv[1]).version' "$pkg/package.json")" ]]; then
+  echo "PASS: binyay installs from its packages and runs yay"
+else
+  echo "FAIL: binyay installs from its packages and runs yay"
+  sed 's/^/    /' "$work/out"
+  failed=$((failed + 1))
+fi
+
 printf '#!/bin/sh\necho yay 0.0.0\n' >"$pkg/bin/$bin_name"
 expect fail "refuses a stand-in that is not a binary"
 

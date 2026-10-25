@@ -21,6 +21,7 @@
   },
   "files": [
     "bin",
+    "scripts",
     "README.md"
   ],
   "scripts": {
