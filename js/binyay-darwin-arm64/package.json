@@ -1,6 +1,6 @@
 {
   "name": "binyay-darwin-arm64",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Platform-specific binary for binyay (darwin-arm64)",
   "license": "Apache-2.0",
   "repository": {
@@ -9,5 +9,8 @@
   },
   "os": ["darwin"],
   "cpu": ["arm64"],
-  "files": ["bin"]
+  "files": ["bin"],
+  "scripts": {
+    "prepublishOnly": "test -x bin/yay || { echo \"bin/yay is missing: run scripts/build-npm-packages.sh\" >&2; exit 1; }"
+  }
 }

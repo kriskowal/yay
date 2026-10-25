@@ -16,8 +16,8 @@
 //!   -V, --version          Print version
 
 use libyay::{
-    encode, format_yay, parse, parse_shon_bracket, parse_shon_file_bytes, parse_shon_file_string,
-    parse_shon_hex, parse_with_filename, parse_yson, Format, Value,
+    encode, format_yay, parse, parse_json, parse_shon_bracket, parse_shon_file_bytes,
+    parse_shon_file_string, parse_shon_hex, parse_with_filename, parse_yson, Format, Value,
 };
 use std::fs;
 use std::io::{self, Read, Write};
@@ -544,7 +544,12 @@ fn process_input(
 
         // For JSON/YSON, validate with YSON parser
         if from_format == "json" || from_format == "yson" {
-            match parse_yson(input) {
+            let parsed = if from_format == "json" {
+                parse_json(input)
+            } else {
+                parse_yson(input)
+            };
+            match parsed {
                 Ok(_) => {
                     if let Some(path) = input_file {
                         println!("{}: ok", path);
@@ -679,7 +684,18 @@ fn process_input(
                 }
             }
         }
-        "json" | "yson" => match parse_yson(input) {
+        "json" => match parse_json(input) {
+            Ok(v) => v,
+            Err(e) => {
+                if let Some(path) = input_file {
+                    eprintln!("{}: {}", path, e);
+                } else {
+                    eprintln!("Parse error: {}", e);
+                }
+                return 1;
+            }
+        },
+        "yson" => match parse_yson(input) {
             Ok(v) => v,
             Err(e) => {
                 if let Some(path) = input_file {

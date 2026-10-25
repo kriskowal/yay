@@ -29,7 +29,7 @@ else
 fi
 
 # Test targets in order (linting/readme checks first, then language parsers, CLI, coverage)
-TARGETS=(shellcheck readmes readme-footer cli-readmes c go java js python rust scm cli go-coverage js-coverage python-coverage rust-coverage)
+TARGETS=(shellcheck readmes readme-footer cli-readmes c go java js python rust scm cli npm go-coverage js-coverage python-coverage rust-coverage)
 
 # Run a single test target
 # Returns: 0=pass, 1=fail, 2=skip
@@ -54,6 +54,7 @@ run_test() {
   java) display_name="Java" ;;
   js) display_name="JavaScript" ;;
   js-coverage) display_name="JavaScript (coverage)" ;;
+  npm) display_name="npm packages" ;;
   python) display_name="Python" ;;
   python-coverage) display_name="Python (coverage)" ;;
   readme-footer) display_name="README footer" ;;

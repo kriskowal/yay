@@ -501,6 +501,20 @@ run_ingest_tests() {
     fi
   done
 
+  # --- from-json: strings keep the prefixes YSON reads as tags ---
+  local text out
+  for text in '# Hello' '#' '#12' '#NaN' '*cafe' '*' '!x' '!*x' '/x'; do
+    if out=$(printf '{"t": "%s"}' "$text" | "$YAY" -f json -t yay 2>&1); then
+      if [[ "$out" == "{t: \"$text\"}" ]]; then
+        pass "ingest/from-json/$text"
+      else
+        fail "ingest/from-json/$text (output differs)" "$out"
+      fi
+    else
+      fail "ingest/from-json/$text (decode failed)" "$out"
+    fi
+  done
+
   echo ""
 }
 
