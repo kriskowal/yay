@@ -145,46 +145,67 @@ class Lexer:
         """Read a backtick-introduced block string."""
         start_line = self.line
         start_col = self.col
+
+        # The text before the backtick on its line: a property ("key: `") or
+        # a bare opener at root or after list leaders ("`", "- `").
+        line_start = self.source.rfind("\n", 0, self.pos) + 1
+        prefix = self.source[line_start : self.pos]
+        in_property = prefix.rstrip().endswith(":")
+        if in_property:
+            # The block ends at the key's column, past any list leaders.
+            end_column = len(prefix) - len(prefix.lstrip(" -"))
+        else:
+            end_column = len(prefix) - len(prefix.lstrip(" "))
+
         self.advance()  # consume '`'
 
         # Check what follows the backtick
         next_ch = self.peek()
         if next_ch == "\n":
-            # Backtick alone on line - implicit leading newline
+            # Backtick alone on line
             self.advance()  # consume newline
             self.at_line_start = True
             return self._read_block_string_content(
-                start_line, start_col, same_line=False
+                start_line, start_col, end_column, in_property, same_line=False
             )
         elif next_ch == " ":
             # Backtick followed by space - content on same line
             self.advance()  # consume space
             return self._read_block_string_content(
-                start_line, start_col, same_line=True
+                start_line, start_col, end_column, in_property, same_line=True
             )
         else:
             raise self.error("Expected space or newline after '`'")
 
     def _read_block_string_content(
-        self, start_line: int, start_col: int, same_line: bool
+        self,
+        start_line: int,
+        start_col: int,
+        end_column: int,
+        in_property: bool,
+        same_line: bool,
     ) -> Token:
-        """Read block string content after the backtick introducer."""
-        lines = []
-        base_indent = (
-            self.current_line_indent if hasattr(self, "current_line_indent") else 0
-        )
+        """Read block string content after the backtick introducer.
 
+        Content lines are those indented past end_column, and blank lines
+        among them. The least indentation of the content lines is stripped.
+        A backtick alone on its line gives a leading newline, except as a
+        property value. Leading blank lines are dropped, every blank line
+        within is kept, and trailing blank lines collapse to the final newline.
+        """
+        first_line = None
         if same_line:
             # First line content is on the same line as the backtick
-            first_line = []
+            chars = []
             while self.peek() and self.peek() != "\n":
-                first_line.append(self.advance())
-            lines.append("".join(first_line))
+                chars.append(self.advance())
+            first_line = "".join(chars)
             if self.peek() == "\n":
                 self.advance()
                 self.at_line_start = True
 
-        # Read subsequent lines
+        # Read subsequent lines as (indent, text), with None for a blank line
+        body: list[tuple[int, str] | None] = []
         while self.pos < len(self.source):
             line_start = self.pos
             line_start_line = self.line
@@ -193,8 +214,8 @@ class Lexer:
                 spaces += 1
                 self.advance()
 
-            # If dedented to base level or less, block ends
-            if spaces <= base_indent and self.peek() not in ("\n", ""):
+            # A line indented to the end column or less ends the block
+            if spaces <= end_column and self.peek() not in ("\n", ""):
                 self.pos = line_start
                 self.line = line_start_line
                 self.col = 1
@@ -203,7 +224,7 @@ class Lexer:
 
             # Empty line
             if self.peek() == "\n":
-                lines.append("")
+                body.append(None)
                 self.advance()
                 self.at_line_start = True
                 continue
@@ -212,38 +233,39 @@ class Lexer:
             if self.peek() == "":
                 break
 
-            # Strip base indent + 2 spaces
-            content_indent = spaces - base_indent
-            if content_indent >= 2:
-                extra_spaces = " " * (content_indent - 2)
-            else:
-                extra_spaces = ""
-
-            # Read line content
-            line_chars = [extra_spaces]
+            chars = []
             while self.peek() and self.peek() != "\n":
-                line_chars.append(self.advance())
-            lines.append("".join(line_chars))
+                chars.append(self.advance())
+            body.append((spaces, "".join(chars)))
 
             if self.peek() == "\n":
                 self.advance()
                 self.at_line_start = True
 
-        # Build result - trim trailing empty lines
+        min_indent = min((entry[0] for entry in body if entry is not None), default=0)
+        lines = [] if first_line is None else [first_line]
+        for entry in body:
+            if entry is None:
+                lines.append("")
+            else:
+                indent, text = entry
+                lines.append(" " * (indent - min_indent) + text)
+
+        # Trim leading and trailing empty lines
         while lines and lines[-1] == "":
             lines.pop()
+        while lines and lines[0] == "":
+            lines.pop(0)
 
-        result = "\n".join(lines)
-        if same_line:
-            result = result + "\n"
-        else:
-            if result:
-                result = "\n" + result + "\n"
-            else:
-                # Empty block string is not allowed
-                raise self.error(
-                    'Empty block string not allowed (use "" or "\\n" explicitly)'
-                )
+        if not lines:
+            # Empty block string is not allowed
+            raise self.error(
+                'Empty block string not allowed (use "" or "\\n" explicitly)'
+            )
+
+        result = "\n".join(lines) + "\n"
+        if not same_line and not in_property:
+            result = "\n" + result
 
         return Token("STRING", result, start_line, start_col)
 

@@ -1,6 +1,6 @@
 [package]
 name = "binyay"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
 description = "YAY command-line tool for parsing, formatting, and transcoding YAY documents"
 license = "Apache-2.0"
@@ -17,7 +17,7 @@ path = "src/main.rs"
 [dependencies]
 base64 = "0.22"
 ciborium = "0.2"
-libyay = { version = "1.0.0", path = "../libyay" }
+libyay = { version = "1.1.0", path = "../libyay" }
 num-bigint = "0.4"
 num-traits = "0.2"
 serde_yaml = "0.9"

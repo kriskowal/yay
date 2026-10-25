@@ -1,0 +1,2 @@
+---
+open: "but never closed"

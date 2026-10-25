@@ -63,6 +63,41 @@ static yay_value_t *make_expected_array_inline_singlequote(void) {
     return YAY_ARRAY(yay_string("a"), yay_string("b"));
 }
 
+static yay_value_t *make_expected_array_item_nested_object_then_item(void) {
+    return YAY_OBJECT(
+    "steps", YAY_ARRAY(
+        YAY_OBJECT("run", YAY_OBJECT("command", yay_string("make"))),
+        yay_string("a plain item after an item holding an object")
+    )
+);
+}
+
+static yay_value_t *make_expected_array_item_object_empty_key(void) {
+    return YAY_OBJECT(
+    "items", YAY_ARRAY(
+        YAY_OBJECT(
+            "", yay_string("the empty key opens this item"),
+            "b", yay_int(2)
+        )
+    )
+);
+}
+
+static yay_value_t *make_expected_array_item_object_quoted_key(void) {
+    return YAY_OBJECT(
+    "people", YAY_ARRAY(
+        YAY_OBJECT(
+            "born", yay_int(1815),
+            "full name", yay_string("Ada Lovelace")
+        ),
+        YAY_OBJECT(
+            "born", yay_int(1906),
+            "full name", yay_string("Grace Hopper")
+        )
+    )
+);
+}
+
 static yay_value_t *make_expected_array_multiline_named(void) {
     return YAY_OBJECT(
     "complaints", YAY_ARRAY(
@@ -83,6 +118,19 @@ static yay_value_t *make_expected_array_multiline_nested(void) {
     return YAY_ARRAY(
     YAY_ARRAY(yay_string("a"), yay_string("b")),
     YAY_ARRAY(yay_int(1), yay_int(2))
+);
+}
+
+static yay_value_t *make_expected_array_multiline_object_items_at_key_indent(void) {
+    return YAY_OBJECT(
+    "items", YAY_ARRAY(
+        YAY_OBJECT("a", yay_int(1), "b", yay_int(2)),
+        YAY_OBJECT(
+            "body", yay_string("First.\n\nSecond.\n"),
+            "title", yay_string("a")
+        )
+    ),
+    "next", yay_int(1)
 );
 }
 
@@ -201,6 +249,13 @@ static yay_value_t *make_expected_bytearray_inline_even(void) {
 
 static yay_value_t *make_expected_bytearray_inline_named(void) {
     return YAY_OBJECT("data", yay_bytes_from_hex("b0b5c0ffeefacade"));
+}
+
+static yay_value_t *make_expected_inline_non_ascii_strings(void) {
+    return YAY_OBJECT(
+    "list", YAY_ARRAY(yay_string("é"), yay_string("x")),
+    "object", YAY_OBJECT("a", yay_string("😀"), "b", yay_int(1))
+);
 }
 
 static yay_value_t *make_expected_integer_big_basic(void) {
@@ -571,6 +626,54 @@ static yay_value_t *make_expected_object_nested_empty_property(void) {
     return YAY_OBJECT("outer", YAY_OBJECT("inner", yay_object()));
 }
 
+static yay_value_t *make_expected_object_nested_quoted_key_first(void) {
+    return YAY_OBJECT(
+    "meta", YAY_OBJECT(
+        "A quoted key", yay_string("first in its object"),
+        "b", yay_int(2)
+    )
+);
+}
+
+static yay_value_t *make_expected_object_quoted_key_escapes(void) {
+    return YAY_OBJECT(
+    "", yay_string("the empty key"),
+    "a\"b", yay_string("an escaped quote"),
+    "a/b", yay_string("a slash"),
+    "a\\b", yay_string("an escaped backslash"),
+    "line\nbreak", yay_string("an escaped newline")
+);
+}
+
+static yay_value_t *make_expected_string_block_array_in_property(void) {
+    return YAY_OBJECT(
+    "items", YAY_ARRAY(yay_string("a\n- b\n"), yay_string("\n* c\n\n\n---\n")),
+    "next", yay_int(1)
+);
+}
+
+static yay_value_t *make_expected_string_block_array_item_property(void) {
+    return YAY_ARRAY(
+    YAY_OBJECT("body", yay_string("- x\n"), "title", yay_string("a")),
+    YAY_OBJECT(
+        "body", yay_string("# Heading\n\n\n* y\n"),
+        "title", yay_string("b")
+    )
+);
+}
+
+static yay_value_t *make_expected_string_block_blank_run_array(void) {
+    return YAY_ARRAY(yay_string("\nx\n\n\ny\n"), yay_string("p\n\n\nq\n"));
+}
+
+static yay_value_t *make_expected_string_block_blank_run_property(void) {
+    return YAY_OBJECT("a", yay_string("x\n\n\ny\n"), "b", yay_int(1));
+}
+
+static yay_value_t *make_expected_string_block_blank_run_root(void) {
+    return yay_string("\na\n\n\nb\n");
+}
+
 static yay_value_t *make_expected_string_block_deep_indent(void) {
     return YAY_OBJECT("message", yay_string("Line 1\n  Indented\nLine 2\n"));
 }
@@ -585,6 +688,25 @@ static yay_value_t *make_expected_string_block_deeply_nested(void) {
 
 static yay_value_t *make_expected_string_block_empty_middle(void) {
     return yay_string("\nI'm getting better!\n\nNo you're not.\n");
+}
+
+static yay_value_t *make_expected_string_block_markdown_array(void) {
+    return YAY_ARRAY(
+    yay_string("\n- a\n  - b\n* item\n"),
+    yay_string("---\n-x\n"),
+    yay_string("end")
+);
+}
+
+static yay_value_t *make_expected_string_block_markdown_property(void) {
+    return YAY_OBJECT(
+    "body", yay_string("# Heading\n- a\n  - b\n* item\n---\n-x\n"),
+    "next", yay_int(1)
+);
+}
+
+static yay_value_t *make_expected_string_block_markdown_root(void) {
+    return yay_string("\n# Heading\n- a\n  - b\n* item\n---\n-x\n");
 }
 
 static yay_value_t *make_expected_string_block_nested_in_object_and_array(void) {
@@ -628,6 +750,48 @@ static yay_value_t *make_expected_string_block_root_next_line(void) {
 
 static yay_value_t *make_expected_string_block_root_same_line(void) {
     return yay_string("I think you ought to know I'm feeling very depressed.\nThis will all end in tears.\n");
+}
+
+static yay_value_t *make_expected_string_block_separated_array(void) {
+    return YAY_OBJECT(
+    "items", YAY_ARRAY(
+        yay_string("\nBare.\n"),
+        yay_string("Same line.\n"),
+        YAY_OBJECT(
+            "body", yay_string("Last property of a list item.\n"),
+            "title", yay_string("a")
+        ),
+        YAY_OBJECT(
+            "body", yay_string("First property of a list item.\n"),
+            "title", yay_string("b")
+        )
+    ),
+    "next", yay_int(1)
+);
+}
+
+static yay_value_t *make_expected_string_block_separated_end(void) {
+    return YAY_OBJECT(
+    "body", yay_string("The last thing in the file\n\nends at the end of the file.\n"),
+    "title", yay_string("end")
+);
+}
+
+static yay_value_t *make_expected_string_block_separated_nested(void) {
+    return YAY_OBJECT(
+    "after", yay_int(1),
+    "outer", YAY_OBJECT(
+        "inner", YAY_OBJECT("text", yay_string("Two levels in.\n")),
+        "sibling", yay_string("One level in.\n")
+    )
+);
+}
+
+static yay_value_t *make_expected_string_block_separated_property(void) {
+    return YAY_OBJECT(
+    "message", yay_string("We shall fight on the beaches.\n\nWe shall never surrender.\n"),
+    "next", yay_int(1)
+);
 }
 
 static yay_value_t *make_expected_string_block_trailing_empty(void) {
@@ -686,9 +850,13 @@ static test_fixture_t test_fixtures[] = {
     {"array_inline_integers", "[42, 404, 418]\n", make_expected_array_inline_integers},
     {"array_inline_nested", "[[\"I feel happy!\", \"yay.\"], [\"And there was much rejoicing.\", \"yay.\"]]\n", make_expected_array_inline_nested},
     {"array_inline_singlequote", "['a', 'b']\n", make_expected_array_inline_singlequote},
+    {"array_item_nested_object_then_item", "steps:\n  - run:\n      command: \"make\"\n  - \"a plain item after an item holding an object\"\n", make_expected_array_item_nested_object_then_item},
+    {"array_item_object_empty_key", "items:\n  - \"\": \"the empty key opens this item\"\n    b: 2\n", make_expected_array_item_object_empty_key},
+    {"array_item_object_quoted_key", "people:\n  - \"full name\": \"Ada Lovelace\"\n    born: 1815\n  - born: 1906\n    \"full name\": \"Grace Hopper\"\n", make_expected_array_item_object_quoted_key},
     {"array_multiline_named", "complaints:\n- \"I didn't vote for you.\"\n- \"Help, help, I'm being repressed!\"\n", make_expected_array_multiline_named},
     {"array_multiline_nested_multiline_object", "- x: 10\n  y: 20\n- x: 30\n  y: 40\n", make_expected_array_multiline_nested_multiline_object},
     {"array_multiline_nested", "- - \"a\"\n  - \"b\"\n- - 1\n  - 2\n", make_expected_array_multiline_nested},
+    {"array_multiline_object_items_at_key_indent", "items:\n- a: 1\n  b: 2\n- title: \"a\"\n  body: `\n    First.\n\n    Second.\nnext: 1\n", make_expected_array_multiline_object_items_at_key_indent},
     {"array_multiline_triple_nested", "- - - 'hello'\n", make_expected_array_multiline_triple_nested},
     {"array_multiline", "- 5\n- 3\n", make_expected_array_multiline},
     {"at_a_glance", "roses-are-red: true      # There is no \"yes\" or \"on\".\nviolets-are-blue: false  # Violets are violet.\narrays:\n  - \"may\"\n  - \"have\"\n  - \"many\"\n  - \"values\"\nand-objects-too:\n  integers-are-distinct: 42\n  from-their-floating-friends: 6.283 185 307 179 586  # digit grouping\ninline:\n  string: \"is concise\"\n  array: [infinity, -infinity, nan]\n  object: {bigint: 1, float64: 2.0}\n  bytes: <f33d face>\nblock:\n  string: `\n    This is a string.\n    There are many like it.\n  array:\n    - \"But\"\n    - \"this\"\n    - \"one's\"\n  object:\n    mine: null\n  bytes: >\n    b0 b5  c0 ff  # Bob's Coffee\n    fe fa  ca de  # Facade.\nconcatenated:\n  \"I'm not dead yet. \"\n  \"I feel happy!\"\nunicode-code-point: \"\\u{1F600}\"  # UTF-16 surrogates are inexpressible\n\"name with spaces\": 'works too'\n", make_expected_at_a_glance},
@@ -707,6 +875,7 @@ static test_fixture_t test_fixtures[] = {
     {"bytearray_inline_empty", "<>\n", make_expected_bytearray_inline_empty},
     {"bytearray_inline_even", "<b0b5c0ffeefacade>\n", make_expected_bytearray_inline_even},
     {"bytearray_inline_named", "data: <b0b5c0ffeefacade>\n", make_expected_bytearray_inline_named},
+    {"inline_non_ascii_strings", "list: [\"é\", \"x\"]\nobject: {a: \"😀\", b: 1}\n", make_expected_inline_non_ascii_strings},
     {"integer_big_basic", "42\n", make_expected_integer_big_basic},
     {"integer_big_negative", "-42\n", make_expected_integer_big_negative},
     {"integer_big", "867 5309\n", make_expected_integer_big},
@@ -774,9 +943,19 @@ static test_fixture_t test_fixtures[] = {
     {"object_multiline", "answer: 42\nerror: 404\n", make_expected_object_multiline},
     {"object_nested_empty_inline", "outer:\n  inner: {}\n", make_expected_object_nested_empty_inline},
     {"object_nested_empty_property", "outer:\n  inner: {}\n", make_expected_object_nested_empty_property},
+    {"object_nested_quoted_key_first", "meta:\n  \"A quoted key\": \"first in its object\"\n  b: 2\n", make_expected_object_nested_quoted_key_first},
+    {"object_quoted_key_escapes", "\"\": \"the empty key\"\n\"a\\\"b\": \"an escaped quote\"\n\"a\\\\b\": \"an escaped backslash\"\n\"a/b\": \"a slash\"\n\"line\\nbreak\": \"an escaped newline\"\n", make_expected_object_quoted_key_escapes},
+    {"string_block_array_in_property", "items:\n- ` a\n  - b\n- `\n  * c\n\n\n  ---\nnext: 1\n", make_expected_string_block_array_in_property},
+    {"string_block_array_item_property", "- title: \"a\"\n  body: `\n    - x\n- body: `\n    # Heading\n\n\n    * y\n  title: \"b\"\n", make_expected_string_block_array_item_property},
+    {"string_block_blank_run_array", "- `\n  x\n\n\n  y\n\n\n- ` p\n\n\n  q\n", make_expected_string_block_blank_run_array},
+    {"string_block_blank_run_property", "a: `\n  x\n\n\n  y\n\n\nb: 1\n", make_expected_string_block_blank_run_property},
+    {"string_block_blank_run_root", "`\n  a\n\n\n  b\n\n\n", make_expected_string_block_blank_run_root},
     {"string_block_deep_indent", "message: `\n    Line 1\n      Indented\n    Line 2\n", make_expected_string_block_deep_indent},
     {"string_block_deeply_nested", "level1:\n  level2:\n    text: `\n      Hello\n      World\n", make_expected_string_block_deeply_nested},
     {"string_block_empty_middle", "`\n  I'm getting better!\n\n  No you're not.\n", make_expected_string_block_empty_middle},
+    {"string_block_markdown_array", "- `\n  - a\n    - b\n  * item\n- ` ---\n  -x\n- \"end\"\n", make_expected_string_block_markdown_array},
+    {"string_block_markdown_property", "body: `\n  # Heading\n  - a\n    - b\n  * item\n  ---\n  -x\nnext: 1\n", make_expected_string_block_markdown_property},
+    {"string_block_markdown_root", "`\n  # Heading\n  - a\n    - b\n  * item\n  ---\n  -x\n", make_expected_string_block_markdown_root},
     {"string_block_nested_in_object_and_array", "parrot:\n  condition: `\n    No, no, it's just resting!\n\n  remarks:\n  - ` Remarkable bird, the Norwegian Blue.\n      Beautiful plumage, innit?\n\n  - ` It's probably pining for the fjords.\n      Lovely plumage.\n", make_expected_string_block_nested_in_object_and_array},
     {"string_block_property_empty_middle", "message: `\n  It's not pining!\n\n  It's passed on! This parrot is no more!\n", make_expected_string_block_property_empty_middle},
     {"string_block_property_trailing_empty", "message: `\n  By Grabthar's hammer... what a savings.\n\n\nnext: 1\n", make_expected_string_block_property_trailing_empty},
@@ -784,6 +963,10 @@ static test_fixture_t test_fixtures[] = {
     {"string_block_root_hash", "` # this is not a comment\n  it is content\n", make_expected_string_block_root_hash},
     {"string_block_root_next_line", "`\n  I've calculated your chance of survival,\n  but I don't think you'll like it.\n", make_expected_string_block_root_next_line},
     {"string_block_root_same_line", "` I think you ought to know I'm feeling very depressed.\n  This will all end in tears.\n", make_expected_string_block_root_same_line},
+    {"string_block_separated_array", "items:\n- `\n  Bare.\n\n- ` Same line.\n\n- title: \"a\"\n  body: `\n    Last property of a list item.\n\n- body: `\n    First property of a list item.\n\n  title: \"b\"\nnext: 1\n", make_expected_string_block_separated_array},
+    {"string_block_separated_end", "title: \"end\"\nbody: `\n  The last thing in the file\n\n  ends at the end of the file.\n", make_expected_string_block_separated_end},
+    {"string_block_separated_nested", "outer:\n  inner:\n    text: `\n      Two levels in.\n\n  sibling: `\n    One level in.\n\nafter: 1\n", make_expected_string_block_separated_nested},
+    {"string_block_separated_property", "message: `\n  We shall fight on the beaches.\n\n  We shall never surrender.\n\nnext: 1\n", make_expected_string_block_separated_property},
     {"string_block_trailing_empty", "`\n  Hello\n\n\n", make_expected_string_block_trailing_empty},
     {"string_inline_doublequote_apostrophe", "\"I'm getting better!\"\n", make_expected_string_inline_doublequote_apostrophe},
     {"string_inline_doublequote_basic", "\"This will all end in tears.\"\n", make_expected_string_inline_doublequote_basic},
@@ -799,7 +982,7 @@ static test_fixture_t test_fixtures[] = {
     {NULL, NULL, NULL}
 };
 
-#define TEST_FIXTURE_COUNT 117
+#define TEST_FIXTURE_COUNT 136
 
 static error_fixture_t error_fixtures[] = {
     {"array_inline_invalid_multiline", "array-inline-invalid-multiline.nay", "[\n  1,\n  2\n]\n", 13, "Unexpected newline in inline array at 1:1 of <array-inline-invalid-multiline.nay>"},

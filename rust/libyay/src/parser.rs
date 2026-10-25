@@ -180,8 +180,8 @@ fn parse_text_value(tokens: &[Token], i: usize, ctx: &ParseContext) -> Result<(V
         return parse_block_string(tokens, i, first_line);
     }
 
-    // Try quoted string
-    if is_quoted_string(s) {
+    // Try quoted string, unless the quotes open a property's key
+    if is_quoted_string(s) && find_colon_outside_quotes(s).is_none() {
         let str_val = parse_quoted_string(s, ctx, t.line_num, t.col)?;
         return Ok((Value::String(str_val), i + 1));
     }
@@ -642,10 +642,11 @@ fn parse_block_string(tokens: &[Token], mut i: usize, first_line: &str) -> Resul
     if !first_line.is_empty() {
         lines.push(first_line.to_string());
     }
+    let opener_indent = tokens[i].indent;
     i += 1;
 
     // Collect continuation lines with their indentation
-    let (continuation_lines, new_i) = collect_block_string_lines(tokens, i);
+    let (continuation_lines, new_i) = collect_block_string_lines(tokens, i, opener_indent);
     i = new_i;
 
     // Normalize indentation
@@ -664,12 +665,18 @@ fn parse_block_string(tokens: &[Token], mut i: usize, first_line: &str) -> Resul
     Ok((Value::String(result), i))
 }
 
-/// Gather continuation lines for a block string.
-fn collect_block_string_lines(tokens: &[Token], mut i: usize) -> (Vec<BlockLine>, usize) {
+/// Gather continuation lines for a block string: blank lines and lines
+/// indented deeper than the line that opened it.
+fn collect_block_string_lines(
+    tokens: &[Token],
+    mut i: usize,
+    opener_indent: usize,
+) -> (Vec<BlockLine>, usize) {
     let mut lines = Vec::new();
 
     while i < tokens.len()
-        && (tokens[i].typ == TokenType::Text || tokens[i].typ == TokenType::Break)
+        && ((tokens[i].typ == TokenType::Text && tokens[i].indent > opener_indent)
+            || tokens[i].typ == TokenType::Break)
     {
         if tokens[i].typ == TokenType::Break {
             lines.push(BlockLine {
@@ -1059,7 +1066,8 @@ fn parse_inline_key(
     let i = s
         .chars()
         .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
-        .count();
+        .map(char::len_utf8)
+        .sum();
     if i == 0 {
         return Err(ParseError::InvalidKey(String::new()).with_location(ctx, line_num, col));
     }
@@ -1163,7 +1171,7 @@ fn find_matching_bracket(s: &str) -> Option<usize> {
     let mut string_char = '\0';
     let mut escape = false;
 
-    for (i, c) in s.chars().enumerate() {
+    for (i, c) in s.char_indices() {
         if escape {
             escape = false;
             continue;
@@ -1204,7 +1212,7 @@ fn find_matching_brace(s: &str) -> Option<usize> {
     let mut string_char = '\0';
     let mut escape = false;
 
-    for (i, c) in s.chars().enumerate() {
+    for (i, c) in s.char_indices() {
         if escape {
             escape = false;
             continue;
@@ -1247,7 +1255,7 @@ fn parse_inline_single_quoted_string(s: &str) -> Result<(String, usize)> {
     let mut out = String::new();
     let mut escape = false;
 
-    for (i, c) in s.chars().enumerate().skip(1) {
+    for (i, c) in s.char_indices().skip(1) {
         if escape {
             match c {
                 '\'' | '\\' => out.push(c),
@@ -1384,7 +1392,9 @@ fn parse_inline_string(
         }
 
         if c == '"' {
-            return Ok((out, i + 1));
+            // The length consumed, in bytes, closing quote included.
+            let consumed = chars[..=i].iter().map(|c| c.len_utf8()).sum();
+            return Ok((out, consumed));
         }
 
         out.push(c);
@@ -1648,6 +1658,18 @@ fn parse_block_bytes_from_property(
     Ok((Value::Bytes(result), i))
 }
 
+/// The column of the property key on line `i`: the line's indent, plus the
+/// list leader when the property opens a list item (`- key: \``).
+fn key_column(tokens: &[Token], i: usize) -> usize {
+    let t = &tokens[i];
+    match i.checked_sub(1).map(|p| &tokens[p]) {
+        Some(prev) if prev.typ == TokenType::Start && prev.line_num == t.line_num => {
+            t.indent + prev.text.len()
+        }
+        _ => t.indent,
+    }
+}
+
 /// Parse block string from a property context (key: `)
 fn parse_block_string_from_property(
     tokens: &[Token],
@@ -1701,6 +1723,14 @@ fn parse_block_string_from_property(
     }
 
     Ok((Value::String(result), i))
+}
+
+/// Whether a line is one of a run of concatenated quoted strings, not a
+/// property whose key is quoted (`"key": "value"` also starts and ends with
+/// a quote).
+fn is_concatenated_string_line(s: &str) -> bool {
+    ((s.starts_with('"') && s.ends_with('"')) || (s.starts_with('\'') && s.ends_with('\'')))
+        && find_colon_outside_quotes(s).is_none()
 }
 
 /// Parse concatenated quoted strings (multiple quoted strings on consecutive lines).
@@ -2038,7 +2068,9 @@ fn parse_key_value_pair(
     let s = &t.text;
 
     let key_raw = s[..colon_idx].trim();
-    let key = parse_key_name(key_raw);
+    let key = parse_key_name(key_raw, ctx, t.line_num, t.col)?;
+    // A quoted empty key ("") is a key; only a missing one is not.
+    let has_key = !key_raw.is_empty();
 
     // Calculate the column where the value part starts
     let after_colon = &s[colon_idx + 1..];
@@ -2047,12 +2079,12 @@ fn parse_key_value_pair(
     let value_part = after_colon.trim();
 
     // Empty value part means nested content follows
-    if value_part.is_empty() && !key.is_empty() {
+    if value_part.is_empty() && has_key {
         return parse_object_or_named_array(tokens, i, &key, ctx);
     }
 
     // Block bytes: "key: >" followed by indented hex lines
-    if value_part == ">" && !key.is_empty() {
+    if value_part == ">" && has_key {
         let (bytes, next) = parse_block_bytes_from_property(tokens, i, t.indent, ctx)?;
         let mut obj = HashMap::new();
         obj.insert(key, bytes);
@@ -2060,8 +2092,8 @@ fn parse_key_value_pair(
     }
 
     // Block string: "key: `" followed by indented content
-    if value_part == "`" && !key.is_empty() {
-        let (body, next) = parse_block_string_from_property(tokens, i, t.indent)?;
+    if value_part == "`" && has_key {
+        let (body, next) = parse_block_string_from_property(tokens, i, key_column(tokens, i))?;
         let mut obj = HashMap::new();
         obj.insert(key, body);
         return Ok((Value::Object(obj), next));
@@ -2071,7 +2103,7 @@ fn parse_key_value_pair(
 
     // Inline value (strip inline comments first)
     let value_part_no_comment = strip_inline_comment(value_part);
-    if !key.is_empty() {
+    if has_key {
         let value = if !value_part_no_comment.is_empty() {
             parse_scalar(value_part_no_comment, ctx, t.line_num, value_col)?
         } else {
@@ -2089,8 +2121,17 @@ fn parse_key_value_pair(
 fn find_colon_outside_quotes(s: &str) -> Option<usize> {
     let mut in_double = false;
     let mut in_single = false;
+    let mut escape = false;
 
-    for (i, c) in s.chars().enumerate() {
+    for (i, c) in s.char_indices() {
+        if escape {
+            escape = false;
+            continue;
+        }
+        if c == '\\' && (in_double || in_single) {
+            escape = true;
+            continue;
+        }
         if c == '"' && !in_single {
             in_double = !in_double;
         } else if c == '\'' && !in_double {
@@ -2103,21 +2144,25 @@ fn find_colon_outside_quotes(s: &str) -> Option<usize> {
 }
 
 /// Extract the key name, handling quoted keys.
-fn parse_key_name(s: &str) -> String {
+fn parse_key_name(s: &str, ctx: &ParseContext, line_num: usize, col: usize) -> Result<String> {
     let s = s.trim();
 
-    // Double-quoted key
+    // Double-quoted key: escapes as in a double-quoted string, the same as
+    // a key in an inline object
     if s.starts_with('"') && s.ends_with('"') && s.len() >= 2 {
-        let inner = &s[1..s.len() - 1];
-        return inner.replace("\\\"", "\"").replace("\\\\", "\\");
+        let (key, consumed) = parse_inline_string(s, ctx, line_num, col)?;
+        if consumed != s.len() {
+            return Err(ParseError::InvalidKey(String::new()).with_location(ctx, line_num, col));
+        }
+        return Ok(key);
     }
 
     // Single-quoted key
     if s.starts_with('\'') && s.ends_with('\'') && s.len() >= 2 {
-        return s[1..s.len() - 1].to_string();
+        return Ok(s[1..s.len() - 1].to_string());
     }
 
-    s.to_string()
+    Ok(s.to_string())
 }
 
 /// Parse content after "key:" (no inline value).
@@ -2223,10 +2268,11 @@ fn parse_nested_object_content(
             }
 
             let k_raw = t.text[..colon_idx].trim();
-            let k = parse_key_name(k_raw);
+            let k = parse_key_name(k_raw, ctx, t.line_num, t.col)?;
             let v_part = t.text[colon_idx + 1..].trim();
 
-            if k.is_empty() {
+            // A quoted empty key ("") is a key; only a missing one is skipped.
+            if k_raw.is_empty() {
                 i += 1;
                 continue;
             }
@@ -2235,7 +2281,10 @@ fn parse_nested_object_content(
             obj.insert(k, value);
             i = next_i;
         } else {
-            i += 1;
+            // A list item's start: the next item of an enclosing list, which
+            // ends this object. (A list under one of its keys was read with
+            // that key.)
+            break;
         }
     }
 
@@ -2263,7 +2312,7 @@ fn parse_object_property_value(
 
     // Block string
     if v_part == "`" {
-        let (body, next) = parse_block_string_from_property(tokens, i, t.indent)?;
+        let (body, next) = parse_block_string_from_property(tokens, i, key_column(tokens, i))?;
         return Ok((body, next));
     }
 
@@ -2299,9 +2348,7 @@ fn parse_object_property_value(
     // Concatenated quoted strings (multiple quoted strings on consecutive lines)
     if next_t.typ == TokenType::Text && next_t.indent > t.indent {
         let trimmed = next_t.text.trim();
-        if (trimmed.starts_with('"') && trimmed.ends_with('"'))
-            || (trimmed.starts_with('\'') && trimmed.ends_with('\''))
-        {
+        if is_concatenated_string_line(trimmed) {
             let (concat_str, next) = parse_concatenated_strings(tokens, j, next_t.indent, ctx)?;
             return Ok((concat_str, next));
         }
@@ -2381,7 +2428,7 @@ fn parse_root_object(tokens: &[Token], mut i: usize, ctx: &ParseContext) -> Resu
             }
         }
 
-        let k = parse_key_name(k_trimmed);
+        let k = parse_key_name(k_trimmed, ctx, t.line_num, t.col)?;
         let after_colon = &t.text[colon_idx + 1..];
 
         // Validate: must have exactly one space after colon (if there's a value)
@@ -2564,9 +2611,7 @@ fn parse_root_nested_content(
     // Concatenated quoted strings (multiple quoted strings on consecutive lines)
     if next_t.typ == TokenType::Text && next_t.indent > 0 {
         let trimmed = next_t.text.trim();
-        if (trimmed.starts_with('"') && trimmed.ends_with('"'))
-            || (trimmed.starts_with('\'') && trimmed.ends_with('\''))
-        {
+        if is_concatenated_string_line(trimmed) {
             let (concat_str, next) = parse_concatenated_strings(tokens, j, next_t.indent, ctx)?;
             return Ok((concat_str, next));
         }
@@ -2719,5 +2764,216 @@ mod tests {
         assert_eq!(find_colon_outside_quotes("a: 1"), Some(1));
         assert_eq!(find_colon_outside_quotes("\"a:b\": 1"), Some(5));
         assert_eq!(find_colon_outside_quotes("'a:b': 1"), Some(5));
+    }
+
+    #[test]
+    fn test_nested_property_with_quoted_key_and_value() {
+        let obj = |pairs: &[(&str, Value)]| {
+            Value::Object(
+                pairs
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.clone()))
+                    .collect(),
+            )
+        };
+        let x = Value::String("x".to_string());
+        // Under a root property, and under a nested one.
+        assert_eq!(
+            crate::parse("b:\n  \"k\": \"x\"\n").unwrap(),
+            obj(&[("b", obj(&[("k", x.clone())]))])
+        );
+        assert_eq!(
+            crate::parse("b:\n  'k': 'x'\n  t: 1\n").unwrap(),
+            obj(&[(
+                "b",
+                obj(&[("k", x.clone()), ("t", Value::Integer(1.into()))])
+            )])
+        );
+        assert_eq!(
+            crate::parse("a:\n  b:\n    \"k s\": \"x\"\n").unwrap(),
+            obj(&[("a", obj(&[("b", obj(&[("k s", x.clone())]))]))])
+        );
+        // Concatenated strings, including one with a colon inside, still join.
+        assert_eq!(
+            crate::parse("a:\n  \"x: \"\n  \"y\"\n").unwrap(),
+            obj(&[("a", Value::String("x: y".to_string()))])
+        );
+    }
+
+    #[test]
+    fn test_non_ascii_text_before_a_delimiter() {
+        let obj = |pairs: &[(&str, Value)]| {
+            Value::Object(
+                pairs
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.clone()))
+                    .collect(),
+            )
+        };
+        let s = |t: &str| Value::String(t.to_string());
+        // Offsets are bytes: a character before a colon, quote or bracket
+        // must not shift where the next token starts.
+        assert_eq!(find_colon_outside_quotes("é: 1"), Some(2));
+        assert_eq!(find_colon_outside_quotes("\"日本\": 1"), Some(8));
+        assert_eq!(find_matching_bracket("[\"é\"]"), Some(5));
+        assert_eq!(find_matching_brace("{a: \"é\"}"), Some(8));
+        assert_eq!(
+            crate::parse("é: 1\n").unwrap(),
+            obj(&[("é", Value::Integer(1.into()))])
+        );
+        assert_eq!(
+            crate::parse("\"é\": 1\n").unwrap(),
+            obj(&[("é", Value::Integer(1.into()))])
+        );
+        assert_eq!(
+            crate::parse("a: [\"é\", 'ü', \"x\"]\n").unwrap(),
+            obj(&[("a", Value::Array(vec![s("é"), s("ü"), s("x")]))])
+        );
+        assert_eq!(
+            crate::parse("a: {b: \"😀\", é: \"ü\", \"日本\": 1}\n").unwrap(),
+            obj(&[(
+                "a",
+                obj(&[
+                    ("b", s("😀")),
+                    ("é", s("ü")),
+                    ("日本", Value::Integer(1.into()))
+                ])
+            )])
+        );
+    }
+
+    #[test]
+    fn test_block_object_quoted_keys() {
+        let one = |k: &str| {
+            Value::Object(
+                [(k.to_string(), Value::Integer(1.into()))]
+                    .into_iter()
+                    .collect(),
+            )
+        };
+        // A quoted key in a block object reads as it would in an inline one.
+        for (text, key) in [
+            ("\"a\\nb\": 1\n", "a\nb"),
+            ("\"a\\\"b\": 1\n", "a\"b"),
+            ("\"a\\\\\": 1\n", "a\\"),
+            ("\"a\\/b\": 1\n", "a/b"),
+            ("\"\\u{41}\\t\": 1\n", "A\t"),
+            ("\"a: b\": 1\n", "a: b"),
+            ("\"\": 1\n", ""),
+        ] {
+            assert_eq!(crate::parse(text).unwrap(), one(key), "{:?}", text);
+            let nested = format!("x:\n  {}  y: 2\n", text);
+            let mut expected = one(key);
+            if let Value::Object(m) = &mut expected {
+                m.insert("y".to_string(), Value::Integer(2.into()));
+            }
+            assert_eq!(
+                crate::parse(&nested).unwrap(),
+                Value::Object([("x".to_string(), expected)].into_iter().collect()),
+                "{:?}",
+                nested
+            );
+        }
+        assert!(crate::parse("\"a\" \"b\": 1\n").is_err());
+    }
+
+    #[test]
+    fn test_array_item_object_with_quoted_keys() {
+        let obj = |pairs: &[(&str, Value)]| {
+            Value::Object(
+                pairs
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.clone()))
+                    .collect(),
+            )
+        };
+        let one = Value::Integer(1.into());
+        let x = Value::String("x".to_string());
+        let item = obj(&[("a", one.clone()), ("b", x.clone())]);
+        // The quoted key opens the item, or follows its first property.
+        for text in [
+            "- \"a\": 1\n  \"b\": \"x\"\n",
+            "- a: 1\n  \"b\": \"x\"\n",
+            "- 'a': 1\n  b: \"x\"\n",
+        ] {
+            assert_eq!(
+                crate::parse(text).unwrap(),
+                Value::Array(vec![item.clone()]),
+                "{:?}",
+                text
+            );
+        }
+        assert_eq!(
+            crate::parse("k:\n  - a: 1\n    \"b\": \"x\"\n").unwrap(),
+            obj(&[("k", Value::Array(vec![item.clone()]))])
+        );
+        // A quoted string with a colon inside is still a string.
+        assert_eq!(
+            crate::parse("- \"a: b\"\n").unwrap(),
+            Value::Array(vec![Value::String("a: b".to_string())])
+        );
+    }
+
+    #[test]
+    fn test_empty_key_in_a_property_line() {
+        let obj = |pairs: &[(&str, Value)]| {
+            Value::Object(
+                pairs
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.clone()))
+                    .collect(),
+            )
+        };
+        let item = obj(&[
+            ("", Value::Integer(1.into())),
+            ("b", Value::Integer(2.into())),
+        ]);
+        for text in ["- \"\": 1\n  b: 2\n", "- b: 2\n  \"\": 1\n"] {
+            assert_eq!(
+                crate::parse(text).unwrap(),
+                Value::Array(vec![item.clone()]),
+                "{:?}",
+                text
+            );
+        }
+        assert_eq!(
+            crate::parse("k:\n  - \"\":\n      c: 3\n").unwrap(),
+            obj(&[(
+                "k",
+                Value::Array(vec![obj(&[("", obj(&[("c", Value::Integer(3.into()))]))])])
+            )])
+        );
+    }
+
+    #[test]
+    fn test_array_item_with_nested_object_then_another_item() {
+        let obj = |pairs: &[(&str, Value)]| {
+            Value::Object(
+                pairs
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.clone()))
+                    .collect(),
+            )
+        };
+        let n = |i: i32| Value::Integer(i.into());
+        let items = Value::Array(vec![obj(&[("k", obj(&[("a", n(1))]))]), n(2)]);
+        // At the root, under a key with the list at the key's column or
+        // indented, and two keys deep.
+        assert_eq!(crate::parse("- k:\n    a: 1\n- 2\n").unwrap(), items);
+        for text in [
+            "x:\n- k:\n    a: 1\n- 2\n",
+            "x:\n  - k:\n      a: 1\n  - 2\n",
+        ] {
+            assert_eq!(
+                crate::parse(text).unwrap(),
+                obj(&[("x", items.clone())]),
+                "{:?}",
+                text
+            );
+        }
+        assert_eq!(
+            crate::parse("x:\n  y:\n    - k:\n        a: 1\n    - 2\nz: 3\n").unwrap(),
+            obj(&[("x", obj(&[("y", items.clone())])), ("z", n(3))])
+        );
     }
 }

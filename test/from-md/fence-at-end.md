@@ -1,0 +1,3 @@
+---
+title: "No newline after the fence"
+---

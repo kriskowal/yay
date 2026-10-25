@@ -37,6 +37,9 @@ public class FixturesGen {
 
   static {
     FIXTURES = new LinkedHashMap<>();
+    FIXTURES.put("array-item-nested-object-then-item", map("steps", list(map("run", map("command", "make")), "a plain item after an item holding an object")));
+    FIXTURES.put("array-item-object-empty-key", map("items", list(map("", "the empty key opens this item", "b", bi(2)))));
+    FIXTURES.put("array-item-object-quoted-key", map("people", list(map("born", bi(1815), "full name", "Ada Lovelace"), map("born", bi(1906), "full name", "Grace Hopper"))));
     FIXTURES.put(
         "at-a-glance",
         map(
@@ -83,6 +86,15 @@ public class FixturesGen {
         "array-multiline-nested-multiline-object",
         list(map("x", bi(10), "y", bi(20)), map("x", bi(30), "y", bi(40))));
     FIXTURES.put("array-multiline-nested", list(list("a", "b"), list(bi(1), bi(2))));
+    FIXTURES.put(
+        "array-multiline-object-items-at-key-indent",
+        map(
+            "items",
+            list(
+                map("a", bi(1), "b", bi(2)),
+                map("body", "First.\n\nSecond.\n", "title", "a")),
+            "next",
+            bi(1)));
     FIXTURES.put("array-multiline-triple-nested", list(list(list("hello"))));
     FIXTURES.put("array-multiline", list(bi(5), bi(3)));
     FIXTURES.put("bigint-one", bi(1));
@@ -108,6 +120,7 @@ public class FixturesGen {
     FIXTURES.put(
         "bytearray-inline-named",
         map("data", bytes(0xb0, 0xb5, 0xc0, 0xff, 0xee, 0xfa, 0xca, 0xde)));
+    FIXTURES.put("inline-non-ascii-strings", map("list", list("é", "x"), "object", map("a", "😀", "b", bi(1))));
     FIXTURES.put("integer-big-basic", bi(42));
     FIXTURES.put("integer-big-negative", bi(-42));
     FIXTURES.put("integer-big", bi(8675309));
@@ -220,10 +233,28 @@ public class FixturesGen {
     FIXTURES.put("object-multiline", map("answer", bi(42), "error", bi(404)));
     FIXTURES.put("object-nested-empty-inline", map("outer", map("inner", map())));
     FIXTURES.put("object-nested-empty-property", map("outer", map("inner", map())));
+    FIXTURES.put("object-nested-quoted-key-first", map("meta", map("A quoted key", "first in its object", "b", bi(2))));
+    FIXTURES.put("object-quoted-key-escapes", map("", "the empty key", "a\"b", "an escaped quote", "a/b", "a slash", "a\\b", "an escaped backslash", "line\nbreak", "an escaped newline"));
+    FIXTURES.put(
+        "string-block-array-in-property",
+        map("items", list("a\n- b\n", "\n* c\n\n\n---\n"), "next", bi(1)));
+    FIXTURES.put(
+        "string-block-array-item-property",
+        list(
+            map("body", "- x\n", "title", "a"),
+            map("body", "# Heading\n\n\n* y\n", "title", "b")));
+    FIXTURES.put("string-block-blank-run-array", list("\nx\n\n\ny\n", "p\n\n\nq\n"));
+    FIXTURES.put("string-block-blank-run-property", map("a", "x\n\n\ny\n", "b", bi(1)));
+    FIXTURES.put("string-block-blank-run-root", "\na\n\n\nb\n");
     FIXTURES.put("string-block-deep-indent", map("message", "Line 1\n  Indented\nLine 2\n"));
     FIXTURES.put(
         "string-block-deeply-nested", map("level1", map("level2", map("text", "Hello\nWorld\n"))));
     FIXTURES.put("string-block-empty-middle", "\nI'm getting better!\n\nNo you're not.\n");
+    FIXTURES.put("string-block-markdown-array", list("\n- a\n  - b\n* item\n", "---\n-x\n", "end"));
+    FIXTURES.put(
+        "string-block-markdown-property",
+        map("body", "# Heading\n- a\n  - b\n* item\n---\n-x\n", "next", bi(1)));
+    FIXTURES.put("string-block-markdown-root", "\n# Heading\n- a\n  - b\n* item\n---\n-x\n");
     FIXTURES.put(
         "string-block-nested-in-object-and-array",
         map(
@@ -251,6 +282,38 @@ public class FixturesGen {
     FIXTURES.put(
         "string-block-root-same-line",
         "I think you ought to know I'm feeling very depressed.\nThis will all end in tears.\n");
+    FIXTURES.put(
+        "string-block-separated-array",
+        map(
+            "items",
+            list(
+                "\nBare.\n",
+                "Same line.\n",
+                map("body", "Last property of a list item.\n", "title", "a"),
+                map("body", "First property of a list item.\n", "title", "b")),
+            "next",
+            bi(1)));
+    FIXTURES.put(
+        "string-block-separated-end",
+        map(
+            "body",
+            "The last thing in the file\n\nends at the end of the file.\n",
+            "title",
+            "end"));
+    FIXTURES.put(
+        "string-block-separated-nested",
+        map(
+            "after",
+            bi(1),
+            "outer",
+            map("inner", map("text", "Two levels in.\n"), "sibling", "One level in.\n")));
+    FIXTURES.put(
+        "string-block-separated-property",
+        map(
+            "message",
+            "We shall fight on the beaches.\n\nWe shall never surrender.\n",
+            "next",
+            bi(1)));
     FIXTURES.put("string-block-trailing-empty", "\nHello\n");
     FIXTURES.put("string-inline-doublequote-apostrophe", "I'm getting better!");
     FIXTURES.put("string-inline-doublequote-basic", "This will all end in tears.");

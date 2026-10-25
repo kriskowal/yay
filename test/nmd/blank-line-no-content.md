@@ -1,0 +1,4 @@
+---
+title: "Front matter only"
+---
+

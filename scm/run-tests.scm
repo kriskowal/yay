@@ -100,18 +100,21 @@
 ;; Replace \/ with a placeholder, then restore after read
 (define (preprocess-fixture-escapes s)
   ;; Replace \/ with just / since Scheme doesn't need the escape
-  ;; We do this carefully to avoid breaking other escapes
+  ;; We do this carefully to avoid breaking other escapes: each escape is
+  ;; consumed whole, so the / in \\/ (an escaped backslash, then /) stays
   (let ((len (string-length s)))
     (let loop ((i 0) (acc '()))
       (if (>= i len)
           (list->string (reverse acc))
           (let ((ch (string-ref s i)))
-            (if (and (char=? ch #\\)
-                     (< (+ i 1) len)
-                     (char=? (string-ref s (+ i 1)) #\/))
-                ;; Skip the backslash, keep the /
-                (loop (+ i 2) (cons #\/ acc))
-                (loop (+ i 1) (cons ch acc))))))))
+            (cond
+             ((and (char=? ch #\\) (< (+ i 1) len))
+              (let ((next (string-ref s (+ i 1))))
+                (if (char=? next #\/)
+                    ;; Skip the backslash, keep the /
+                    (loop (+ i 2) (cons #\/ acc))
+                    (loop (+ i 2) (cons next (cons ch acc))))))
+             (else (loop (+ i 1) (cons ch acc)))))))))
 
 ;; Convert a Scheme value read from .scm fixture to YAY internal representation
 (define (fixture->yay-value v)
@@ -250,10 +253,14 @@
            "array-inline-integers"
            "array-inline-nested"
            "array-inline-singlequote"
+           "array-item-nested-object-then-item"
+           "array-item-object-empty-key"
+           "array-item-object-quoted-key"
            "array-multiline"
            "array-multiline-named"
            "array-multiline-nested"
            "array-multiline-nested-multiline-object"
+           "array-multiline-object-items-at-key-indent"
            "array-multiline-triple-nested"
            "boolean-false"
            "boolean-true"
@@ -270,6 +277,7 @@
            "bytearray-inline-even"
            "bytearray-inline-named"
            "bigint-one"
+           "inline-non-ascii-strings"
            "integer-big"
            "integer-big-basic"
            "integer-big-negative"
@@ -336,9 +344,19 @@
            "object-multiline-singlequote-key"
            "object-nested-empty-inline"
            "object-nested-empty-property"
+           "object-nested-quoted-key-first"
+           "object-quoted-key-escapes"
+           "string-block-array-in-property"
+           "string-block-array-item-property"
+           "string-block-blank-run-array"
+           "string-block-blank-run-property"
+           "string-block-blank-run-root"
            "string-block-deep-indent"
            "string-block-deeply-nested"
            "string-block-empty-middle"
+           "string-block-markdown-array"
+           "string-block-markdown-property"
+           "string-block-markdown-root"
            "string-block-nested-in-object-and-array"
            "string-block-property"
            "string-block-property-empty-middle"
@@ -346,6 +364,10 @@
            "string-block-root-hash"
            "string-block-root-next-line"
            "string-block-root-same-line"
+           "string-block-separated-array"
+           "string-block-separated-end"
+           "string-block-separated-nested"
+           "string-block-separated-property"
            "string-block-trailing-empty"
            "string-inline-doublequote-apostrophe"
            "string-inline-doublequote-basic"

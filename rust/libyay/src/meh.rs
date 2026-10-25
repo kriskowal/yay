@@ -363,8 +363,14 @@ impl<'a> MehParser<'a> {
         } else if find_colon_outside_quotes(value_part).is_some() {
             // Nested property on same line (e.g., "- a: 1")
             let mut nested_item = self.parse_inline_property(value_part, indent + 2)?;
-            // If the property has no inline value, parse its block content
-            if nested_item.value.is_none() {
+            if is_block_string_property(value_part) {
+                // "- a: `": the block string ends at the key's column
+                let block_str = self.parse_block_string(indent + 2)?;
+                nested_item.value = Some(PropertyValue::Inline(CstValue::String(
+                    CstString::Block(block_str),
+                )));
+            } else if nested_item.value.is_none() {
+                // If the property has no inline value, parse its block content
                 let prop_block = self.parse_block(indent + 2)?;
                 if !prop_block.items.is_empty() {
                     nested_item.value = Some(PropertyValue::Block(prop_block));
@@ -787,13 +793,19 @@ fn count_indent(line: &str) -> usize {
     line.bytes().take_while(|&b| b == b' ').count()
 }
 
+/// Whether a property (`key: value`) opens a block string (`key: \``).
+fn is_block_string_property(s: &str) -> bool {
+    find_colon_outside_quotes(s)
+        .is_some_and(|colon| split_inline_comment(s[colon + 1..].trim_start()).0 == "`")
+}
+
 fn find_colon_outside_quotes(s: &str) -> Option<usize> {
     let mut in_double = false;
     let mut in_single = false;
     let mut escape = false;
     let mut depth: i32 = 0;
 
-    for (i, c) in s.chars().enumerate() {
+    for (i, c) in s.char_indices() {
         if escape {
             escape = false;
             continue;
@@ -1905,8 +1917,11 @@ impl Formatter {
             self.format_item(item);
         }
 
-        // Ensure trailing newline
-        if !self.output.is_empty() && !self.output.ends_with('\n') {
+        // End with exactly one newline: a block string's blank line does not
+        // follow it at the end of the document.
+        let len = self.output.trim_end_matches('\n').len();
+        self.output.truncate(len);
+        if !self.output.is_empty() {
             self.output.push('\n');
         }
 
@@ -2175,10 +2190,19 @@ impl Formatter {
                     v,
                     CstValue::Bytes(CstBytes::Block(_)) | CstValue::String(CstString::Block(_))
                 );
+                // The key sits one level in from the list leader, and a block
+                // string's body one level in from the key.
+                let is_block_string = matches!(v, CstValue::String(CstString::Block(_)));
 
                 self.write_char(' ');
                 self.in_property_value = true;
+                if is_block_string {
+                    self.indent += 1;
+                }
                 self.format_value(v);
+                if is_block_string {
+                    self.indent -= 1;
+                }
                 self.in_property_value = false;
 
                 if !is_block_value {
@@ -2254,7 +2278,17 @@ impl Formatter {
 
                 let base_indent = "  ".repeat(self.indent + 1);
 
-                for line in &b.lines {
+                // Trailing blank lines are not part of the value, and the
+                // canonical form ends every block string with exactly one
+                // blank line, which format_document trims at the end of the
+                // document.
+                let end = b
+                    .lines
+                    .iter()
+                    .rposition(|l| !l.content.is_empty())
+                    .map_or(0, |i| i + 1);
+
+                for line in &b.lines[..end] {
                     if line.content.is_empty() {
                         // Empty lines should have no indent (no trailing spaces)
                         self.newline();
@@ -2269,6 +2303,7 @@ impl Formatter {
                         self.newline();
                     }
                 }
+                self.newline();
             }
         }
     }
@@ -2447,5 +2482,15 @@ mod tests {
     fn test_wrap_comment_text_empty() {
         let result = wrap_comment_text("   ", 80);
         assert_eq!(result.len(), 1);
+    }
+
+    #[test]
+    fn test_non_ascii_keys() {
+        assert_eq!(format_yay("é: 1\n").unwrap(), "é: 1\n");
+        assert_eq!(format_yay("\"é\": 1\n").unwrap(), "\"é\": 1\n");
+        assert_eq!(
+            format_yay("\"日本\":  \"ü\"\n").unwrap(),
+            "\"日本\": \"ü\"\n"
+        );
     }
 }

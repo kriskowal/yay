@@ -1,0 +1,38 @@
+title: "separator"
+body: `
+  First paragraph.
+
+  Second paragraph.
+
+
+
+nested:
+  note: `
+    deep
+
+
+  after: 1
+dedent:
+  inner:
+    text: `
+      two levels in
+
+
+list:
+- `
+    bare
+
+
+- ` same line
+
+- key: `
+    in a list item
+
+
+
+  other: 2
+- "last"
+end: `
+  at the end of the file
+
+

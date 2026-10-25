@@ -3,13 +3,15 @@
 //! Usage: yay [OPTIONS] [FILE|DIR]
 //!
 //! Options:
-//!       -f, --from <FORMAT>    Input format (meh, yay, json, yson, yaml, toml, cbor)
+//!       -f, --from <FORMAT>    Input format (meh, yay, json, yson, yaml, toml, cbor, md, yd)
 //!                              [default: meh, or yay when --check]
-//!   -t, --to <FORMAT>      Output format (yay, json, yson, js, go, python, rust, c, java, scheme, yaml, toml, cbor, diag)
+//!   -t, --to <FORMAT>      Output format (yay, json, yson, js, go, python, rust, c, java, scheme, yaml, toml, cbor, diag, md, yd)
 //!   -w, --write            Write output to file with inferred name
 //!   -o, --output <FILE>    Write output to specified file
 //!   --check                Check if file is valid (exit 0 if valid, 1 if invalid)
 //!                          Defaults to strict YAY input; use --from meh for lenient
+//!   --canonical            Check that the file is valid and already canonical:
+//!                          what -t yay would write (YAY, MEH and markdown input)
 //!   -h, --help             Print help
 //!   -V, --version          Print version
 
@@ -22,6 +24,7 @@ use std::io::{self, Read, Write};
 use std::path::Path;
 use std::process;
 
+mod markdown;
 mod transcode;
 
 /// Check whether a string is a recognized format name for -f or -t.
@@ -48,6 +51,8 @@ fn is_format_name(s: &str) -> bool {
             | "toml"
             | "cbor"
             | "diag"
+            | "md"
+            | "yd"
     )
 }
 
@@ -59,6 +64,7 @@ fn main() {
     let mut write_back = false;
     let mut output_file: Option<&str> = None;
     let mut check_only = false;
+    let mut canonical = false;
     let mut input_path: Option<&str> = None;
     let mut shon_value: Option<Value> = None;
 
@@ -110,6 +116,10 @@ fn main() {
             }
             "--check" => {
                 check_only = true;
+            }
+            "--canonical" => {
+                check_only = true;
+                canonical = true;
             }
             "-" => {
                 // Explicit stdin
@@ -229,6 +239,10 @@ fn main() {
     // Default input format: "yay" (strict) when --check, "meh" (lenient) otherwise.
     // Can always be overridden with --from.
     let from_format = from_format.unwrap_or(if check_only { "yay" } else { "meh" });
+    if canonical && !matches!(from_format, "yay" | "meh" | "md" | "yd") {
+        eprintln!("Error: --canonical applies to yay, meh, md and yd input");
+        process::exit(1);
+    }
 
     // Validate options
     if write_back && output_file.is_some() {
@@ -275,6 +289,7 @@ fn main() {
                 output_format,
                 write_back,
                 check_only,
+                canonical,
             );
             return;
         }
@@ -331,13 +346,21 @@ fn main() {
         output_file,
         write_back,
         check_only,
+        canonical,
     );
     process::exit(exit_code);
 }
 
+/// Mehdown (md) and Yaydown (yd) write the same document: canonical YAY
+/// front matter is both.
+fn is_markdown(format: &str) -> bool {
+    matches!(format, "md" | "yd")
+}
+
 fn parse_format(s: &str) -> Format {
     match s {
-        "yay" | "meh" => Format::Yay,
+        // Markdown is an object {...head, content}; its front matter is YAY.
+        "yay" | "meh" | "md" | "yd" => Format::Yay,
         "json" => Format::Json,
         "yson" => Format::Yson,
         "js" | "javascript" => Format::JavaScript,
@@ -384,6 +407,7 @@ fn process_directory(
     output_format: Format,
     write_back: bool,
     check_only: bool,
+    canonical: bool,
 ) {
     let entries = match fs::read_dir(dir_path) {
         Ok(e) => e,
@@ -418,6 +442,7 @@ fn process_directory(
                 None,
                 write_back,
                 check_only,
+                canonical,
             );
 
             if exit_code != 0 {
@@ -440,6 +465,7 @@ fn process_input(
     output_file: Option<&str>,
     write_back: bool,
     check_only: bool,
+    canonical: bool,
 ) -> i32 {
     let filename = input_file.map(|p| {
         Path::new(p)
@@ -447,6 +473,21 @@ fn process_input(
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| p.to_string())
     });
+
+    if from_format == "md" || from_format == "yd" {
+        return process_markdown(
+            input,
+            input_file,
+            filename.as_deref(),
+            from_format == "yd",
+            output_format_str,
+            output_format,
+            output_file,
+            write_back,
+            check_only,
+            canonical,
+        );
+    }
 
     // For strict YAY mode (--from yay), validate with strict parser first
     if from_format == "yay" {
@@ -468,7 +509,7 @@ fn process_input(
     // For --check mode, just validate
     if check_only {
         // For strict YAY, we already validated above
-        if from_format == "yay" {
+        if from_format == "yay" && !canonical {
             if let Some(path) = input_file {
                 println!("{}: ok", path);
             }
@@ -476,9 +517,15 @@ fn process_input(
         }
 
         // For MEH, validate with MEH parser
-        if from_format == "meh" {
+        if from_format == "yay" || from_format == "meh" {
             match format_yay(input) {
-                Ok(_) => {
+                Ok(formatted) => {
+                    if canonical {
+                        if let Some(e) = canonical_difference(input, &formatted) {
+                            report_not_canonical(input_file, &e);
+                            return 1;
+                        }
+                    }
                     if let Some(path) = input_file {
                         println!("{}: ok", path);
                     }
@@ -693,6 +740,10 @@ fn process_input(
         return 0;
     }
 
+    if is_markdown(output_format_str) {
+        return output_markdown(&value, output_file, write_back, input_file);
+    }
+
     // Check for JSON incompatibility
     if output_format == Format::Json {
         if let Some(reason) = value.json_incompatibility() {
@@ -779,6 +830,10 @@ fn output_value(
     write_back: bool,
     input_file: Option<&str>,
 ) -> i32 {
+    if is_markdown(output_format_str) {
+        return output_markdown(value, output_file, write_back, input_file);
+    }
+
     // For SHON → YAY, encode via the standard encoder
     if output_format_str == "yay" {
         let output = encode(value, Format::Yay);
@@ -851,6 +906,117 @@ fn output_value(
     0
 }
 
+/// Read a markdown document as an object {...head, content}: its front matter
+/// (strict for yd, lenient MEH for md) and its body as `content`.
+#[allow(clippy::too_many_arguments)]
+fn process_markdown(
+    input: &str,
+    input_file: Option<&str>,
+    filename: Option<&str>,
+    strict: bool,
+    output_format_str: &str,
+    output_format: Format,
+    output_file: Option<&str>,
+    write_back: bool,
+    check_only: bool,
+    canonical: bool,
+) -> i32 {
+    let report = |e: &dyn std::fmt::Display| {
+        if let Some(path) = input_file {
+            eprintln!("{}: {}", path, e);
+        } else {
+            eprintln!("Parse error: {}", e);
+        }
+    };
+    let read = match markdown::read(input, filename, strict) {
+        Ok(r) => r,
+        Err(e) => {
+            report(&e);
+            return 1;
+        }
+    };
+    if check_only {
+        if canonical {
+            let out = markdown::normalize(&read);
+            if let Some(e) = canonical_difference(input, &out) {
+                report_not_canonical(input_file, &e);
+                return 1;
+            }
+        }
+        if let Some(path) = input_file {
+            println!("{}: ok", path);
+        }
+        return 0;
+    }
+    if is_markdown(output_format_str) {
+        let out = markdown::normalize(&read);
+        return write_markdown(&out, output_file, write_back, input_file);
+    }
+    output_value(
+        &read.value,
+        output_format_str,
+        output_format,
+        output_file,
+        write_back,
+        input_file,
+    )
+}
+
+/// Write an object {...head, content} as markdown with YAY front matter.
+fn output_markdown(
+    value: &Value,
+    output_file: Option<&str>,
+    write_back: bool,
+    input_file: Option<&str>,
+) -> i32 {
+    match markdown::from_value(value) {
+        Ok(out) => write_markdown(&out, output_file, write_back, input_file),
+        Err(e) => {
+            eprintln!("Error: Cannot convert to markdown: {}", e);
+            1
+        }
+    }
+}
+
+/// Markdown output is written exactly: no newline is added to the body.
+fn write_markdown(
+    output: &str,
+    output_file: Option<&str>,
+    write_back: bool,
+    input_file: Option<&str>,
+) -> i32 {
+    let target = if let Some(path) = output_file {
+        Some(path.to_string())
+    } else if write_back {
+        match input_file {
+            Some(p) => Some(
+                Path::new(p)
+                    .with_extension("md")
+                    .to_string_lossy()
+                    .to_string(),
+            ),
+            None => {
+                eprintln!("Error: --write requires an input file");
+                return 1;
+            }
+        }
+    } else {
+        None
+    };
+    match target {
+        Some(path) => {
+            if let Err(e) = fs::write(&path, output) {
+                eprintln!("Error writing {}: {}", path, e);
+                return 1;
+            }
+        }
+        None => {
+            print!("{}", output);
+        }
+    }
+    0
+}
+
 fn write_text_output(
     output: &str,
     output_file: Option<&str>,
@@ -919,6 +1085,69 @@ fn write_binary_output(
     }
 }
 
+/// The first line where a document differs from its canonical form, as a
+/// message, or None when it is canonical.
+fn canonical_difference(actual: &str, canonical: &str) -> Option<String> {
+    if actual == canonical {
+        return None;
+    }
+    let mut a = actual.split_inclusive('\n');
+    let mut c = canonical.split_inclusive('\n');
+    let mut n = 0;
+    loop {
+        n += 1;
+        match (a.next(), c.next()) {
+            (Some(x), Some(y)) if x == y => continue,
+            (Some(_), Some("\n")) => {
+                return Some(format!(
+                    "not canonical at line {}: expected a blank line (after a block string)",
+                    n
+                ))
+            }
+            (Some("\n"), _) => {
+                return Some(format!(
+                    "not canonical at line {}: unexpected blank line",
+                    n
+                ))
+            }
+            (Some(x), Some(y)) => {
+                return Some(format!(
+                    "not canonical at line {}: expected {:?}, found {:?}",
+                    n,
+                    y.trim_end_matches('\n'),
+                    x.trim_end_matches('\n')
+                ))
+            }
+            (Some(_), None) => {
+                return Some(format!(
+                    "not canonical at line {}: expected the end of the document",
+                    n
+                ))
+            }
+            (None, Some(y)) => {
+                return Some(format!(
+                    "not canonical at line {}: expected {:?}",
+                    n,
+                    y.trim_end_matches('\n')
+                ))
+            }
+            (None, None) => {
+                return Some(format!(
+                    "not canonical at line {}: the last line must end with a newline",
+                    n - 1
+                ))
+            }
+        }
+    }
+}
+
+fn report_not_canonical(input_file: Option<&str>, e: &str) {
+    match input_file {
+        Some(path) => eprintln!("{}: {}", path, e),
+        None => eprintln!("{}", e),
+    }
+}
+
 fn print_help() {
     println!(
         "yay - YAY command-line tool
@@ -932,7 +1161,9 @@ ARGS:
 
 OPTIONS:
     -f, --from <FORMAT>    Input format [default: meh, or yay when --check]
-                           Supported: meh, yay, json, yson, yaml, toml, cbor
+                           Supported: meh, yay, json, yson, yaml, toml, cbor,
+                           md (Mehdown: markdown, front matter read as MEH),
+                           yd (Yaydown: markdown, strict YAY front matter)
                            
                            'meh' (default) accepts loose formatting and reformats
                            to canonical YAY. 'yay' enforces strict YAY syntax
@@ -943,7 +1174,7 @@ OPTIONS:
     
     -t, --to <FORMAT>      Output format
                            Supported: yay, json, yson, js, go, python, rust, c,
-                                      java, scheme, yaml, toml, cbor, diag
+                                      java, scheme, yaml, toml, cbor, diag, md, yd
     
     -w, --write            Write output to file with inferred extension
     
@@ -951,6 +1182,10 @@ OPTIONS:
     
     --check                Check if input is valid (exit 0 if valid, 1 if invalid)
                            Defaults to strict YAY input; use --from meh for lenient
+
+    --canonical            Check that input is valid and already canonical: that
+                           -t yay (or -t md, -t yd) would write it unchanged. For yay,
+                           meh, md and yd input; implies --check
     
     -h, --help             Print help
     
@@ -968,6 +1203,9 @@ EXAMPLES:
     
     # Validate all YAY files in a directory strictly
     yay --check ./configs/
+
+    # Check that a YAY file is valid and in canonical form
+    yay --canonical config.yay
     
     # Convert YAY to JSON (lenient input)
     yay -t json config.yay

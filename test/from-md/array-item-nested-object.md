@@ -1,0 +1,6 @@
+---
+steps:
+  - run:
+      command: "make"
+  - "A plain item after an item holding an object"
+---

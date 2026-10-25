@@ -47,6 +47,17 @@ if [[ ! -x "$YAY" ]]; then
   exit 1
 fi
 
+# Put the built yay first on PATH, so that an example the rewrite below
+# misses (such as "YAY_WRAP=120 yay ...") runs the built binary, not
+# whatever yay is installed, nor none.
+mkdir "$TEMP_DIR/bin"
+ln -s "$(cd "$(dirname "$YAY")" && pwd)/yay" "$TEMP_DIR/bin/yay"
+export PATH="$TEMP_DIR/bin:$PATH"
+if [[ "$(command -v yay)" != "$TEMP_DIR/bin/yay" ]]; then
+  echo "Error: yay on PATH is not the built binary"
+  exit 1
+fi
+
 # Create sample test files in temp directory
 create_test_files() {
   # config.yay - simple config file
@@ -199,7 +210,7 @@ run_example() {
   local line_num="$4"
   local expects_error="$5"
 
-  ((tests_run++))
+  tests_run=$((tests_run + 1))
 
   local cmd
   cmd=$(transform_command "$original_cmd")
@@ -212,7 +223,7 @@ run_example() {
   # For --check commands, we just verify exit code
   if [[ "$original_cmd" =~ --check ]]; then
     if [[ $status -eq 0 ]]; then
-      ((tests_passed++))
+      tests_passed=$((tests_passed + 1))
       echo -e "${GREEN}PASS${NC}: line $line_num: $original_cmd"
       return 0
     else
@@ -230,7 +241,7 @@ run_example() {
       # Command failed as expected, check output if specified
       if [[ "$has_expected" == true ]]; then
         if [[ "$output" == "$expected" ]]; then
-          ((tests_passed++))
+          tests_passed=$((tests_passed + 1))
           echo -e "${GREEN}PASS${NC}: line $line_num: $original_cmd (expected error)"
           return 0
         else
@@ -244,7 +255,7 @@ run_example() {
         fi
       else
         # Just expected to fail, no specific output required
-        ((tests_passed++))
+        tests_passed=$((tests_passed + 1))
         echo -e "${GREEN}PASS${NC}: line $line_num: $original_cmd (expected error)"
         return 0
       fi
@@ -260,7 +271,7 @@ run_example() {
   # For commands with expected output, verify it
   if [[ "$has_expected" == true ]]; then
     if [[ "$output" == "$expected" ]]; then
-      ((tests_passed++))
+      tests_passed=$((tests_passed + 1))
       echo -e "${GREEN}PASS${NC}: line $line_num: $original_cmd"
       return 0
     else
@@ -276,7 +287,7 @@ run_example() {
 
   # For commands without expected output, just verify they succeed
   if [[ $status -eq 0 ]]; then
-    ((tests_passed++))
+    tests_passed=$((tests_passed + 1))
     echo -e "${GREEN}PASS${NC}: line $line_num: $original_cmd"
     return 0
   else
@@ -299,7 +310,7 @@ main() {
   local line_num=0
 
   while IFS= read -r line; do
-    ((line_num++))
+    line_num=$((line_num + 1))
 
     if [[ "$in_code_block" == true ]]; then
       if [[ "$line" == '```' ]]; then

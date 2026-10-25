@@ -1,0 +1,9 @@
+outer:
+  inner:
+    text: `
+      Two levels in.
+
+  sibling: `
+    One level in.
+
+after: 1

@@ -1,0 +1,4 @@
+---
+content: 42
+title: "A number"
+---

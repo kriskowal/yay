@@ -1,0 +1,1 @@
+Map.of("items", List.of("\nBare.\n", "Same line.\n", Map.of("body", "Last property of a list item.\n", "title", "a"), Map.of("body", "First property of a list item.\n", "title", "b")), "next", BigInteger.valueOf(1))

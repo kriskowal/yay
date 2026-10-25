@@ -155,6 +155,10 @@ function scan(source, ctx = {}) {
   }
   const lines = [];
   const lineStrings = source.split(/\n/);
+  // While inside a block string, the column that ends it: the indent of a
+  // bare opener, or the key's column for a property opener. Its content
+  // lines are literal: no list leaders, no "-" or "*" checks, no comments.
+  let blockOpener = -1;
   for (let i = 0; i < lineStrings.length; i++) {
     const lineStr = lineStrings[i];
     if (lineStr.length > 0 && lineStr.charCodeAt(lineStr.length - 1) === 0x20) {
@@ -167,6 +171,13 @@ function scan(source, ctx = {}) {
       indent++;
     }
     const rest = lineStr.slice(indent);
+    if (blockOpener >= 0) {
+      if (lineStr.length === 0 || indent > blockOpener) {
+        lines.push({ line: rest, indent, leader: "", lineNum: i });
+        continue;
+      }
+      blockOpener = -1;
+    }
     if (rest.startsWith("#") && indent === 0) {
       continue; // comment only at column 0
     }
@@ -204,9 +215,23 @@ function scan(source, ctx = {}) {
     ) {
       throw new Error('Unexpected character "*"' + locSuffix(ctx, i, indent));
     }
+    if (isBareBlockOpener(line)) {
+      blockOpener = indent;
+    } else if (line.endsWith(": `")) {
+      blockOpener = indent + (rest.length - line.length);
+    }
     lines.push({ line, indent, leader, lineNum: i });
   }
   return lines;
+}
+
+/**
+ * Whether a line's content (after any list leader) is a bare "`" or
+ * "` text" block string opener.
+ * @param {string} line
+ */
+function isBareBlockOpener(line) {
+  return line === "`" || line.startsWith("` ");
 }
 
 // --- Outline Lexer: lines -> tokens { type, text, indent?, lineNum?, col? } ---
@@ -219,10 +244,10 @@ function outlineLex(lines) {
   const tokens = [];
   let stack = [0];
   let top = 0;
-  let broken = false;
   for (const { line, indent, leader, lineNum } of lines) {
-    // Close blocks on dedent.
-    while (indent < top) {
+    // Close blocks on dedent. A blank line has no indent of its own, so it
+    // closes nothing.
+    while (line.length > 0 && indent < top) {
       tokens.push({ type: "stop", text: "" });
       stack.pop();
       top = stack[stack.length - 1];
@@ -237,7 +262,6 @@ function outlineLex(lines) {
       });
       stack.push(indent);
       top = indent;
-      broken = false;
     } else if (leader.length > 0 && indent === top) {
       tokens.push({ type: "stop", text: "" });
       tokens.push({
@@ -247,14 +271,13 @@ function outlineLex(lines) {
         lineNum,
         col: indent,
       });
-      broken = false;
     }
+    // Every blank line is a break, so that a block string keeps a run of
+    // blank lines.
     if (line.length > 0) {
       tokens.push({ type: "text", text: line, indent, lineNum, col: indent });
-      broken = false;
-    } else if (!broken) {
+    } else {
       tokens.push({ type: "break", text: "", lineNum, col: indent });
-      broken = true;
     }
   }
   while (stack.length > 1) {
@@ -1730,8 +1753,8 @@ function parseObjectOrNamedArray(tokens, i, key, ctx = {}) {
     }
   }
   if (first && first.type === "start" && first.text === "-") {
-    const [arr] = parseListArray(tokens, i);
-    return [{ [key]: arr }, skipToNextKey(tokens, i, baseIndent)];
+    const [arr, next] = parseListArray(tokens, i);
+    return [{ [key]: arr }, next];
   }
   // Note: '*' syntax for multiline bytes is rejected by the scanner
   // Note: "key: <" without closing ">" is invalid - inline byte arrays must be closed on the same line
@@ -1751,14 +1774,19 @@ function parseObjectOrNamedArray(tokens, i, key, ctx = {}) {
       "Unexpected indent" + locSuffix(ctx, first.lineNum ?? 0, 0),
     );
   }
-  // Concatenated quoted strings (multiple quoted strings on consecutive lines)
+  // Concatenated quoted strings (multiple quoted strings on consecutive lines).
+  // A quoted line with a colon outside its quotes is a property with a quoted
+  // key, which opens a nested object.
   if (first && first.type === "text") {
     const trimmed = first.text.trim();
     if (
-      (trimmed.startsWith('"') &&
+      ((trimmed.startsWith('"') &&
         trimmed.endsWith('"') &&
         trimmed.length >= 2) ||
-      (trimmed.startsWith("'") && trimmed.endsWith("'") && trimmed.length >= 2)
+        (trimmed.startsWith("'") &&
+          trimmed.endsWith("'") &&
+          trimmed.length >= 2)) &&
+      !splitKeyValue(first.text, first.col ?? 0, ctx, first.lineNum ?? 0)
     ) {
       const result = parseConcatenatedStrings(tokens, i, baseIndent, ctx);
       if (result !== null) {
@@ -1884,17 +1912,6 @@ function parseObjectOrNamedArray(tokens, i, key, ctx = {}) {
   return [{ [key]: Object.keys(obj).length ? obj : undefined }, i];
 }
 
-function skipToNextKey(tokens, i, baseIndent) {
-  while (
-    i < tokens.length &&
-    tokens[i].type !== "stop" &&
-    (tokens[i].indent ?? 0) > baseIndent
-  )
-    i++;
-  while (i < tokens.length && tokens[i].type === "stop") i++;
-  return i;
-}
-
 /**
  * @param {Token[]} tokens
  * @param {number} i
@@ -1916,6 +1933,9 @@ function parseObjectBlock(tokens, i, baseIndent, ctx = {}, inlineIndent) {
       i++;
       continue;
     }
+    // A list leader outdented past this object begins the next item of an
+    // enclosing list.
+    if (t.type === "start" && (t.indent ?? 0) < baseIndent) break;
     if (t.type !== "text") {
       i++;
       continue;
@@ -1954,12 +1974,14 @@ function parseObjectBlock(tokens, i, baseIndent, ctx = {}, inlineIndent) {
     }
     // Block string in property context: backtick alone on line
     if (vPart.trim() === "`") {
+      // The block ends at the key's column, which for "- key: `" is past
+      // the list leader.
       const [body, next] = parseBlockStringWithIndent(
         tokens,
         i,
         "",
         true,
-        t.indent ?? 0,
+        indent,
       );
       obj[k] = body;
       i = next;

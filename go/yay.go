@@ -197,6 +197,10 @@ func validateCodePoints(source string, ctx *parseContext) error {
 func scanLines(source string, ctx *parseContext) ([]scanLine, error) {
 	var lines []scanLine
 	lineStrings := strings.Split(source, "\n")
+	// While inside a block string, the column that ends it: the indent of a
+	// bare opener, or the key's column for a property opener. Its content
+	// lines are literal: no list leaders, no "-" or "*" checks, no comments.
+	blockOpener := -1
 
 	for lineNum, lineStr := range lineStrings {
 		// Validate: No trailing spaces
@@ -209,6 +213,14 @@ func scanLines(source string, ctx *parseContext) ([]scanLine, error) {
 
 		rest := lineStr[indent:]
 
+		if blockOpener >= 0 {
+			if len(lineStr) == 0 || indent > blockOpener {
+				lines = append(lines, scanLine{line: rest, indent: indent, lineNum: lineNum})
+				continue
+			}
+			blockOpener = -1
+		}
+
 		// Skip top-level comments
 		if strings.HasPrefix(rest, "#") && indent == 0 {
 			continue
@@ -220,6 +232,12 @@ func scanLines(source string, ctx *parseContext) ([]scanLine, error) {
 			return nil, err
 		}
 
+		if isBareBlockOpener(content) {
+			blockOpener = indent
+		} else if strings.HasSuffix(content, ": `") {
+			blockOpener = indent + len(leader)
+		}
+
 		lines = append(lines, scanLine{
 			line:    content,
 			indent:  indent,
@@ -229,6 +247,12 @@ func scanLines(source string, ctx *parseContext) ([]scanLine, error) {
 	}
 
 	return lines, nil
+}
+
+// isBareBlockOpener reports whether a line's content (after any list leader)
+// is a bare "`" or "` text" block string opener.
+func isBareBlockOpener(content string) bool {
+	return content == "`" || strings.HasPrefix(content, "` ")
 }
 
 // countIndent returns the number of leading spaces in a line.
@@ -275,24 +299,26 @@ func extractLeader(rest string, lineNum, indent int, ctx *parseContext) (string,
 //   - tokenStart: When a list item begins or indent increases
 //   - tokenStop: When indent decreases (block ends)
 //   - tokenText: Line content
-//   - tokenBreak: Blank lines (coalesced)
+//   - tokenBreak: Blank lines, one per line
 
 // outlineLex converts scan lines to a token stream with block markers.
 func outlineLex(lines []scanLine) []token {
 	var tokens []token
 	stack := []int{0} // Indent level stack, starts at 0
 	top := 0          // Current indent level
-	broken := false   // Whether we just emitted a break
 
 	for _, sl := range lines {
-		// Emit stops for each level we dedent past
-		tokens, stack, top = emitDedents(tokens, stack, top, sl.indent)
+		// Emit stops for each level we dedent past. A blank line has no
+		// indent of its own, so it closes nothing.
+		if len(sl.line) > 0 {
+			tokens, stack, top = emitDedents(tokens, stack, top, sl.indent)
+		}
 
 		// Emit start for list items
-		tokens, stack, top, broken = emitListStart(tokens, stack, top, broken, sl)
+		tokens, stack, top = emitListStart(tokens, stack, top, sl)
 
 		// Emit text or break
-		tokens, broken = emitContent(tokens, broken, sl)
+		tokens = emitContent(tokens, sl)
 	}
 
 	// Close any remaining open blocks
@@ -312,9 +338,9 @@ func emitDedents(tokens []token, stack []int, top, indent int) ([]token, []int, 
 }
 
 // emitListStart emits start tokens for list items.
-func emitListStart(tokens []token, stack []int, top int, broken bool, sl scanLine) ([]token, []int, int, bool) {
+func emitListStart(tokens []token, stack []int, top int, sl scanLine) ([]token, []int, int) {
 	if len(sl.leader) == 0 {
-		return tokens, stack, top, broken
+		return tokens, stack, top
 	}
 
 	if sl.indent > top {
@@ -328,7 +354,6 @@ func emitListStart(tokens []token, stack []int, top int, broken bool, sl scanLin
 		})
 		stack = append(stack, sl.indent)
 		top = sl.indent
-		broken = false
 	} else if sl.indent == top {
 		// Sibling item - close previous, start new
 		tokens = append(tokens, token{typ: tokenStop, text: ""})
@@ -339,37 +364,31 @@ func emitListStart(tokens []token, stack []int, top int, broken bool, sl scanLin
 			lineNum: sl.lineNum,
 			col:     sl.indent,
 		})
-		broken = false
 	}
 
-	return tokens, stack, top, broken
+	return tokens, stack, top
 }
 
-// emitContent emits text or break tokens for line content.
-func emitContent(tokens []token, broken bool, sl scanLine) ([]token, bool) {
+// emitContent emits a text token for line content, or a break for a blank
+// line. Every blank line is a break, so that a block string keeps a run of
+// blank lines.
+func emitContent(tokens []token, sl scanLine) []token {
 	if len(sl.line) > 0 {
-		tokens = append(tokens, token{
+		return append(tokens, token{
 			typ:     tokenText,
 			text:    sl.line,
 			indent:  sl.indent,
 			lineNum: sl.lineNum,
 			col:     sl.indent,
 		})
-		return tokens, false
 	}
 
-	// Empty line - emit break if not already broken
-	if !broken {
-		tokens = append(tokens, token{
-			typ:     tokenBreak,
-			text:    "",
-			lineNum: sl.lineNum,
-			col:     sl.indent,
-		})
-		return tokens, true
-	}
-
-	return tokens, broken
+	return append(tokens, token{
+		typ:     tokenBreak,
+		text:    "",
+		lineNum: sl.lineNum,
+		col:     sl.indent,
+	})
 }
 
 // emitFinalStops closes any remaining open blocks.
@@ -510,8 +529,8 @@ func parseTextValue(tokens []token, i int, ctx *parseContext) (any, int, error) 
 		return parseBlockStringWithIndent(tokens, i, firstLine, false, t.indent)
 	}
 
-	// Try quoted string
-	if isQuotedString(s) {
+	// Try quoted string, unless it is a quoted key followed by a colon
+	if isQuotedString(s) && findColonOutsideQuotes(s) < 0 {
 		str, err := parseQuotedString(s, ctx, t.lineNum, t.col)
 		if err != nil {
 			return nil, 0, err
@@ -2042,13 +2061,25 @@ func parseKeyValuePair(tokens []token, i, colonIdx int, ctx *parseContext) (any,
 		valueCol += valueOffset
 	}
 
+	// A missing key, nothing before the colon, is no key; the empty key "" is
+	// a key.
+
 	// Empty value part means nested content follows
-	if valuePart == "" && len(key) > 0 {
+	if valuePart == "" && keyRaw != "" {
 		return parseObjectOrNamedArray(tokens, i, key, ctx)
 	}
 
+	// Block string: "key: `" followed by indented content
+	if keyRaw != "" && valuePart == "`" {
+		body, j, err := parseBlockStringWithIndent(tokens, i, "", true, keyColumn(tokens, i))
+		if err != nil {
+			return nil, 0, err
+		}
+		return map[string]any{key: body}, j, nil
+	}
+
 	// Block bytes
-	if len(key) > 0 && isBlockBytesStart(valuePart) {
+	if keyRaw != "" && isBlockBytesStart(valuePart) {
 		bytes, j, err := parseBlockBytesFromKeyLine(tokens, i, ctx, t.indent, valuePart)
 		if err != nil {
 			return nil, 0, err
@@ -2057,7 +2088,7 @@ func parseKeyValuePair(tokens []token, i, colonIdx int, ctx *parseContext) (any,
 	}
 
 	// Inline value
-	if len(key) > 0 {
+	if keyRaw != "" {
 		var value any
 		if valuePart != "" {
 			var err error
@@ -2072,6 +2103,17 @@ func parseKeyValuePair(tokens []token, i, colonIdx int, ctx *parseContext) (any,
 	return nil, i + 1, nil
 }
 
+// keyColumn returns the column of the property key on token i: the line's
+// indent, plus the list leader when the property opens a list item
+// ("- key: `").
+func keyColumn(tokens []token, i int) int {
+	t := tokens[i]
+	if i > 0 && tokens[i-1].typ == tokenStart && tokens[i-1].lineNum == t.lineNum {
+		return t.indent + len(tokens[i-1].text)
+	}
+	return t.indent
+}
+
 // isBlockBytesStart checks if valuePart starts block bytes.
 func isBlockBytesStart(valuePart string) bool {
 	trimmed := strings.TrimSpace(valuePart)
@@ -2082,9 +2124,14 @@ func isBlockBytesStart(valuePart string) bool {
 func findColonOutsideQuotes(s string) int {
 	inDouble := false
 	inSingle := false
+	escaped := false
 
 	for i, c := range s {
-		if c == '"' && !inSingle {
+		if escaped {
+			escaped = false
+		} else if c == '\\' && inDouble {
+			escaped = true
+		} else if c == '"' && !inSingle {
 			inDouble = !inDouble
 		} else if c == '\'' && !inDouble {
 			inSingle = !inSingle
@@ -2099,8 +2146,11 @@ func findColonOutsideQuotes(s string) int {
 func parseKeyName(s string) string {
 	s = strings.TrimSpace(s)
 
-	// Double-quoted key
+	// Double-quoted key, with the same escapes as a double-quoted string
 	if strings.HasPrefix(s, "\"") && strings.HasSuffix(s, "\"") && len(s) >= 2 {
+		if key, err := parseDoubleQuotedString(s, &parseContext{}, 0, 0); err == nil {
+			return key
+		}
 		inner := s[1 : len(s)-1]
 		inner = strings.ReplaceAll(inner, "\\\"", "\"")
 		inner = strings.ReplaceAll(inner, "\\\\", "\\")
@@ -2230,6 +2280,12 @@ func parseNestedObjectContent(tokens []token, i, baseIndent int, ctx *parseConte
 			continue
 		}
 
+		// A list leader outdented past this object begins the next item of an
+		// enclosing list.
+		if t.typ == tokenStart && t.indent < baseIndent {
+			break
+		}
+
 		if t.typ == tokenText {
 			// Reject inline values on separate line (they look like keys starting with special chars)
 			if len(t.text) > 0 && (t.text[0] == '{' || t.text[0] == '[' || t.text[0] == '<') {
@@ -2249,7 +2305,7 @@ func parseNestedObjectContent(tokens []token, i, baseIndent int, ctx *parseConte
 			k := parseKeyName(kRaw)
 			vPart := strings.TrimSpace(t.text[colonIdx+1:])
 
-			if k == "" {
+			if kRaw == "" {
 				i++
 				continue
 			}
@@ -2277,7 +2333,7 @@ func parseObjectPropertyValue(tokens []token, i int, t token, key, vPart string,
 
 	// Block string in property context: backtick alone on line
 	if strings.TrimSpace(vPart) == "`" {
-		body, next, err := parseBlockStringWithIndent(tokens, i, "", true, t.indent)
+		body, next, err := parseBlockStringWithIndent(tokens, i, "", true, keyColumn(tokens, i))
 		if err != nil {
 			return nil, 0, err
 		}
@@ -2527,8 +2583,11 @@ func parseRootNestedContent(tokens []token, i int, ctx *parseContext) (any, int,
 	// Concatenated quoted strings (multiple quoted strings on consecutive lines)
 	if nextT.typ == tokenText && nextT.indent > 0 {
 		trimmed := strings.TrimSpace(nextT.text)
-		if (strings.HasPrefix(trimmed, "\"") && strings.HasSuffix(trimmed, "\"") && len(trimmed) >= 2) ||
-			(strings.HasPrefix(trimmed, "'") && strings.HasSuffix(trimmed, "'") && len(trimmed) >= 2) {
+		// A quoted line with a colon outside its quotes is a property with a
+		// quoted key, which opens a nested object.
+		if ((strings.HasPrefix(trimmed, "\"") && strings.HasSuffix(trimmed, "\"") && len(trimmed) >= 2) ||
+			(strings.HasPrefix(trimmed, "'") && strings.HasSuffix(trimmed, "'") && len(trimmed) >= 2)) &&
+			findColonOutsideQuotes(trimmed) < 0 {
 			concatStr, next, err := parseConcatenatedStrings(tokens, j, nextT.indent, ctx)
 			if err != nil {
 				return nil, 0, err

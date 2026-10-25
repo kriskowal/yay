@@ -44,11 +44,12 @@ When a directory is specified, processes all `.yay` files recursively.
 
 | Option | Description |
 |--------|-------------|
-| `-f, --from FORMAT` | Input format (default: `meh`); supported: `meh`, `yay`, `json`, `yson` |
-| `-t, --to FORMAT` | Output format (default: `yay`); supported: `yay`, `json`, `yson`, `js`, `go`, `python`, `rust`, `c`, `java`, `scheme` |
+| `-f, --from FORMAT` | Input format (default: `meh`); supported: `meh`, `yay`, `json`, `yson`, `md`, `yd` |
+| `-t, --to FORMAT` | Output format (default: `yay`); supported: `yay`, `json`, `yson`, `js`, `go`, `python`, `rust`, `c`, `java`, `scheme`, `md`, `yd` |
 | `-w, --write` | Write output to file with inferred extension |
 | `-o, --output FILE` | Write output to specified file (not valid with directory input) |
 | `--check` | Validate without producing output (exit 0 if valid, 1 if invalid) |
+| `--canonical` | Validate, and require the canonical form: what `-t yay` (or `-t md`, `-t yd`) would write. Implies `--check` |
 | `-h, --help` | Print help |
 | `-V, --version` | Print version |
 
@@ -60,6 +61,9 @@ When a directory is specified, processes all `.yay` files recursively.
   Use this to validate that files conform to the canonical format.
 - **`json`**: Standard JSON input.
 - **`yson`**: JSON extended with YAY features (big integers, byte arrays).
+- **`md`** (Mehdown): Markdown with YAY front matter, read as an object (see
+  [Markdown](#markdown)). The front matter is read leniently, as MEH.
+- **`yd`** (Yaydown): The same, with strict YAY front matter.
 
 ## Output Formats
 
@@ -163,6 +167,101 @@ Generates Scheme code representing the value.
 yay -t scheme input.yay
 ```
 
+## Markdown
+
+binyay reads markdown with YAY front matter in two flavors, named for how
+strictly they read the front matter: **Mehdown** (`md`) reads it leniently, as
+MEH, and **Yaydown** (`yd`) as strict YAY.
+
+A markdown document is an object, `{...head, content}`: its front matter holds
+every property except `content`, and its body is `content`, byte for byte.
+One blank line separates the front matter from the body; it is syntax, not
+part of `content`.
+
+```markdown
+---
+created: "2026-10-10"
+author: "kris"
+---
+
+# Title
+```
+
+reads as `{author: "kris", content: "# Title\n", created: "2026-10-10"}`.
+
+```bash
+yay -f md -t md README.md        # Reformat the front matter, leave the body alone
+yay -f md -t yson README.md      # {"author": ..., "content": "...", ...}
+yay -f yd --check README.md      # Strict front matter
+yay -f yson -t md record.yson    # An object back to markdown
+```
+
+Front matter opens with a `---` line at the very start of the document and ends
+at the next line that is exactly `---`.
+Its content is YAY, and must be an object.
+After the closing `---` line comes one blank line, then the body, which runs
+to the end of the document.
+A document without front matter is all body.
+
+Mehdown and Yaydown differ in how strictly they read:
+
+- `-f md` (Mehdown) reads front matter leniently, as MEH, and skips any blank
+  lines (empty, or only spaces and tabs) between the closing `---` and the
+  body: none, one or several.
+- `-f yd` (Yaydown) reads front matter as strict YAY, and wants exactly one
+  empty line between the closing `---` and a body, and nothing after the
+  closing `---` when there is no body.
+  `yay -f yd --check` refuses a document with no blank line there, with more
+  than one, with spaces on it, or with a blank line and no body after it.
+
+The two read every document that Yaydown accepts as the same object.
+
+Reading a document:
+
+- Each front matter property becomes a property of the object.
+- A non-empty body becomes `content`.
+  A document whose front matter has `content`, of any type, and that also has
+  a non-empty body, is refused.
+- An empty body adds nothing, so a document with front matter only is just its
+  front matter, and an empty document is `{}`.
+- Front matter that is not an object (a list or a scalar) is refused.
+
+Writing an object (`-t md` or `-t yd`):
+
+- `-t md` and `-t yd` write the same document. Its front matter is canonical
+  YAY, so the document is both valid Mehdown and valid Yaydown.
+- Only an object can be written; an array or a scalar is refused.
+- When `content` is a string that is not empty, the front matter is every other
+  property and the body is `content`, written exactly, with no newline added,
+  after the closing `---` and one blank line.
+- Otherwise, when `content` is absent, empty, or not a string, the front matter
+  is the whole object and the body is empty.
+  So `{content: ""}` writes `content: ""` in the front matter, and an object
+  without `content` writes front matter only, with nothing after the closing
+  `---`.
+- A `content` whose first line is blank cannot follow front matter as a body,
+  since the blank line there is the separator; when the object has other
+  properties, it stays in the front matter as a string instead.
+  `{content: "\nx\n", title: "t"}` writes `content: "\nx\n"` and
+  `title: "t"` between the fences.
+  An object with `content` alone writes no front matter, so its body keeps its
+  leading blank lines.
+- Front matter is written one property per line, keys in order, and only when
+  there is a property to write.
+  A body that would itself read as front matter (it starts with a `---` line)
+  gets empty fences, `---` and `---`, and the blank line before it.
+- A property named `content` below the top level is an ordinary property.
+
+These make the mapping exact both ways: every object reads back from the
+document it writes, and every document that `-t md` (or `-t yd`) writes is the
+document its object writes.
+`-f md -t md` normalizes a document to that form, with one blank line after
+the front matter however many it read, except that it keeps the front matter's
+key order and comments.
+A front matter `content` that is a non-empty string, with an empty body, reads
+the same as a body, and normalizing moves it into the body when a body can
+carry it (reformatting the front matter from its value).
+
 ## Validation Mode
 
 Use `--check` to validate files without producing output:
@@ -177,6 +276,16 @@ For strict validation (ensuring files conform to canonical YAY syntax):
 ```bash
 yay --from yay --check input.yay        # Strict validation
 yay --from yay --check directory/       # Strict validation of all files
+```
+
+To require the canonical form as well, use `--canonical`. A document passes
+when the formatter would write it unchanged; otherwise binyay names the first
+line that differs, and `yay -t yay` (or `yay -f md -t md`) fixes it. It reads
+strict YAY by default, and takes `--from meh`, `md` (Mehdown) or `yd` (Yaydown).
+
+```bash
+yay --canonical input.yay               # Strict and canonical
+yay -f yd --canonical README.md         # Yaydown: front matter strict, document canonical
 ```
 
 ## Formatting Behavior
@@ -299,6 +408,24 @@ Hex content in byte arrays is normalized with consistent spacing:
 data: >
   ca fe ba be  de ad be ef
   00 11 22 33  44 55 66 77
+```
+
+### Block Strings
+
+A block string keeps its content lines and the runs of blank lines within
+them. Its trailing blank lines are dropped, since they are not part of its
+value, and it is followed by exactly one blank line, unless it is the last
+thing in the document:
+
+```yay
+summary: `
+  First paragraph.
+
+  Second paragraph.
+
+author: "Ada Lovelace"
+notes: `
+  The last field.
 ```
 
 ## Environment Variables

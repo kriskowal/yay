@@ -519,6 +519,13 @@ static void add_scan_line(parse_ctx_t *ctx, const char *line, int indent,
     sl->line_num = line_num;
 }
 
+/* Whether a line's content (after any list leader) is a bare "`" or
+ * "` text" block string opener. */
+static bool is_bare_block_opener(const char *content, size_t content_len) {
+    return (content_len == 1 && content[0] == '`') ||
+           (content_len >= 2 && content[0] == '`' && content[1] == ' ');
+}
+
 static bool scan(parse_ctx_t *ctx) {
     const char *src = ctx->source;
     size_t len = ctx->source_len;
@@ -586,6 +593,10 @@ static bool scan(parse_ctx_t *ctx) {
     /* Process lines */
     const char *line_start = src;
     int line_num = 0;
+    /* While inside a block string, the column that ends it: the indent of a
+     * bare opener, or the key's column for a property opener. Its content
+     * lines are literal: no list leaders, no "-" or "*" checks, no comments. */
+    int block_opener = -1;
     
     while (line_start <= src + len) {
         /* Find end of line */
@@ -611,6 +622,19 @@ static bool scan(parse_ctx_t *ctx) {
         
         const char *rest = line_start + indent;
         size_t rest_len = line_len - indent;
+        
+        if (block_opener >= 0) {
+            if (line_len == 0 || indent > block_opener) {
+                char *literal = str_dup_len(rest, rest_len);
+                add_scan_line(ctx, literal, indent, "", line_num);
+                free(literal);
+                if (line_end >= src + len) break;
+                line_start = line_end + 1;
+                line_num++;
+                continue;
+            }
+            block_opener = -1;
+        }
         
         /* Skip top-level comments */
         if (rest_len > 0 && rest[0] == '#' && indent == 0) {
@@ -644,6 +668,13 @@ static bool scan(parse_ctx_t *ctx) {
             ctx->error = make_error(ctx, line_num, indent, 
                                     "Unexpected character \"*\"");
             return false;
+        }
+        
+        if (is_bare_block_opener(content, content_len)) {
+            block_opener = indent;
+        } else if (content_len >= 3 &&
+                   memcmp(content + content_len - 3, ": `", 3) == 0) {
+            block_opener = indent + (int)(content - rest);
         }
         
         /* Add the line */
@@ -683,13 +714,13 @@ static void outline_lex(parse_ctx_t *ctx) {
     int stack_top = 0;
     stack[0] = 0;
     int top = 0;
-    bool broken = false;
     
     for (size_t i = 0; i < ctx->line_count; i++) {
         scan_line_t *sl = &ctx->lines[i];
         
-        /* Emit stops for dedent */
-        while (sl->indent < top) {
+        /* Emit stops for dedent. A blank line has no indent of its own, so
+         * it closes nothing. */
+        while (sl->line[0] != '\0' && sl->indent < top) {
             add_token(ctx, TOKEN_STOP, "", 0, 0, 0);
             stack_top--;
             top = stack[stack_top];
@@ -702,23 +733,20 @@ static void outline_lex(parse_ctx_t *ctx) {
                          sl->line_num, sl->indent);
                 stack[++stack_top] = sl->indent;
                 top = sl->indent;
-                broken = false;
             } else if (sl->indent == top) {
                 add_token(ctx, TOKEN_STOP, "", 0, 0, 0);
                 add_token(ctx, TOKEN_START, sl->leader, sl->indent,
                          sl->line_num, sl->indent);
-                broken = false;
             }
         }
         
-        /* Emit text or break */
+        /* Emit text or break. Every blank line is a break, so that a block
+         * string keeps a run of blank lines. */
         if (strlen(sl->line) > 0) {
             add_token(ctx, TOKEN_TEXT, sl->line, sl->indent, 
                      sl->line_num, sl->indent);
-            broken = false;
-        } else if (!broken) {
+        } else {
             add_token(ctx, TOKEN_BREAK, "", sl->line_num, sl->indent, 0);
-            broken = true;
         }
     }
     
@@ -798,6 +826,9 @@ static int find_colon_outside_quotes(const char *s) {
     return -1;
 }
 
+static yay_value_t *parse_double_quoted_string(parse_ctx_t *ctx, const char *s,
+                                                int line_num, int col);
+
 /* Parse key name (handles quoted keys) */
 static char *parse_key_name(const char *s) {
     /* Skip leading whitespace */
@@ -805,8 +836,17 @@ static char *parse_key_name(const char *s) {
     
     size_t len = strlen(s);
     
-    /* Double-quoted key */
+    /* Double-quoted key, with the same escapes as a double-quoted string */
     if (len >= 2 && s[0] == '"' && s[len-1] == '"') {
+        parse_ctx_t key_ctx = {0};
+        yay_value_t *parsed = parse_double_quoted_string(&key_ctx, s, 0, 0);
+        if (parsed && !key_ctx.error && parsed->type == YAY_STRING) {
+            char *key = str_dup(parsed->data.string);
+            yay_free(parsed);
+            return key;
+        }
+        if (parsed) yay_free(parsed);
+        if (key_ctx.error) yay_error_free(key_ctx.error);
         return str_dup_len(s + 1, len - 2);
     }
     
@@ -1195,9 +1235,9 @@ static yay_value_t *parse_concatenated_strings(parse_ctx_t *ctx, size_t *idx, in
 
 static yay_value_t *parse_block_string_impl(parse_ctx_t *ctx, size_t *idx, 
                                              const char *first_line,
-                                             int base_indent) {
+                                             int base_indent,
+                                             bool is_property) {
     size_t i = *idx + 1;
-    bool is_property = (base_indent >= 0);
     
     /* Collect continuation lines */
     size_t line_cap = 16;
@@ -1214,8 +1254,8 @@ static yay_value_t *parse_block_string_impl(parse_ctx_t *ctx, size_t *idx,
     while (i < ctx->token_count && 
            (ctx->tokens[i].type == TOKEN_TEXT || 
             ctx->tokens[i].type == TOKEN_BREAK)) {
-        /* For property context, stop at lines at or below base indent */
-        if (is_property && ctx->tokens[i].type == TOKEN_TEXT &&
+        /* With a base indent, stop at lines at or below it */
+        if (base_indent >= 0 && ctx->tokens[i].type == TOKEN_TEXT &&
             ctx->tokens[i].indent <= base_indent) {
             break;
         }
@@ -1334,14 +1374,25 @@ static yay_value_t *parse_block_string_impl(parse_ctx_t *ctx, size_t *idx,
 /* Wrapper for standalone block strings */
 static yay_value_t *parse_block_string(parse_ctx_t *ctx, size_t *idx, 
                                         const char *first_line) {
-    return parse_block_string_impl(ctx, idx, first_line, -1);
+    return parse_block_string_impl(ctx, idx, first_line, -1, false);
 }
 
 /* Wrapper for property block strings (with base indent) */
 static yay_value_t *parse_property_block_string_indent(parse_ctx_t *ctx, size_t *idx, 
                                                         const char *first_line,
                                                         int base_indent) {
-    return parse_block_string_impl(ctx, idx, first_line, base_indent);
+    return parse_block_string_impl(ctx, idx, first_line, base_indent, true);
+}
+
+/* The column of the property key on token i: the line's indent, plus the
+ * list leader when the property opens a list item ("- key: `"). */
+static int key_column(parse_ctx_t *ctx, size_t i) {
+    token_t *t = &ctx->tokens[i];
+    if (i > 0 && ctx->tokens[i - 1].type == TOKEN_START &&
+        ctx->tokens[i - 1].line_num == t->line_num) {
+        return t->indent + (int)strlen(ctx->tokens[i - 1].text);
+    }
+    return t->indent;
 }
 
 /* ============================================================================
@@ -2357,7 +2408,7 @@ static yay_value_t *parse_scalar_impl(parse_ctx_t *ctx, const char *s,
  * ============================================================================ */
 
 static yay_value_t *parse_nested_object(parse_ctx_t *ctx, size_t *idx, 
-                                         int base_indent);
+                                         int base_indent, int item_line);
 
 static yay_value_t *parse_object_property_value(parse_ctx_t *ctx, size_t *idx,
                                                  token_t *t, const char *v_part,
@@ -2377,7 +2428,8 @@ static yay_value_t *parse_object_property_value(parse_ctx_t *ctx, size_t *idx,
             return NULL;
         }
         /* Block leader alone - content starts on next line */
-        return parse_property_block_string_indent(ctx, idx, "", t->indent);
+        return parse_property_block_string_indent(ctx, idx, "",
+                                                  key_column(ctx, *idx));
     }
     
     /* Block bytes starting on same line: key: > hex */
@@ -2470,7 +2522,9 @@ static yay_value_t *parse_object_property_value(parse_ctx_t *ctx, size_t *idx,
         bool is_double_quoted = trimmed_len >= 2 && trimmed[0] == '"' && trimmed[trimmed_len-1] == '"';
         bool is_single_quoted = trimmed_len >= 2 && trimmed[0] == '\'' && trimmed[trimmed_len-1] == '\'';
         
-        if (is_double_quoted || is_single_quoted) {
+        /* A quoted line with a colon outside its quotes is a property with a
+         * quoted key, which opens a nested object. */
+        if ((is_double_quoted || is_single_quoted) && find_colon_outside_quotes(trimmed) < 0) {
             *idx = j;
             yay_value_t *result = parse_concatenated_strings(ctx, idx, next_t->indent);
             if (result != NULL) {
@@ -2485,7 +2539,7 @@ static yay_value_t *parse_object_property_value(parse_ctx_t *ctx, size_t *idx,
     /* Nested object */
     if (next_t->type == TOKEN_TEXT && next_t->indent > t->indent) {
         *idx = j;
-        return parse_nested_object(ctx, idx, next_t->indent);
+        return parse_nested_object(ctx, idx, next_t->indent, -1);
     }
     
     /* Empty property with no nested content is invalid */
@@ -2533,8 +2587,11 @@ static bool validate_object_property(parse_ctx_t *ctx, const char *text,
     return true;
 }
 
+/* item_line is the line of a list item's "- key: value", or -1. A list item's
+ * object ends at a later line indented no deeper than its dash, which matters
+ * when the list sits at its key's indent ("items:\n- a: 1\nnext: 1"). */
 static yay_value_t *parse_nested_object(parse_ctx_t *ctx, size_t *idx, 
-                                         int base_indent) {
+                                         int base_indent, int item_line) {
     yay_value_t *obj = yay_object();
     
     while (*idx < ctx->token_count) {
@@ -2554,6 +2611,9 @@ static yay_value_t *parse_nested_object(parse_ctx_t *ctx, size_t *idx,
         if (colon_idx < 0 || t->indent < base_indent) {
             break;
         }
+        if (item_line >= 0 && t->line_num != item_line && t->indent <= base_indent) {
+            break;
+        }
         
         /* Validate object property syntax */
         if (!validate_object_property(ctx, t->text, colon_idx, t->line_num, t->col)) {
@@ -2569,7 +2629,9 @@ static yay_value_t *parse_nested_object(parse_ctx_t *ctx, size_t *idx,
         int v_col = t->col + colon_idx + 1;
         while (*v_part == ' ') { v_part++; v_col++; }
         
-        if (strlen(key) == 0) {
+        /* A missing key, nothing before the colon, is no key; the empty key
+         * "" is a key. */
+        if (colon_idx == 0) {
             free(key);
             (*idx)++;
             continue;
@@ -2732,7 +2794,7 @@ static yay_value_t *parse_multiline_array_impl(parse_ctx_t *ctx, size_t *idx, in
         /* Object in array */
         else if (next->type == TOKEN_TEXT && find_colon_outside_quotes(next->text) >= 0) {
             /* Use list_indent as base so sibling properties at higher indent are included */
-            yay_value_t *obj = parse_nested_object(ctx, idx, list_indent);
+            yay_value_t *obj = parse_nested_object(ctx, idx, list_indent, next->line_num);
             if (ctx->error) {
                 yay_free(arr);
                 return NULL;
@@ -2745,7 +2807,7 @@ static yay_value_t *parse_multiline_array_impl(parse_ctx_t *ctx, size_t *idx, in
             /* Block string in array context - use list_indent as base */
             if (strcmp(s, "`") == 0 || (s[0] == '`' && strlen(s) >= 2 && s[1] == ' ')) {
                 const char *first_line = strlen(s) > 2 ? s + 2 : "";
-                yay_value_t *value = parse_block_string_impl(ctx, idx, first_line, list_indent);
+                yay_value_t *value = parse_block_string_impl(ctx, idx, first_line, list_indent, false);
                 if (ctx->error) {
                     yay_free(arr);
                     return NULL;

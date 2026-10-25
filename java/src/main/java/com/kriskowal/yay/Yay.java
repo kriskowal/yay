@@ -36,13 +36,24 @@ public class Yay {
     int indent;
     String leader;
     int lineNum;
+    boolean literal; // A line inside a block string
 
     ScanLine(String content, int indent, String leader, int lineNum) {
+      this(content, indent, leader, lineNum, false);
+    }
+
+    ScanLine(String content, int indent, String leader, int lineNum, boolean literal) {
       this.content = content;
       this.indent = indent;
       this.leader = leader;
       this.lineNum = lineNum;
+      this.literal = literal;
     }
+  }
+
+  /** Whether a line's content (after any list leader) is a bare "`" or "` text" opener. */
+  private static boolean isBareBlockOpener(String content) {
+    return content.equals("`") || content.startsWith("` ");
   }
 
   private static boolean isAllowedCodePoint(int cp) {
@@ -86,6 +97,10 @@ public class Yay {
 
     List<ScanLine> lines = new ArrayList<>();
     String[] rawLines = source.split("\n", -1);
+    // While inside a block string, the column that ends it: the indent of a
+    // bare opener, or the key's column for a property opener. Its content
+    // lines are literal: no list leaders, no "-", "*" or "$" checks, no comments.
+    int blockOpener = -1;
 
     for (int i = 0; i < rawLines.length; i++) {
       String line = rawLines[i];
@@ -102,6 +117,14 @@ public class Yay {
       }
 
       String rest = line.substring(indent);
+
+      if (blockOpener >= 0) {
+        if (line.isEmpty() || indent > blockOpener) {
+          lines.add(new ScanLine(rest, indent, "", i, true));
+          continue;
+        }
+        blockOpener = -1;
+      }
 
       // Empty line or comment-only at column 0
       if (rest.isEmpty() || (rest.startsWith("#") && indent == 0)) {
@@ -137,6 +160,12 @@ public class Yay {
           && !rest.equals("-infinity")) {
         // Compact list syntax (-value without space) is not allowed
         throw new YayException("Expected space after \"-\"", filename, i + 1, indent + 2);
+      }
+
+      if (isBareBlockOpener(content)) {
+        blockOpener = indent;
+      } else if (content.endsWith(": `")) {
+        blockOpener = indent + leader.length();
       }
 
       lines.add(new ScanLine(content, indent, leader, i));
@@ -179,6 +208,19 @@ public class Yay {
     boolean lastWasBreak = false;
 
     for (ScanLine sl : scanLines) {
+      // A block string's lines are literal: a break for every blank line, so
+      // that a run of blank lines is kept, and text at the line's own indent,
+      // closing no open block.
+      if (sl.literal) {
+        if (sl.content.isEmpty()) {
+          tokens.add(new Token(TokenType.BREAK, "", sl.indent, sl.lineNum, 0));
+        } else {
+          tokens.add(new Token(TokenType.TEXT, sl.content, sl.indent, sl.lineNum, sl.indent));
+        }
+        lastWasBreak = sl.content.isEmpty();
+        continue;
+      }
+
       // Handle blank lines
       if (sl.content.isEmpty() && sl.leader.isEmpty()) {
         if (!lastWasBreak && !tokens.isEmpty()) {
@@ -380,7 +422,8 @@ public class Yay {
       // Block string (backtick)
       if (s.equals("`") || (s.startsWith("`") && s.length() >= 2 && s.charAt(1) == ' ')) {
         String firstLine = s.length() > 2 ? s.substring(2) : "";
-        return parseBlockString(firstLine, -1);
+        // The block ends at a line indented no deeper than the opener's line.
+        return parseBlockString(firstLine, t.col, false);
       }
 
       // Block bytes (>)
@@ -550,9 +593,8 @@ public class Yay {
       return out.toString();
     }
 
-    private String parseBlockString(String firstLine, int baseIndent) {
+    private String parseBlockString(String firstLine, int baseIndent, boolean isProperty) {
       pos++;
-      boolean isProperty = baseIndent >= 0;
 
       List<String> lines = new ArrayList<>();
       List<Integer> indents = new ArrayList<>();
@@ -565,7 +607,7 @@ public class Yay {
       while (pos < tokens.size()) {
         Token t = tokens.get(pos);
         if (t.type == TokenType.TEXT) {
-          if (isProperty && t.indent <= baseIndent) {
+          if (t.indent <= baseIndent) {
             break;
           }
           lines.add(t.text);
@@ -1213,7 +1255,7 @@ public class Yay {
               t.lineNum + 1,
               t.col + colonIdx + 3);
         }
-        obj.put(key, parseBlockString(firstLine, t.indent));
+        obj.put(key, parseBlockString(firstLine, t.indent, true));
         return obj;
       }
 
@@ -1277,11 +1319,14 @@ public class Yay {
       // Note: "key: <" without closing ">" is invalid - inline byte arrays must be closed on the
       // same line
 
-      // Concatenated quoted strings (multiple quoted strings on consecutive lines)
+      // Concatenated quoted strings (multiple quoted strings on consecutive lines). A quoted
+      // line with a colon outside its quotes is a property with a quoted key, which opens a
+      // nested object.
       if (next.type == TokenType.TEXT && next.indent > t.indent) {
         String trimmed = next.text.trim();
-        if ((trimmed.startsWith("\"") && trimmed.endsWith("\"") && trimmed.length() >= 2)
-            || (trimmed.startsWith("'") && trimmed.endsWith("'") && trimmed.length() >= 2)) {
+        if (((trimmed.startsWith("\"") && trimmed.endsWith("\"") && trimmed.length() >= 2)
+                || (trimmed.startsWith("'") && trimmed.endsWith("'") && trimmed.length() >= 2))
+            && findColonOutsideQuotes(trimmed) < 0) {
           String result = parseConcatenatedStrings(next.indent);
           if (result != null) {
             obj.put(key, result);

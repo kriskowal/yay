@@ -425,6 +425,31 @@ Value::Object(HashMap::from([
 ]))
 ```
 
+In canonical YAY, a block string is followed by one blank line, unless it is
+the last thing in the document.
+The blank line is not part of the value, since trailing empty lines never are,
+so a document reads the same with or without it.
+A string whose last line is empty, like `"a\n\n"`, cannot be a block string
+and is written with double quotes.
+
+[string-block-separated-property.yay](https://github.com/kriskowal/yay/blob/main/test/yay/string-block-separated-property.yay)
+```yay
+message: `
+  We shall fight on the beaches.
+
+  We shall never surrender.
+
+next: 1
+```
+
+[string-block-separated-property.rs](https://github.com/kriskowal/yay/blob/main/test/rs/string-block-separated-property.rs)
+```rust
+Value::Object(HashMap::from([
+    ("message".into(), Value::String("We shall fight on the beaches.\n\nWe shall never surrender.\n".into())),
+    ("next".into(), Value::Integer(1.into())),
+]))
+```
+
 ## Inline Strings
 
 Strings may be quoted with double or single quotes.

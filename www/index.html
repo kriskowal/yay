@@ -85,6 +85,13 @@ h1 {
   text-align: center;
 }
 
+/* The plea's longest word, SPONSORSHIP, is about seven ems wide in bold:
+   size it to the column (the viewport less the container's padding), with
+   room to spare, so it never runs off a phone. */
+h1.plea {
+  font-size: clamp(1.5rem, calc((100vw - 3rem) / 9), 4rem);
+}
+
 h1 .rainbow {
   background: linear-gradient(135deg, var(--party-pink), var(--party-orange), var(--party-yellow), var(--party-green), var(--party-blue), var(--party-purple));
   background-size: 200% 200%;
@@ -379,6 +386,7 @@ formats and languages.*</p>
 <button data-tab="yson">JSON 🟡</button>
 <button data-tab="cbor-hex">CBOR ❄️</button>
 <button data-tab="cbor-diag">CBOR 🔎</button>
+<button data-tab="yd">Markdown 📝</button>
 <button data-tab="js">JS 🟨</button>
 <button data-tab="go">Go 🐭</button>
 <button data-tab="python">Python 🐍</button>
@@ -408,6 +416,7 @@ formats and languages.*</p>
   <span class="t">string</span><span class="p">:</span> <span class="d">`</span>
     <span class="s">This is a string.</span>
     <span class="s">There are many like it.</span>
+
   <span class="t">array</span><span class="p">:</span>
     <span class="m">-</span> <span class="s">"But"</span>
     <span class="m">-</span> <span class="s">"this"</span>
@@ -421,7 +430,20 @@ formats and languages.*</p>
   <span class="s">"I'm not dead yet. "</span>
   <span class="s">"I feel happy!"</span>
 <span class="t">unicode-code-point</span><span class="p">:</span> <span class="s">"<span class="e">\u{1F600}</span>"</span>  <span class="c"># UTF-16 surrogates are inexpressible</span>
-<span class="s">"name with spaces"</span><span class="p">:</span> <span class="s">'works too'</span></code></pre>
+<span class="s">"name with spaces"</span><span class="p">:</span> <span class="s">'works too'</span>
+<span class="t">content</span><span class="p">:</span> <span class="d">`</span>
+  <span class="s">Roses Are Red</span>
+  <span class="s">=============</span>
+
+  <span class="s">*Roses* are red,</span>
+  <span class="s">*violets* are blue,</span>
+  <span class="s">YAML says **no**,</span>
+  <span class="s">but YAY says `true`.</span>
+
+  <span class="s">&gt; Violets are violet.</span>
+
+  <span class="s">- `no` is a string.</span>
+  <span class="s">- `true` is a boolean.</span></code></pre>
 </div>
 
 <div class="tab-panel" data-tab="yaml">
@@ -445,6 +467,19 @@ formats and languages.*</p>
     <span class="s">This is a string.</span>
     <span class="s">There are many like it.</span>
 <span class="t">concatenated</span><span class="p">:</span> <span class="s">I'm not dead yet. I feel happy!</span>
+<span class="t">content</span><span class="p">:</span> <span class="d">|</span>
+  <span class="s">Roses Are Red</span>
+  <span class="s">=============</span>
+
+  <span class="s">*Roses* are red,</span>
+  <span class="s">*violets* are blue,</span>
+  <span class="s">YAML says **no**,</span>
+  <span class="s">but YAY says `true`.</span>
+
+  <span class="s">&gt; Violets are violet.</span>
+
+  <span class="s">- `no` is a string.</span>
+  <span class="s">- `true` is a boolean.</span>
 <span class="t">inline</span><span class="p">:</span>
   <span class="t">array</span><span class="p">:</span>
   <span class="m">-</span> <span class="n">.inf</span>
@@ -486,6 +521,7 @@ formats and languages.*</p>
     <span class="t">"string"</span><span class="p">:</span> <span class="s">"This is a string.\nThere are many like it.\n"</span>
   <span class="p">},</span>
   <span class="t">"concatenated"</span><span class="p">:</span> <span class="s">"I'm not dead yet. I feel happy!"</span><span class="p">,</span>
+  <span class="t">"content"</span><span class="p">:</span> <span class="s">"Roses Are Red<span class="e">\n</span>=============<span class="e">\n</span><span class="e">\n</span>*Roses* are red,<span class="e">\n</span>*violets* are blue,<span class="e">\n</span>YAML says **no**,<span class="e">\n</span>but YAY says `true`.<span class="e">\n</span><span class="e">\n</span>&gt; Violets are violet.<span class="e">\n</span><span class="e">\n</span>- `no` is a string.<span class="e">\n</span>- `true` is a boolean.<span class="e">\n</span>"</span><span class="p">,</span>
   <span class="t">"inline"</span><span class="p">:</span> <span class="p">{</span>
     <span class="t">"array"</span><span class="p">:</span> <span class="p">[</span>
       <span class="s">"#Infinity"</span><span class="p">,</span>
@@ -522,6 +558,7 @@ formats and languages.*</p>
     <span class="s">"string"</span><span class="p">:</span> <span class="s">"This is a string.\nThere are many like it.\n"</span>
   <span class="p">},</span>
   <span class="s">"concatenated"</span><span class="p">:</span> <span class="s">"I'm not dead yet. I feel happy!"</span><span class="p">,</span>
+  <span class="s">"content"</span><span class="p">:</span> <span class="s">"Roses Are Red<span class="e">\n</span>=============<span class="e">\n</span><span class="e">\n</span>*Roses* are red,<span class="e">\n</span>*violets* are blue,<span class="e">\n</span>YAML says **no**,<span class="e">\n</span>but YAY says `true`.<span class="e">\n</span><span class="e">\n</span>&gt; Violets are violet.<span class="e">\n</span><span class="e">\n</span>- `no` is a string.<span class="e">\n</span>- `true` is a boolean.<span class="e">\n</span>"</span><span class="p">,</span>
   <span class="s">"inline"</span><span class="p">:</span> <span class="p">{</span>
     <span class="s">"array"</span><span class="p">:</span> <span class="p">[</span><span class="n">Infinity</span><span class="p">,</span> <span class="n">-Infinity</span><span class="p">,</span> <span class="n">NaN</span><span class="p">],</span>
     <span class="s">"bytes"</span><span class="p">:</span> <span class="d">h'</span><span class="b">f33dface</span><span class="d">'</span><span class="p">,</span>
@@ -539,7 +576,7 @@ formats and languages.*</p>
 </div>
 
 <div class="tab-panel" data-tab="cbor-hex">
-<pre><code><span class="hd">00000000</span>  <span class="hx">a9 6f 61 6e 64 2d 6f 62  6a 65 63 74 73 2d 74 6f</span>  <span class="ha">.oand-objects-to</span>
+<pre><code><span class="hd">00000000</span>  <span class="hx">aa 6f 61 6e 64 2d 6f 62  6a 65 63 74 73 2d 74 6f</span>  <span class="ha">.oand-objects-to</span>
 <span class="hd">00000010</span>  <span class="hx">6f a2 78 1b 66 72 6f 6d  2d 74 68 65 69 72 2d 66</span>  <span class="ha">o.x.from-their-f</span>
 <span class="hd">00000020</span>  <span class="hx">6c 6f 61 74 69 6e 67 2d  66 72 69 65 6e 64 73 fb</span>  <span class="ha">loating-friends.</span>
 <span class="hd">00000030</span>  <span class="hx">40 19 21 fb 54 44 2d 18  75 69 6e 74 65 67 65 72</span>  <span class="ha">@.!.TD-.uinteger</span>
@@ -555,19 +592,67 @@ formats and languages.*</p>
 <span class="hd">000000d0</span>  <span class="hx">20 6c 69 6b 65 20 69 74  2e 0a 6c 63 6f 6e 63 61</span>  <span class="ha"> like it..lconca</span>
 <span class="hd">000000e0</span>  <span class="hx">74 65 6e 61 74 65 64 78  1f 49 27 6d 20 6e 6f 74</span>  <span class="ha">tenatedx.I'm not</span>
 <span class="hd">000000f0</span>  <span class="hx">20 64 65 61 64 20 79 65  74 2e 20 49 20 66 65 65</span>  <span class="ha"> dead yet. I fee</span>
-<span class="hd">00000100</span>  <span class="hx">6c 20 68 61 70 70 79 21  66 69 6e 6c 69 6e 65 a4</span>  <span class="ha">l happy!finline.</span>
-<span class="hd">00000110</span>  <span class="hx">65 61 72 72 61 79 83 fb  7f f0 00 00 00 00 00 00</span>  <span class="ha">earray..........</span>
-<span class="hd">00000120</span>  <span class="hx">fb ff f0 00 00 00 00 00  00 fb 7f f8 00 00 00 00</span>  <span class="ha">................</span>
-<span class="hd">00000130</span>  <span class="hx">00 00 65 62 79 74 65 73  44 f3 3d fa ce 66 6f 62</span>  <span class="ha">..ebytesD.=..fob</span>
-<span class="hd">00000140</span>  <span class="hx">6a 65 63 74 a2 66 62 69  67 69 6e 74 01 67 66 6c</span>  <span class="ha">ject.fbigint.gfl</span>
-<span class="hd">00000150</span>  <span class="hx">6f 61 74 36 34 fb 40 00  00 00 00 00 00 00 66 73</span>  <span class="ha">oat64.@.......fs</span>
-<span class="hd">00000160</span>  <span class="hx">74 72 69 6e 67 6a 69 73  20 63 6f 6e 63 69 73 65</span>  <span class="ha">tringjis concise</span>
-<span class="hd">00000170</span>  <span class="hx">70 6e 61 6d 65 20 77 69  74 68 20 73 70 61 63 65</span>  <span class="ha">pname with space</span>
-<span class="hd">00000180</span>  <span class="hx">73 69 77 6f 72 6b 73 20  74 6f 6f 6d 72 6f 73 65</span>  <span class="ha">siworks toomrose</span>
-<span class="hd">00000190</span>  <span class="hx">73 2d 61 72 65 2d 72 65  64 f5 72 75 6e 69 63 6f</span>  <span class="ha">s-are-red.runico</span>
-<span class="hd">000001a0</span>  <span class="hx">64 65 2d 63 6f 64 65 2d  70 6f 69 6e 74 64 f0 9f</span>  <span class="ha">de-code-pointd..</span>
-<span class="hd">000001b0</span>  <span class="hx">98 80 70 76 69 6f 6c 65  74 73 2d 61 72 65 2d 62</span>  <span class="ha">..pviolets-are-b</span>
-<span class="hd">000001c0</span>  <span class="hx">6c 75 65 f4</span>                                      <span class="ha">lue.</span></code></pre>
+<span class="hd">00000100</span>  <span class="hx">6c 20 68 61 70 70 79 21  67 63 6f 6e 74 65 6e 74</span>  <span class="ha">l happy!gcontent</span>
+<span class="hd">00000110</span>  <span class="hx">78 ac 52 6f 73 65 73 20  41 72 65 20 52 65 64 0a</span>  <span class="ha">x.Roses Are Red.</span>
+<span class="hd">00000120</span>  <span class="hx">3d 3d 3d 3d 3d 3d 3d 3d  3d 3d 3d 3d 3d 0a 0a 2a</span>  <span class="ha">=============..*</span>
+<span class="hd">00000130</span>  <span class="hx">52 6f 73 65 73 2a 20 61  72 65 20 72 65 64 2c 0a</span>  <span class="ha">Roses* are red,.</span>
+<span class="hd">00000140</span>  <span class="hx">2a 76 69 6f 6c 65 74 73  2a 20 61 72 65 20 62 6c</span>  <span class="ha">*violets* are bl</span>
+<span class="hd">00000150</span>  <span class="hx">75 65 2c 0a 59 41 4d 4c  20 73 61 79 73 20 2a 2a</span>  <span class="ha">ue,.YAML says **</span>
+<span class="hd">00000160</span>  <span class="hx">6e 6f 2a 2a 2c 0a 62 75  74 20 59 41 59 20 73 61</span>  <span class="ha">no**,.but YAY sa</span>
+<span class="hd">00000170</span>  <span class="hx">79 73 20 60 74 72 75 65  60 2e 0a 0a 3e 20 56 69</span>  <span class="ha">ys `true`...&gt; Vi</span>
+<span class="hd">00000180</span>  <span class="hx">6f 6c 65 74 73 20 61 72  65 20 76 69 6f 6c 65 74</span>  <span class="ha">olets are violet</span>
+<span class="hd">00000190</span>  <span class="hx">2e 0a 0a 2d 20 60 6e 6f  60 20 69 73 20 61 20 73</span>  <span class="ha">...- `no` is a s</span>
+<span class="hd">000001a0</span>  <span class="hx">74 72 69 6e 67 2e 0a 2d  20 60 74 72 75 65 60 20</span>  <span class="ha">tring..- `true` </span>
+<span class="hd">000001b0</span>  <span class="hx">69 73 20 61 20 62 6f 6f  6c 65 61 6e 2e 0a 66 69</span>  <span class="ha">is a boolean..fi</span>
+<span class="hd">000001c0</span>  <span class="hx">6e 6c 69 6e 65 a4 65 61  72 72 61 79 83 fb 7f f0</span>  <span class="ha">nline.earray....</span>
+<span class="hd">000001d0</span>  <span class="hx">00 00 00 00 00 00 fb ff  f0 00 00 00 00 00 00 fb</span>  <span class="ha">................</span>
+<span class="hd">000001e0</span>  <span class="hx">7f f8 00 00 00 00 00 00  65 62 79 74 65 73 44 f3</span>  <span class="ha">........ebytesD.</span>
+<span class="hd">000001f0</span>  <span class="hx">3d fa ce 66 6f 62 6a 65  63 74 a2 66 62 69 67 69</span>  <span class="ha">=..fobject.fbigi</span>
+<span class="hd">00000200</span>  <span class="hx">6e 74 01 67 66 6c 6f 61  74 36 34 fb 40 00 00 00</span>  <span class="ha">nt.gfloat64.@...</span>
+<span class="hd">00000210</span>  <span class="hx">00 00 00 00 66 73 74 72  69 6e 67 6a 69 73 20 63</span>  <span class="ha">....fstringjis c</span>
+<span class="hd">00000220</span>  <span class="hx">6f 6e 63 69 73 65 70 6e  61 6d 65 20 77 69 74 68</span>  <span class="ha">oncisepname with</span>
+<span class="hd">00000230</span>  <span class="hx">20 73 70 61 63 65 73 69  77 6f 72 6b 73 20 74 6f</span>  <span class="ha"> spacesiworks to</span>
+<span class="hd">00000240</span>  <span class="hx">6f 6d 72 6f 73 65 73 2d  61 72 65 2d 72 65 64 f5</span>  <span class="ha">omroses-are-red.</span>
+<span class="hd">00000250</span>  <span class="hx">72 75 6e 69 63 6f 64 65  2d 63 6f 64 65 2d 70 6f</span>  <span class="ha">runicode-code-po</span>
+<span class="hd">00000260</span>  <span class="hx">69 6e 74 64 f0 9f 98 80  70 76 69 6f 6c 65 74 73</span>  <span class="ha">intd....pviolets</span>
+<span class="hd">00000270</span>  <span class="hx">2d 61 72 65 2d 62 6c 75  65 f4</span>                    <span class="ha">-are-blue.</span></code></pre>
+</div>
+
+<div class="tab-panel" data-tab="yd">
+<pre><code><span class="d">---</span>
+<span class="t">and-objects-too</span><span class="p">:</span>
+  <span class="t">from-their-floating-friends</span><span class="p">:</span> <span class="n">6.283185307179586</span>
+  <span class="t">integers-are-distinct</span><span class="p">:</span> <span class="n">42</span>
+<span class="t">arrays</span><span class="p">:</span> <span class="p">[</span><span class="s">"may"</span><span class="p">,</span> <span class="s">"have"</span><span class="p">,</span> <span class="s">"many"</span><span class="p">,</span> <span class="s">"values"</span><span class="p">]</span>
+<span class="t">block</span><span class="p">:</span>
+  <span class="t">array</span><span class="p">:</span> <span class="p">[</span><span class="s">"But"</span><span class="p">,</span> <span class="s">"this"</span><span class="p">,</span> <span class="s">"one's"</span><span class="p">]</span>
+  <span class="t">bytes</span><span class="p">:</span> <span class="d">&lt;</span><span class="b">b0 b5 c0 ff  fe fa ca de</span><span class="d">&gt;</span>
+  <span class="t">object</span><span class="p">:</span> <span class="p">{</span><span class="t">mine</span><span class="p">:</span> <span class="k">null</span><span class="p">}</span>
+  <span class="t">string</span><span class="p">:</span> <span class="s">"This is a string.<span class="e">\n</span>There are many like it.<span class="e">\n</span>"</span>
+<span class="t">concatenated</span><span class="p">:</span> <span class="s">"I'm not dead yet. I feel happy!"</span>
+<span class="t">inline</span><span class="p">:</span>
+  <span class="t">array</span><span class="p">:</span> <span class="p">[</span><span class="n">infinity</span><span class="p">,</span> <span class="n">-infinity</span><span class="p">,</span> <span class="n">nan</span><span class="p">]</span>
+  <span class="t">bytes</span><span class="p">:</span> <span class="d">&lt;</span><span class="b">f3 3d fa ce</span><span class="d">&gt;</span>
+  <span class="t">object</span><span class="p">:</span> <span class="p">{</span><span class="t">bigint</span><span class="p">:</span> <span class="n">1</span><span class="p">,</span> <span class="t">float64</span><span class="p">:</span> <span class="n">2.0</span><span class="p">}</span>
+  <span class="t">string</span><span class="p">:</span> <span class="s">"is concise"</span>
+<span class="t">"name with spaces"</span><span class="p">:</span> <span class="s">"works too"</span>
+<span class="t">roses-are-red</span><span class="p">:</span> <span class="k">true</span>
+<span class="t">unicode-code-point</span><span class="p">:</span> <span class="s">"😀"</span>
+<span class="t">violets-are-blue</span><span class="p">:</span> <span class="k">false</span>
+<span class="d">---</span>
+
+<span class="s">Roses Are Red</span>
+<span class="d">=============</span>
+
+<span class="s">*Roses* are red,</span>
+<span class="s">*violets* are blue,</span>
+<span class="s">YAML says **no**,</span>
+<span class="s">but YAY says `true`.</span>
+
+<span class="c">&gt; Violets are violet.</span>
+
+<span class="m">-</span> <span class="s">`no` is a string.</span>
+<span class="m">-</span> <span class="s">`true` is a boolean.</span></code></pre>
 </div>
 
 <div class="tab-panel" data-tab="js">
@@ -584,6 +669,7 @@ formats and languages.*</p>
     <span class="t">"string"</span><span class="p">:</span> <span class="s">"This is a string.<span class="e">\n</span>There are many like it.<span class="e">\n</span>"</span><span class="p">,</span>
   <span class="p">},</span>
   <span class="t">"concatenated"</span><span class="p">:</span> <span class="s">"I'm not dead yet. I feel happy!"</span><span class="p">,</span>
+  <span class="t">"content"</span><span class="p">:</span> <span class="s">"Roses Are Red<span class="e">\n</span>=============<span class="e">\n</span><span class="e">\n</span>*Roses* are red,<span class="e">\n</span>*violets* are blue,<span class="e">\n</span>YAML says **no**,<span class="e">\n</span>but YAY says `true`.<span class="e">\n</span><span class="e">\n</span>&gt; Violets are violet.<span class="e">\n</span><span class="e">\n</span>- `no` is a string.<span class="e">\n</span>- `true` is a boolean.<span class="e">\n</span>"</span><span class="p">,</span>
   <span class="t">"inline"</span><span class="p">:</span> <span class="p">{</span>
     <span class="t">"array"</span><span class="p">:</span> <span class="p">[</span><span class="n">Infinity</span><span class="p">,</span> <span class="n">-Infinity</span><span class="p">,</span> <span class="n">NaN</span><span class="p">],</span>
     <span class="t">"bytes"</span><span class="p">:</span> <span class="k">Uint8Array</span><span class="p">.</span><span class="k">from</span><span class="p">([</span><span class="b">0xf3</span><span class="p">,</span> <span class="b">0x3d</span><span class="p">,</span> <span class="b">0xfa</span><span class="p">,</span> <span class="b">0xce</span><span class="p">]),</span>
@@ -611,6 +697,7 @@ formats and languages.*</p>
 		<span class="t">"string"</span><span class="p">:</span> <span class="s">"This is a string.<span class="e">\n</span>There are many like it.<span class="e">\n</span>"</span><span class="p">,</span>
 	<span class="p">},</span>
 	<span class="t">"concatenated"</span><span class="p">:</span> <span class="s">"I'm not dead yet. I feel happy!"</span><span class="p">,</span>
+	<span class="t">"content"</span><span class="p">:</span> <span class="s">"Roses Are Red<span class="e">\n</span>=============<span class="e">\n</span><span class="e">\n</span>*Roses* are red,<span class="e">\n</span>*violets* are blue,<span class="e">\n</span>YAML says **no**,<span class="e">\n</span>but YAY says `true`.<span class="e">\n</span><span class="e">\n</span>&gt; Violets are violet.<span class="e">\n</span><span class="e">\n</span>- `no` is a string.<span class="e">\n</span>- `true` is a boolean.<span class="e">\n</span>"</span><span class="p">,</span>
 	<span class="t">"inline"</span><span class="p">:</span> <span class="k">map</span><span class="p">[</span><span class="k">string</span><span class="p">]</span><span class="k">any</span><span class="p">{</span>
 		<span class="t">"array"</span><span class="p">:</span> <span class="p">[]</span><span class="k">any</span><span class="p">{</span><span class="k">math</span><span class="p">.</span><span class="k">Inf</span><span class="p">(</span><span class="n">1</span><span class="p">),</span> <span class="k">math</span><span class="p">.</span><span class="k">Inf</span><span class="p">(</span><span class="n">-1</span><span class="p">),</span> <span class="k">math</span><span class="p">.</span><span class="k">NaN</span><span class="p">()},</span>
 		<span class="t">"bytes"</span><span class="p">:</span> <span class="p">[]</span><span class="k">byte</span><span class="p">{</span><span class="b">0xf3</span><span class="p">,</span> <span class="b">0x3d</span><span class="p">,</span> <span class="b">0xfa</span><span class="p">,</span> <span class="b">0xce</span><span class="p">},</span>
@@ -630,7 +717,9 @@ formats and languages.*</p>
 <span class="t">"block"</span><span class="p">:</span> <span class="p">{</span><span class="t">"array"</span><span class="p">:</span> <span class="p">[</span><span class="s">"But"</span><span class="p">,</span> <span class="s">"this"</span><span class="p">,</span> <span class="s">"one's"</span><span class="p">],</span>
 <span class="t">"bytes"</span><span class="p">:</span> <span class="k">bytes</span><span class="p">.</span><span class="k">fromhex</span><span class="p">(</span><span class="s">"b0b5c0fffefacade"</span><span class="p">),</span> <span class="t">"object"</span><span class="p">:</span> <span class="p">{</span><span class="t">"mine"</span><span class="p">:</span> <span class="k">None</span><span class="p">},</span>
 <span class="t">"string"</span><span class="p">:</span> <span class="s">"This is a string.<span class="e">\n</span>There are many like it.<span class="e">\n</span>"</span><span class="p">},</span>
-<span class="t">"concatenated"</span><span class="p">:</span> <span class="s">"I'm not dead yet. I feel happy!"</span><span class="p">,</span> <span class="t">"inline"</span><span class="p">:</span> <span class="p">{</span><span class="t">"array"</span><span class="p">:</span>
+<span class="t">"concatenated"</span><span class="p">:</span> <span class="s">"I'm not dead yet. I feel happy!"</span><span class="p">,</span>
+<span class="t">"content"</span><span class="p">:</span> <span class="s">"Roses Are Red<span class="e">\n</span>=============<span class="e">\n</span><span class="e">\n</span>*Roses* are red,<span class="e">\n</span>*violets* are blue,<span class="e">\n</span>YAML says **no**,<span class="e">\n</span>but YAY says `true`.<span class="e">\n</span><span class="e">\n</span>&gt; Violets are violet.<span class="e">\n</span><span class="e">\n</span>- `no` is a string.<span class="e">\n</span>- `true` is a boolean.<span class="e">\n</span>"</span><span class="p">,</span>
+<span class="t">"inline"</span><span class="p">:</span> <span class="p">{</span><span class="t">"array"</span><span class="p">:</span>
 <span class="p">[</span><span class="k">float</span><span class="p">(</span><span class="s">"inf"</span><span class="p">),</span> <span class="k">float</span><span class="p">(</span><span class="s">"-inf"</span><span class="p">),</span> <span class="k">float</span><span class="p">(</span><span class="s">"nan"</span><span class="p">)],</span>
 <span class="t">"bytes"</span><span class="p">:</span> <span class="k">bytes</span><span class="p">.</span><span class="k">fromhex</span><span class="p">(</span><span class="s">"f33dface"</span><span class="p">),</span> <span class="t">"object"</span><span class="p">:</span> <span class="p">{</span><span class="t">"bigint"</span><span class="p">:</span> <span class="n">1</span><span class="p">,</span> <span class="t">"float64"</span><span class="p">:</span> <span class="n">2.0</span><span class="p">},</span>
 <span class="t">"string"</span><span class="p">:</span> <span class="s">"is concise"</span><span class="p">},</span> <span class="t">"name with spaces"</span><span class="p">:</span> <span class="s">"works too"</span><span class="p">,</span>
@@ -663,6 +752,7 @@ formats and languages.*</p>
         <span class="p">(</span><span class="s">"string"</span><span class="p">.</span><span class="k">into</span><span class="p">(),</span> <span class="k">Value</span><span class="p">::</span><span class="k">String</span><span class="p">(</span><span class="s">"This is a string.<span class="e">\n</span>There are many like it.<span class="e">\n</span>"</span><span class="p">.</span><span class="k">into</span><span class="p">())),</span>
     <span class="p">]))),</span>
     <span class="p">(</span><span class="s">"concatenated"</span><span class="p">.</span><span class="k">into</span><span class="p">(),</span> <span class="k">Value</span><span class="p">::</span><span class="k">String</span><span class="p">(</span><span class="s">"I'm not dead yet. I feel happy!"</span><span class="p">.</span><span class="k">into</span><span class="p">())),</span>
+    <span class="p">(</span><span class="s">"content"</span><span class="p">.</span><span class="k">into</span><span class="p">(),</span> <span class="k">Value</span><span class="p">::</span><span class="k">String</span><span class="p">(</span><span class="s">"Roses Are Red<span class="e">\n</span>=============<span class="e">\n</span><span class="e">\n</span>*Roses* are red,<span class="e">\n</span>*violets* are blue,<span class="e">\n</span>YAML says **no**,<span class="e">\n</span>but YAY says `true`.<span class="e">\n</span><span class="e">\n</span>&gt; Violets are violet.<span class="e">\n</span><span class="e">\n</span>- `no` is a string.<span class="e">\n</span>- `true` is a boolean.<span class="e">\n</span>"</span><span class="p">.</span><span class="k">into</span><span class="p">())),</span>
     <span class="p">(</span><span class="s">"inline"</span><span class="p">.</span><span class="k">into</span><span class="p">(),</span> <span class="k">Value</span><span class="p">::</span><span class="k">Object</span><span class="p">(</span><span class="k">HashMap</span><span class="p">::</span><span class="k">from</span><span class="p">([</span>
         <span class="p">(</span><span class="s">"array"</span><span class="p">.</span><span class="k">into</span><span class="p">(),</span> <span class="k">Value</span><span class="p">::</span><span class="k">Array</span><span class="p">(</span><span class="k">vec!</span><span class="p">[</span>
             <span class="k">Value</span><span class="p">::</span><span class="k">Float</span><span class="p">(</span><span class="n">f64</span><span class="p">::</span><span class="n">INFINITY</span><span class="p">),</span>
@@ -706,6 +796,7 @@ formats and languages.*</p>
         <span class="s">"string"</span><span class="p">,</span> <span class="k">yay_string</span><span class="p">(</span><span class="s">"This is a string.<span class="e">\n</span>There are many like it.<span class="e">\n</span>"</span><span class="p">)</span>
     <span class="p">),</span>
     <span class="s">"concatenated"</span><span class="p">,</span> <span class="k">yay_string</span><span class="p">(</span><span class="s">"I'm not dead yet. I feel happy!"</span><span class="p">),</span>
+    <span class="s">"content"</span><span class="p">,</span> <span class="k">yay_string</span><span class="p">(</span><span class="s">"Roses Are Red<span class="e">\n</span>=============<span class="e">\n</span><span class="e">\n</span>*Roses* are red,<span class="e">\n</span>*violets* are blue,<span class="e">\n</span>YAML says **no**,<span class="e">\n</span>but YAY says `true`.<span class="e">\n</span><span class="e">\n</span>&gt; Violets are violet.<span class="e">\n</span><span class="e">\n</span>- `no` is a string.<span class="e">\n</span>- `true` is a boolean.<span class="e">\n</span>"</span><span class="p">),</span>
     <span class="s">"inline"</span><span class="p">,</span> <span class="k">YAY_OBJECT</span><span class="p">(</span>
         <span class="s">"array"</span><span class="p">,</span> <span class="k">YAY_ARRAY</span><span class="p">(</span>
             <span class="k">yay_float</span><span class="p">(</span><span class="n">INFINITY</span><span class="p">),</span>
@@ -732,6 +823,7 @@ formats and languages.*</p>
   <span class="p">(</span><span class="s">"object"</span> <span class="p">.</span> <span class="p">((</span><span class="s">"mine"</span> <span class="p">.</span> <span class="k">'null</span><span class="p">)))</span>
   <span class="p">(</span><span class="s">"string"</span> <span class="p">.</span> <span class="s">"This is a string.<span class="e">\n</span>There are many like it.<span class="e">\n</span>"</span><span class="p">)))</span>
  <span class="p">(</span><span class="s">"concatenated"</span> <span class="p">.</span> <span class="s">"I'm not dead yet. I feel happy!"</span><span class="p">)</span>
+ <span class="p">(</span><span class="s">"content"</span> <span class="p">.</span> <span class="s">"Roses Are Red<span class="e">\n</span>=============<span class="e">\n</span><span class="e">\n</span>*Roses* are red,<span class="e">\n</span>*violets* are blue,<span class="e">\n</span>YAML says **no**,<span class="e">\n</span>but YAY says `true`.<span class="e">\n</span><span class="e">\n</span>&gt; Violets are violet.<span class="e">\n</span><span class="e">\n</span>- `no` is a string.<span class="e">\n</span>- `true` is a boolean.<span class="e">\n</span>"</span><span class="p">)</span>
  <span class="p">(</span><span class="s">"inline"</span> <span class="p">.</span> <span class="p">((</span><span class="s">"array"</span> <span class="p">.</span> <span class="k">#</span><span class="p">(</span><span class="n">+inf.0</span> <span class="n">-inf.0</span> <span class="n">+nan.0</span><span class="p">))</span>
   <span class="p">(</span><span class="s">"bytes"</span> <span class="p">.</span> <span class="p">(</span><span class="k">bytevector</span> <span class="b">243</span> <span class="b">61</span> <span class="b">250</span> <span class="b">206</span><span class="p">))</span>
   <span class="p">(</span><span class="s">"object"</span> <span class="p">.</span> <span class="p">((</span><span class="s">"bigint"</span> <span class="p">.</span> <span class="n">1</span><span class="p">)</span> <span class="p">(</span><span class="s">"float64"</span> <span class="p">.</span> <span class="n">2.0</span><span class="p">)))</span>
@@ -756,6 +848,7 @@ formats and languages.*</p>
     <span class="s">"object"</span><span class="p">,</span> <span class="k">Map</span><span class="p">.</span><span class="k">of</span><span class="p">(</span><span class="s">"mine"</span><span class="p">,</span> <span class="k">null</span><span class="p">),</span>
     <span class="s">"string"</span><span class="p">,</span> <span class="s">"This is a string.<span class="e">\n</span>There are many like it.<span class="e">\n</span>"</span><span class="p">),</span>
   <span class="s">"concatenated"</span><span class="p">,</span> <span class="s">"I'm not dead yet. I feel happy!"</span><span class="p">,</span>
+  <span class="s">"content"</span><span class="p">,</span> <span class="s">"Roses Are Red<span class="e">\n</span>=============<span class="e">\n</span><span class="e">\n</span>*Roses* are red,<span class="e">\n</span>*violets* are blue,<span class="e">\n</span>YAML says **no**,<span class="e">\n</span>but YAY says `true`.<span class="e">\n</span><span class="e">\n</span>&gt; Violets are violet.<span class="e">\n</span><span class="e">\n</span>- `no` is a string.<span class="e">\n</span>- `true` is a boolean.<span class="e">\n</span>"</span><span class="p">,</span>
   <span class="s">"inline"</span><span class="p">,</span> <span class="k">Map</span><span class="p">.</span><span class="k">of</span><span class="p">(</span>
     <span class="s">"array"</span><span class="p">,</span> <span class="k">List</span><span class="p">.</span><span class="k">of</span><span class="p">(</span>
       <span class="k">Double</span><span class="p">.</span><span class="n">POSITIVE_INFINITY</span><span class="p">,</span> <span class="k">Double</span><span class="p">.</span><span class="n">NEGATIVE_INFINITY</span><span class="p">,</span> <span class="k">Double</span><span class="p">.</span><span class="n">NaN</span><span class="p">),</span>
@@ -772,7 +865,7 @@ formats and languages.*</p>
 </div>
 
 
-<h1>YOUR SPONSORSHIP COULD BE RIGHT HERE!</h1>
+<h1 class="plea">YOUR SPONSORSHIP COULD BE RIGHT HERE!</h1>
 <p class="center">
   THE SOFTWARE IS <a href="#license">FREE<sup>†</sup></a>, BUT AIN'T CHEAP!<br>
   inquire within: <a href="mailto:agile.lion63541@fastmail.com">agile.lion63541@fastmail.com</a>

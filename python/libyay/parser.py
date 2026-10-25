@@ -495,6 +495,10 @@ class Parser:
         if token.kind == "DASH":
             return self.parse_block_array(item_indent)
 
+        # Object value, whose first key may be quoted
+        if token.kind in ("IDENT", "STRING") and self.peek(1).kind == "COLON":
+            return self.parse_block_object(item_indent)
+
         # Inline values
         if token.kind in ("NULL", "BOOL", "INT", "FLOAT", "STRING", "BYTES"):
             return self.parse_inline_value()
@@ -504,10 +508,6 @@ class Parser:
 
         if token.kind == "LBRACE":
             return self.parse_inline_object()
-
-        # Object value
-        if token.kind == "IDENT" and self.peek(1).kind == "COLON":
-            return self.parse_block_object(item_indent)
 
         # Bare words are not valid - strings must be quoted
         if token.kind == "IDENT":

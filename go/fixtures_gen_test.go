@@ -40,7 +40,24 @@ var fixtures = map[string]any{
 		[]any{"And there was much rejoicing.", "yay."},
 	},
 	"array-inline-singlequote": []any{"a", "b"},
-	"array-multiline":          []any{big.NewInt(5), big.NewInt(3)},
+	"array-item-nested-object-then-item": map[string]any{
+		"steps": []any{
+			map[string]any{"run": map[string]any{"command": "make"}},
+			"a plain item after an item holding an object",
+		},
+	},
+	"array-item-object-empty-key": map[string]any{
+		"items": []any{
+			map[string]any{"": "the empty key opens this item", "b": big.NewInt(2)},
+		},
+	},
+	"array-item-object-quoted-key": map[string]any{
+		"people": []any{
+			map[string]any{"born": big.NewInt(1815), "full name": "Ada Lovelace"},
+			map[string]any{"born": big.NewInt(1906), "full name": "Grace Hopper"},
+		},
+	},
+	"array-multiline": []any{big.NewInt(5), big.NewInt(3)},
 	"array-multiline-named": map[string]any{
 		"complaints": []any{
 			"I didn't vote for you.",
@@ -51,6 +68,13 @@ var fixtures = map[string]any{
 	"array-multiline-nested-multiline-object": []any{
 		map[string]any{"x": big.NewInt(10), "y": big.NewInt(20)},
 		map[string]any{"x": big.NewInt(30), "y": big.NewInt(40)},
+	},
+	"array-multiline-object-items-at-key-indent": map[string]any{
+		"items": []any{
+			map[string]any{"a": big.NewInt(1), "b": big.NewInt(2)},
+			map[string]any{"body": "First.\n\nSecond.\n", "title": "a"},
+		},
+		"next": big.NewInt(1),
 	},
 	"array-multiline-triple-nested": []any{[]any{[]any{"hello"}}},
 	"at-a-glance": map[string]any{
@@ -103,6 +127,10 @@ var fixtures = map[string]any{
 	"bytearray-inline-even":            []byte{0xb0, 0xb5, 0xc0, 0xff, 0xee, 0xfa, 0xca, 0xde},
 	"bytearray-inline-named": map[string]any{
 		"data": []byte{0xb0, 0xb5, 0xc0, 0xff, 0xee, 0xfa, 0xca, 0xde},
+	},
+	"inline-non-ascii-strings": map[string]any{
+		"list":   []any{"é", "x"},
+		"object": map[string]any{"a": "😀", "b": big.NewInt(1)},
 	},
 	"integer-big":          big.NewInt(8675309),
 	"integer-big-basic":    big.NewInt(42),
@@ -252,11 +280,38 @@ var fixtures = map[string]any{
 	"object-multiline-singlequote-key": map[string]any{"key-name": big.NewInt(2)},
 	"object-nested-empty-inline":       map[string]any{"outer": map[string]any{"inner": map[string]any{}}},
 	"object-nested-empty-property":     map[string]any{"outer": map[string]any{"inner": map[string]any{}}},
-	"string-block-deep-indent":         map[string]any{"message": "Line 1\n  Indented\nLine 2\n"},
+	"object-nested-quoted-key-first": map[string]any{
+		"meta": map[string]any{"A quoted key": "first in its object", "b": big.NewInt(2)},
+	},
+	"object-quoted-key-escapes": map[string]any{
+		"":            "the empty key",
+		"a\"b":        "an escaped quote",
+		"a/b":         "a slash",
+		"a\\b":        "an escaped backslash",
+		"line\nbreak": "an escaped newline",
+	},
+	"string-block-array-in-property": map[string]any{
+		"items": []any{"a\n- b\n", "\n* c\n\n\n---\n"},
+		"next":  big.NewInt(1),
+	},
+	"string-block-array-item-property": []any{
+		map[string]any{"body": "- x\n", "title": "a"},
+		map[string]any{"body": "# Heading\n\n\n* y\n", "title": "b"},
+	},
+	"string-block-blank-run-array":    []any{"\nx\n\n\ny\n", "p\n\n\nq\n"},
+	"string-block-blank-run-property": map[string]any{"a": "x\n\n\ny\n", "b": big.NewInt(1)},
+	"string-block-blank-run-root":     "\na\n\n\nb\n",
+	"string-block-deep-indent":        map[string]any{"message": "Line 1\n  Indented\nLine 2\n"},
 	"string-block-deeply-nested": map[string]any{
 		"level1": map[string]any{"level2": map[string]any{"text": "Hello\nWorld\n"}},
 	},
-	"string-block-empty-middle": "\nI'm getting better!\n\nNo you're not.\n",
+	"string-block-empty-middle":   "\nI'm getting better!\n\nNo you're not.\n",
+	"string-block-markdown-array": []any{"\n- a\n  - b\n* item\n", "---\n-x\n", "end"},
+	"string-block-markdown-property": map[string]any{
+		"body": "# Heading\n- a\n  - b\n* item\n---\n-x\n",
+		"next": big.NewInt(1),
+	},
+	"string-block-markdown-root": "\n# Heading\n- a\n  - b\n* item\n---\n-x\n",
 	"string-block-nested-in-object-and-array": map[string]any{
 		"parrot": map[string]any{
 			"condition": "No, no, it's just resting!\n",
@@ -276,9 +331,33 @@ var fixtures = map[string]any{
 		"message": "By Grabthar's hammer... what a savings.\n",
 		"next":    big.NewInt(1),
 	},
-	"string-block-root-hash":                           "# this is not a comment\nit is content\n",
-	"string-block-root-next-line":                      "\nI've calculated your chance of survival,\nbut I don't think you'll like it.\n",
-	"string-block-root-same-line":                      "I think you ought to know I'm feeling very depressed.\nThis will all end in tears.\n",
+	"string-block-root-hash":      "# this is not a comment\nit is content\n",
+	"string-block-root-next-line": "\nI've calculated your chance of survival,\nbut I don't think you'll like it.\n",
+	"string-block-root-same-line": "I think you ought to know I'm feeling very depressed.\nThis will all end in tears.\n",
+	"string-block-separated-array": map[string]any{
+		"items": []any{
+			"\nBare.\n",
+			"Same line.\n",
+			map[string]any{"body": "Last property of a list item.\n", "title": "a"},
+			map[string]any{"body": "First property of a list item.\n", "title": "b"},
+		},
+		"next": big.NewInt(1),
+	},
+	"string-block-separated-end": map[string]any{
+		"body":  "The last thing in the file\n\nends at the end of the file.\n",
+		"title": "end",
+	},
+	"string-block-separated-nested": map[string]any{
+		"after": big.NewInt(1),
+		"outer": map[string]any{
+			"inner":   map[string]any{"text": "Two levels in.\n"},
+			"sibling": "One level in.\n",
+		},
+	},
+	"string-block-separated-property": map[string]any{
+		"message": "We shall fight on the beaches.\n\nWe shall never surrender.\n",
+		"next":    big.NewInt(1),
+	},
 	"string-block-trailing-empty":                      "\nHello\n",
 	"string-inline-doublequote-apostrophe":             "I'm getting better!",
 	"string-inline-doublequote-basic":                  "This will all end in tears.",
