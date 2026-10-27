@@ -8,10 +8,12 @@
 //!   -t, --to <FORMAT>      Output format (yay, json, yson, js, go, python, rust, c, java, scheme, yaml, toml, cbor, diag, md, yd)
 //!   -w, --write            Write output to file with inferred name
 //!   -o, --output <FILE>    Write output to specified file
-//!   --check                Check if file is valid (exit 0 if valid, 1 if invalid)
-//!                          Defaults to strict YAY input; use --from meh for lenient
-//!   --canonical            Check that the file is valid and already canonical:
-//!                          what -t yay would write (YAY, MEH and markdown input)
+//!   --check                Without -t: check that the file is valid (exit 0 if
+//!                          valid, 1 if invalid). Defaults to strict YAY input;
+//!                          use --from meh for lenient.
+//!                          With -t: check that writing it as -t would leave it
+//!                          unchanged, byte for byte (-f yay or meh with -t yay,
+//!                          -f md or yd with -t md or yd)
 //!   -h, --help             Print help
 //!   -V, --version          Print version
 
@@ -64,7 +66,7 @@ fn main() {
     let mut write_back = false;
     let mut output_file: Option<&str> = None;
     let mut check_only = false;
-    let mut canonical = false;
+    let mut round_trip = false;
     let mut input_path: Option<&str> = None;
     let mut shon_value: Option<Value> = None;
 
@@ -116,10 +118,6 @@ fn main() {
             }
             "--check" => {
                 check_only = true;
-            }
-            "--canonical" => {
-                check_only = true;
-                canonical = true;
             }
             "-" => {
                 // Explicit stdin
@@ -239,9 +237,23 @@ fn main() {
     // Default input format: "yay" (strict) when --check, "meh" (lenient) otherwise.
     // Can always be overridden with --from.
     let from_format = from_format.unwrap_or(if check_only { "yay" } else { "meh" });
-    if canonical && !matches!(from_format, "yay" | "meh" | "md" | "yd") {
-        eprintln!("Error: --canonical applies to yay, meh, md and yd input");
-        process::exit(1);
+
+    // --check with -t checks that writing the input as -t leaves it unchanged.
+    // Only a pair whose output can equal its input byte for byte is allowed.
+    if check_only {
+        if let Some(to) = to_format {
+            if !round_trip_pair(from_format, to) {
+                eprintln!(
+                    "Error: --check -f {} -t {}: {} output is never the same bytes as {} input",
+                    from_format, to, to, from_format
+                );
+                eprintln!(
+                    "Hint: --check with -t compares the output with the input; it takes -f yay or meh with -t yay, and -f md or yd with -t md or yd. Without -t, --check checks validity."
+                );
+                process::exit(1);
+            }
+            round_trip = true;
+        }
     }
 
     // Validate options
@@ -251,7 +263,7 @@ fn main() {
     }
 
     // Determine output format
-    // Default output is YAY (canonical form)
+    // Default output is YAY
     let output_format_str = to_format.unwrap_or("yay");
     let output_format = parse_format(output_format_str);
 
@@ -289,7 +301,7 @@ fn main() {
                 output_format,
                 write_back,
                 check_only,
-                canonical,
+                round_trip,
             );
             return;
         }
@@ -346,13 +358,13 @@ fn main() {
         output_file,
         write_back,
         check_only,
-        canonical,
+        round_trip,
     );
     process::exit(exit_code);
 }
 
-/// Mehdown (md) and Yaydown (yd) write the same document: canonical YAY
-/// front matter is both.
+/// Mehdown (md) and Yaydown (yd) write the same document: front matter in the
+/// YAY formatter's form is both.
 fn is_markdown(format: &str) -> bool {
     matches!(format, "md" | "yd")
 }
@@ -407,7 +419,7 @@ fn process_directory(
     output_format: Format,
     write_back: bool,
     check_only: bool,
-    canonical: bool,
+    round_trip: bool,
 ) {
     let entries = match fs::read_dir(dir_path) {
         Ok(e) => e,
@@ -442,7 +454,7 @@ fn process_directory(
                 None,
                 write_back,
                 check_only,
-                canonical,
+                round_trip,
             );
 
             if exit_code != 0 {
@@ -465,7 +477,7 @@ fn process_input(
     output_file: Option<&str>,
     write_back: bool,
     check_only: bool,
-    canonical: bool,
+    round_trip: bool,
 ) -> i32 {
     let filename = input_file.map(|p| {
         Path::new(p)
@@ -485,7 +497,7 @@ fn process_input(
             output_file,
             write_back,
             check_only,
-            canonical,
+            round_trip,
         );
     }
 
@@ -509,7 +521,7 @@ fn process_input(
     // For --check mode, just validate
     if check_only {
         // For strict YAY, we already validated above
-        if from_format == "yay" && !canonical {
+        if from_format == "yay" && !round_trip {
             if let Some(path) = input_file {
                 println!("{}: ok", path);
             }
@@ -520,9 +532,9 @@ fn process_input(
         if from_format == "yay" || from_format == "meh" {
             match format_yay(input) {
                 Ok(formatted) => {
-                    if canonical {
-                        if let Some(e) = canonical_difference(input, &formatted) {
-                            report_not_canonical(input_file, &e);
+                    if round_trip {
+                        if let Some(e) = first_difference(input, &formatted) {
+                            report_difference(input_file, &e);
                             return 1;
                         }
                     }
@@ -659,8 +671,8 @@ fn process_input(
             }
         },
         "meh" => {
-            // For MEH input, first format to canonical YAY, then parse
-            let canonical = match format_yay(input) {
+            // For MEH input, first format it as YAY, then parse
+            let formatted = match format_yay(input) {
                 Ok(s) => s,
                 Err(e) => {
                     if let Some(path) = input_file {
@@ -671,7 +683,7 @@ fn process_input(
                     return 1;
                 }
             };
-            match parse(&canonical) {
+            match parse(&formatted) {
                 Ok(v) => v,
                 Err(e) => {
                     // This shouldn't happen if format_yay succeeded
@@ -935,7 +947,7 @@ fn process_markdown(
     output_file: Option<&str>,
     write_back: bool,
     check_only: bool,
-    canonical: bool,
+    round_trip: bool,
 ) -> i32 {
     let report = |e: &dyn std::fmt::Display| {
         if let Some(path) = input_file {
@@ -952,10 +964,10 @@ fn process_markdown(
         }
     };
     if check_only {
-        if canonical {
+        if round_trip {
             let out = markdown::normalize(&read);
-            if let Some(e) = canonical_difference(input, &out) {
-                report_not_canonical(input_file, &e);
+            if let Some(e) = first_difference(input, &out) {
+                report_difference(input_file, &e);
                 return 1;
             }
         }
@@ -1101,34 +1113,50 @@ fn write_binary_output(
     }
 }
 
-/// The first line where a document differs from its canonical form, as a
-/// message, or None when it is canonical.
-fn canonical_difference(actual: &str, canonical: &str) -> Option<String> {
-    if actual == canonical {
+/// Whether `--check -f from -t to` compares comparable text: the output of
+/// the pair can equal its input byte for byte.
+fn round_trip_pair(from: &str, to: &str) -> bool {
+    match from {
+        "yay" | "meh" => to == "yay",
+        "md" | "yd" => is_markdown(to),
+        _ => false,
+    }
+}
+
+/// The first line where a document differs from what -t would write for it,
+/// as a message, or None when they are the same.
+fn first_difference(actual: &str, formatted: &str) -> Option<String> {
+    if actual == formatted {
         return None;
     }
     let mut a = actual.split_inclusive('\n');
-    let mut c = canonical.split_inclusive('\n');
+    let mut f = formatted.split_inclusive('\n');
     let mut n = 0;
     loop {
         n += 1;
-        match (a.next(), c.next()) {
+        match (a.next(), f.next()) {
             (Some(x), Some(y)) if x == y => continue,
+            (Some(x), Some(y)) if !x.ends_with('\n') && y == format!("{}\n", x) => {
+                return Some(format!(
+                    "not formatted at line {}: the last line must end with a newline",
+                    n
+                ))
+            }
             (Some(_), Some("\n")) => {
                 return Some(format!(
-                    "not canonical at line {}: expected a blank line (after a block string)",
+                    "not formatted at line {}: expected a blank line (after a block string)",
                     n
                 ))
             }
             (Some("\n"), _) => {
                 return Some(format!(
-                    "not canonical at line {}: unexpected blank line",
+                    "not formatted at line {}: unexpected blank line",
                     n
                 ))
             }
             (Some(x), Some(y)) => {
                 return Some(format!(
-                    "not canonical at line {}: expected {:?}, found {:?}",
+                    "not formatted at line {}: expected {:?}, found {:?}",
                     n,
                     y.trim_end_matches('\n'),
                     x.trim_end_matches('\n')
@@ -1136,28 +1164,25 @@ fn canonical_difference(actual: &str, canonical: &str) -> Option<String> {
             }
             (Some(_), None) => {
                 return Some(format!(
-                    "not canonical at line {}: expected the end of the document",
+                    "not formatted at line {}: expected the end of the document",
                     n
                 ))
             }
             (None, Some(y)) => {
                 return Some(format!(
-                    "not canonical at line {}: expected {:?}",
+                    "not formatted at line {}: expected {:?}",
                     n,
                     y.trim_end_matches('\n')
                 ))
             }
             (None, None) => {
-                return Some(format!(
-                    "not canonical at line {}: the last line must end with a newline",
-                    n - 1
-                ))
+                return Some(format!("not formatted at line {}", n - 1));
             }
         }
     }
 }
 
-fn report_not_canonical(input_file: Option<&str>, e: &str) {
+fn report_difference(input_file: Option<&str>, e: &str) {
     match input_file {
         Some(path) => eprintln!("{}: {}", path, e),
         None => eprintln!("{}", e),
@@ -1182,7 +1207,7 @@ OPTIONS:
                            yd (Yaydown: markdown, strict YAY front matter)
                            
                            'meh' (default) accepts loose formatting and reformats
-                           to canonical YAY. 'yay' enforces strict YAY syntax
+                           it as YAY. 'yay' enforces strict YAY syntax
                            before transformation.
                            
                            When --check is used, the default flips to 'yay'
@@ -1196,19 +1221,22 @@ OPTIONS:
     
     -o, --output <FILE>    Write output to specified file (not valid with directory input)
     
-    --check                Check if input is valid (exit 0 if valid, 1 if invalid)
-                           Defaults to strict YAY input; use --from meh for lenient
-
-    --canonical            Check that input is valid and already canonical: that
-                           -t yay (or -t md, -t yd) would write it unchanged. For yay,
-                           meh, md and yd input; implies --check
+    --check                What it checks depends on whether -t is given.
+                           Without -t: check that input is valid (exit 0 if
+                           valid, 1 if invalid). Defaults to strict YAY input;
+                           use --from meh for lenient.
+                           With -t: check that input is valid and that writing
+                           it as -t would leave it unchanged, byte for byte; on
+                           a difference, report the first line that differs.
+                           Takes -f yay or meh with -t yay, and -f md or yd
+                           with -t md or yd; refuses any other pair.
     
     -h, --help             Print help
     
     -V, --version          Print version
 
 EXAMPLES:
-    # Reformat a MEH file to canonical YAY (default behavior)
+    # Reformat a MEH file as YAY (default behavior)
     yay config.meh
     
     # Strictly validate a YAY file (--check defaults to strict)
@@ -1220,8 +1248,12 @@ EXAMPLES:
     # Validate all YAY files in a directory strictly
     yay --check ./configs/
 
-    # Check that a YAY file is valid and in canonical form
-    yay --canonical config.yay
+    # Check that a YAY file is valid and in the formatter's form:
+    # that -t yay would write it unchanged
+    yay --check -t yay config.yay
+
+    # The same for a Yaydown document
+    yay --check -f yd -t yd notes.md
     
     # Convert YAY to JSON (lenient input)
     yay -t json config.yay

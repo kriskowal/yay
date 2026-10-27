@@ -261,9 +261,9 @@ Semantics:
 - No escape sequences are recognized; backslash and `#` are literal content.
 - Tab characters are forbidden.
 
-**Canonical form:**
+**Formatted form:**
 
-In canonical YAY, a block string is followed by exactly one blank line,
+In the formatter's form, a block string is followed by exactly one blank line,
 unless it is the last thing in the document, which then ends at the string's
 last line.
 The rule holds at every depth and whatever follows the string: a sibling
@@ -292,13 +292,13 @@ The blank line never changes a value.
 Trailing empty lines are not content (they collapse to the single trailing
 newline), so a reader cannot take the separating blank line for part of the
 string, and reads a document the same with or without it.
-Readers accept both forms. `yay -t yay` writes the canonical one, and
-`yay --canonical` refuses a document that is not in it.
+Readers accept both forms. `yay -t yay` writes the formatted one, and
+`yay --check -t yay` refuses a document that is not in it.
 
 It follows that a block string's value always ends in exactly one newline,
 after a line that is not empty.
 A string whose last line is empty (`"a\n\n"`), or that does not end in a
-newline (`"a\nb"`), cannot be written as a block string; canonical YAY writes
+newline (`"a\nb"`), cannot be written as a block string; the formatter writes
 it as a double-quoted string with `\n` escapes.
 
 ### Concatenated Strings

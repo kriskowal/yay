@@ -48,17 +48,16 @@ When a directory is specified, processes all `.yay` files recursively.
 | `-t, --to FORMAT` | Output format (default: `yay`); supported: `yay`, `json`, `yson`, `js`, `go`, `python`, `rust`, `c`, `java`, `scheme`, `md`, `yd` |
 | `-w, --write` | Write output to file with inferred extension |
 | `-o, --output FILE` | Write output to specified file (not valid with directory input) |
-| `--check` | Validate without producing output (exit 0 if valid, 1 if invalid) |
-| `--canonical` | Validate, and require the canonical form: what `-t yay` (or `-t md`, `-t yd`) would write. Implies `--check` |
+| `--check` | Without `-t`: validate without producing output (exit 0 if valid, 1 if invalid). With `-t`: also require that writing the input as `-t` leaves it unchanged. See [Validation Mode](#validation-mode) |
 | `-h, --help` | Print help |
 | `-V, --version` | Print version |
 
 ### Input Formats
 
 - **`meh`** (default): Accepts loose formatting (MEH - "Meh, close enough to YAY").
-  This is lenient and reformats to canonical YAY.
+  This is lenient and reformats the input as YAY.
 - **`yay`**: Enforces strict YAY syntax.
-  Use this to validate that files conform to the canonical format.
+  Use this to validate that files are strict YAY.
 - **`json`**: Standard JSON input.
 - **`yson`**: JSON extended with YAY features (big integers, byte arrays).
 - **`md`** (Mehdown): Markdown with YAY front matter, read as an object (see
@@ -69,7 +68,7 @@ When a directory is specified, processes all `.yay` files recursively.
 
 ### YAY (default)
 
-Reformats the input as canonical YAY.
+Reformats the input as YAY, in the formatter's form.
 This is useful for:
 - Normalizing whitespace and formatting
 - Aligning comments
@@ -228,8 +227,8 @@ Reading a document:
 
 Writing an object (`-t md` or `-t yd`):
 
-- `-t md` and `-t yd` write the same document. Its front matter is canonical
-  YAY, so the document is both valid Mehdown and valid Yaydown.
+- `-t md` and `-t yd` write the same document. Its front matter is YAY in the
+  formatter's form, so the document is both valid Mehdown and valid Yaydown.
 - Only an object can be written; an array or a scalar is refused.
 - When `content` is a string that is not empty, the front matter is every other
   property and the body is `content`, written exactly, with no newline added,
@@ -264,29 +263,43 @@ carry it (reformatting the front matter from its value).
 
 ## Validation Mode
 
-Use `--check` to validate files without producing output:
+`--check` produces no output, and what it checks depends on whether `-t` is
+given.
+
+Without `-t`, `--check` checks that the input is valid. It reads strict YAY by
+default; use `--from meh` for lenient MEH, or any other input format.
 
 ```bash
-yay --check input.yay        # Validate with lenient MEH parser (default)
-yay --check directory/       # Validate all .yay files in directory
+yay --check input.yay              # Strict validation (the default)
+yay --check --from meh input.yay   # Lenient validation
+yay --check directory/             # Strict validation of all .yay files
 ```
 
-For strict validation (ensuring files conform to canonical YAY syntax):
+With `-t`, `--check` checks that the input is valid and that writing it as `-t`
+would leave it unchanged, byte for byte: that it is already formatted. When it
+is not, binyay names the first line that differs, and the same command without
+`--check` fixes it. `-f` still defaults to strict `yay`. Only pairs whose
+output can equal their input are allowed:
+
+| `-f` | `-t` |
+|------|------|
+| `yay`, `meh` | `yay` |
+| `md`, `yd` | `md`, `yd` |
+
+Any other pair is refused with an error, since its output is never the same
+bytes as its input (`-f json -t yay`, say). Same-format pairs such as
+`-f json -t json` are refused too: binyay's JSON and YSON writers sort keys and
+respell numbers, so their output is binyay's layout rather than a form a
+document is kept in.
 
 ```bash
-yay --from yay --check input.yay        # Strict validation
-yay --from yay --check directory/       # Strict validation of all files
+yay --check -t yay input.yay           # Strict, and formatted
+yay --check -f yd -t yd README.md      # Yaydown: front matter strict, document formatted
 ```
 
-To require the canonical form as well, use `--canonical`. A document passes
-when the formatter would write it unchanged; otherwise binyay names the first
-line that differs, and `yay -t yay` (or `yay -f md -t md`) fixes it. It reads
-strict YAY by default, and takes `--from meh`, `md` (Mehdown) or `yd` (Yaydown).
-
-```bash
-yay --canonical input.yay               # Strict and canonical
-yay -f yd --canonical README.md         # Yaydown: front matter strict, document canonical
-```
+This is a formatting check, like `gofmt -l`, not canonicalization: two
+documents with the same value can both pass and still differ, in key order,
+quoting or comments.
 
 ## Formatting Behavior
 

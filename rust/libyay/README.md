@@ -425,7 +425,7 @@ Value::Object(HashMap::from([
 ]))
 ```
 
-In canonical YAY, a block string is followed by one blank line, unless it is
+In the formatter's form, a block string is followed by one blank line, unless it is
 the last thing in the document.
 The blank line is not part of the value, since trailing empty lines never are,
 so a document reads the same with or without it.
