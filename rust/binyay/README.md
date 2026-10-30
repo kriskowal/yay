@@ -14,6 +14,10 @@ cargo install binyay
 # Validate a file
 yay --check config.yay
 
+# Check that a file is already formatted: that -t yay would write it
+# unchanged (with -t, --check compares bytes; without -t, only validity)
+yay --check -t yay config.yay
+
 # Convert to JSON
 yay -t json config.yay
 

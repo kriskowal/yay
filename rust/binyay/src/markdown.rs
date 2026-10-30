@@ -16,7 +16,7 @@
 //!
 //! reads as `{created: "2026-10-10", author: "Ada Lovelace", content: "# Title\n"}`.
 //!
-//! The mapping is a bijection between objects and canonical documents:
+//! The mapping is a bijection between objects and the documents binyay writes:
 //!
 //! - **Writing** needs an object. When `content` is a non-empty string, the
 //!   front matter is the object without `content` and the body is `content`,
@@ -150,7 +150,7 @@ fn opens_front_matter(body: &str) -> bool {
     body.starts_with("---\n") || body == "---"
 }
 
-/// Render a document from canonical head text (YAY, ending in a newline, or
+/// Render a document from formatted head text (YAY, ending in a newline, or
 /// empty for none) and a body, which must not begin with a blank line when
 /// front matter is written. Empty fences are written only when the body alone
 /// would open front matter. A body after front matter follows one blank line.
@@ -180,7 +180,7 @@ pub fn render(head: &str, body: &str) -> String {
 /// A document as read: its front matter normalized as text, the object it
 /// reads as, and its body.
 pub struct Read<'a> {
-    /// The front matter as canonical text, keeping key order and comments,
+    /// The front matter as formatted text, keeping key order and comments,
     /// or empty for none.
     pub head_text: String,
     /// The object the document reads as.
@@ -229,7 +229,7 @@ pub fn decode(input: &str) -> Result<Value, String> {
     read(input, None, true).map(|r| r.value)
 }
 
-/// The canonical form of a document as read, for `-f md -t md`: the front
+/// The formatted form of a document as read, for `-f md -t md`: the front
 /// matter reformatted, keeping key order and comments, and the body as is.
 /// Front matter that holds a `content` a body can carry (with an empty body)
 /// is rewritten from its value, so that `content` moves to the body.
@@ -311,7 +311,7 @@ fn render_object(map: &HashMap<String, Value>) -> String {
 }
 
 /// Front matter for an object: one property per line, as front matter is
-/// written, though canonical YAY would put a small object on one line. Each
+/// written, though the formatter would put a small object on one line. Each
 /// property is encoded alone and the whole is then formatted, so that the
 /// text is what reading the document back would normalize it to.
 fn head_text(head: &HashMap<String, Value>) -> String {
@@ -524,8 +524,8 @@ mod tests {
             ("a", Value::Integer(BigInt::from(1))),
             ("content", s("x\n")),
         ]);
-        let canonical = "---\na: 1\n---\n\nx\n";
-        assert!(decode(canonical).unwrap() == one);
+        let formatted = "---\na: 1\n---\n\nx\n";
+        assert!(decode(formatted).unwrap() == one);
         for (name, doc, error) in [
             (
                 "none",
@@ -569,7 +569,7 @@ mod tests {
         }
         assert_eq!(
             normalize(&read("---\na: 1\n---\nx\n", None, false).unwrap()),
-            canonical
+            formatted
         );
         let head_only = obj(&[("a", Value::Integer(BigInt::from(1)))]);
         for doc in [
@@ -596,7 +596,7 @@ mod tests {
     }
 
     #[test]
-    fn reading_accepts_noncanonical() {
+    fn reading_accepts_unformatted() {
         // A string content in front matter, with no body, reads as content and
         // normalizes into the body.
         let doc = "---\ncontent: \"x\"\n---\n";
@@ -787,7 +787,7 @@ mod tests {
     const RUNS: usize = 20_000;
 
     /// decode(encode(x)) = x for every object x, and the document it writes
-    /// is canonical: it encodes back to itself and normalizes to itself.
+    /// is a fixed point: it encodes back to itself and normalizes to itself.
     #[test]
     fn property_objects_round_trip() {
         let mut g = Gen(SEED);
@@ -816,7 +816,7 @@ mod tests {
     }
 
     /// For any text that reads, encode(decode(m)) reads as the same object, and
-    /// normalizing it lands on that same canonical document.
+    /// normalizing it lands on that same written document.
     #[test]
     fn property_documents_round_trip() {
         let mut g = Gen(SEED ^ 1);

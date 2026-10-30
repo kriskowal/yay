@@ -10,6 +10,7 @@
 #   - Transcode: YAY -> YAML/TOML/CBOR against golden fixtures
 #   - Ingest: YAML/TOML/CBOR -> YAY against golden fixtures
 #   - Markdown: front matter normalized, body untouched; md <-> {...head, content}
+#   - Check: --check without -t (valid) and with -t (unchanged by -t)
 #
 # Exit codes: 0=pass, 1=fail, 2=skip
 
@@ -147,26 +148,26 @@ run_reformat_tests() {
       diff "$expected_file" "$tmp" | head -10 | sed 's/^/    /'
     fi
 
-    # --canonical refuses a document the formatter would change
+    # --check -t yay refuses a document the formatter would change
     if cmp -s "$meh_file" "$expected_file"; then
       continue
     fi
-    if "$YAY" --canonical -f meh "$meh_file" >/dev/null 2>&1; then
-      fail "canonical/$name (should have been refused)"
+    if "$YAY" --check -f meh -t yay "$meh_file" >/dev/null 2>&1; then
+      fail "formatted/$name (should have been refused)"
     else
-      pass "canonical/$name (refused)"
+      pass "formatted/$name (refused)"
     fi
   done
 
-  # --canonical accepts every expected output
+  # --check -t yay accepts every expected output
   for expected_file in "$MEH_DIR"/*.yay; do
     [[ -f "$expected_file" ]] || continue
     name=$(basename "$expected_file")
-    if "$YAY" --canonical "$expected_file" >/dev/null 2>&1; then
-      pass "canonical/$name"
+    if "$YAY" --check -t yay "$expected_file" >/dev/null 2>&1; then
+      pass "formatted/$name"
     else
-      fail "canonical/$name (refused)"
-      "$YAY" --canonical "$expected_file" 2>&1 | head -3 | sed 's/^/    /'
+      fail "formatted/$name (refused)"
+      "$YAY" --check -t yay "$expected_file" 2>&1 | head -3 | sed 's/^/    /'
     fi
   done
 
@@ -600,16 +601,16 @@ run_markdown_tests() {
     else
       fail "markdown/to-yd/$name (-t yd differs from -t md)"
     fi
-    if "$YAY" -f yd --canonical "$expected_file" >/dev/null 2>&1; then
-      pass "markdown/canonical/$base.md"
+    if "$YAY" --check -f yd -t yd "$expected_file" >/dev/null 2>&1; then
+      pass "markdown/formatted/$base.md"
     else
-      fail "markdown/canonical/$base.md (refused)"
+      fail "markdown/formatted/$base.md (refused)"
     fi
     if ! cmp -s "$input_file" "$expected_file"; then
-      if "$YAY" -f md --canonical "$input_file" >/dev/null 2>&1; then
-        fail "markdown/canonical/$name (should have been refused)"
+      if "$YAY" --check -f md -t md "$input_file" >/dev/null 2>&1; then
+        fail "markdown/formatted/$name (should have been refused)"
       else
-        pass "markdown/canonical/$name (refused)"
+        pass "markdown/formatted/$name (refused)"
       fi
     fi
   done
@@ -684,13 +685,103 @@ run_markdown_tests() {
     if [[ $name == *blank-line* ]]; then
       if "$YAY" -f md --check "$input_file" >/dev/null 2>&1 &&
         "$YAY" -f md -t yd "$input_file" >"$tmp" 2>/dev/null &&
-        "$YAY" -f yd --canonical "$tmp" >/dev/null 2>&1; then
+        "$YAY" --check -f yd -t yd "$tmp" >/dev/null 2>&1; then
         pass "markdown/lenient/$name"
       else
         fail "markdown/lenient/$name (-f md refused it, or wrote it without one blank line)"
       fi
     fi
   done
+
+  echo ""
+}
+
+# =============================================================================
+# Check Tests (--check without -t: valid; with -t: unchanged by -t)
+# =============================================================================
+
+# expect_check <name> <want-exit> <stdin> <args...>
+expect_check() {
+  local name=$1 want=$2 input=$3 got
+  shift 3
+  printf '%s' "$input" | "$YAY" "$@" >/dev/null 2>&1
+  got=$?
+  if [[ $got -eq $want ]]; then
+    pass "check/$name"
+  else
+    fail "check/$name (exit $got, wanted $want)"
+  fi
+}
+
+# expect_message <name> <pattern> <stdin> <args...>: stderr matches
+expect_message() {
+  local name=$1 pattern=$2 input=$3 err
+  shift 3
+  err=$(printf '%s' "$input" | "$YAY" "$@" 2>&1 >/dev/null)
+  if [[ $err == *$pattern* ]]; then
+    pass "check/$name"
+  else
+    fail "check/$name (message)" "got: $err"
+  fi
+}
+
+run_check_tests() {
+  echo "=== Check Tests ==="
+  local yay=$'a: 1\n' meh=$'a:   1\n' yd=$'---\nk: "v"\n---\n\nx\n' md=$'---\nk: v\n---\nx\n'
+
+  # Without -t, --check checks validity only, as before
+  expect_check "valid/yay" 0 "$yay" --check
+  expect_check "invalid/yay" 1 "$meh" --check
+  expect_check "valid/meh" 0 "$meh" --check -f meh
+  expect_check "valid/ignores-formatting" 0 $'a: 1' --check
+  expect_check "invalid/strict" 1 "$md" --check -f yd
+
+  # Allowed pairs: unchanged input passes, changed input fails
+  expect_check "pair/yay-yay" 0 "$yay" --check -t yay
+  expect_check "pair/yay-yay/changed" 1 "$meh" --check -t yay
+  expect_check "pair/meh-yay" 0 "$yay" --check -f meh -t yay
+  expect_check "pair/meh-yay/changed" 1 "$meh" --check -f meh -t yay
+  expect_check "pair/yd-yd" 0 "$yd" --check -f yd -t yd
+  expect_check "pair/yd-md" 0 "$yd" --check -f yd -t md
+  expect_check "pair/md-md" 0 "$yd" --check -f md -t md
+  expect_check "pair/md-yd" 0 "$yd" --check -f md -t yd
+  expect_check "pair/md-md/changed" 1 "$md" --check -f md -t md
+  expect_check "pair/md-yd/changed" 1 "$md" --check -f md -t yd
+
+  # With -t, -f still defaults to strict yay: invalid strict input is a parse
+  # error, while -f meh reads it and reports the difference
+  expect_message "pair/default-strict" 'Unexpected space' "$meh" --check -t yay
+  expect_message "pair/meh-lenient" 'not formatted at line 1' "$meh" --check -f meh -t yay
+
+  # The first difference, and a missing final newline, are reported plainly
+  expect_message "message/line" 'line 1: expected "a: 1", found "a:   1"' "$meh" --check -f meh -t yay
+  expect_message "message/final-newline" 'line 1: the last line must end with a newline' $'a: 1' --check -t yay
+
+  # Refused pairs: output that can never be the same bytes as the input
+  local pair f t
+  for pair in json:yay yson:yay yaml:yay toml:yay json:json yson:yson yay:json yay:yson yay:md yay:yd md:yay yd:yay meh:md; do
+    f=${pair%%:*} t=${pair#*:}
+    expect_check "refused/$f-$t" 1 "$yay" --check -f "$f" -t "$t"
+    expect_message "refused/$f-$t/message" "--check -f $f -t $t:" "$yay" --check -f "$f" -t "$t"
+  done
+
+  # --canonical is gone
+  expect_check "canonical-removed" 1 "$yay" --canonical
+
+  # -t without --check converts, as always
+  local out
+  out=$(printf '%s' "$yay" | "$YAY" -t yson 2>/dev/null)
+  if [[ $out == $'{\n  "a": "#1"\n}' ]]; then
+    pass "check/convert-without-check"
+  else
+    fail "check/convert-without-check" "got: $out"
+  fi
+  out=$(printf '%s' "$meh" | "$YAY" -t yay 2>/dev/null)
+  if [[ $out == "a: 1" ]]; then
+    pass "check/format-without-check"
+  else
+    fail "check/format-without-check" "got: $out"
+  fi
 
   echo ""
 }
@@ -730,12 +821,15 @@ while [[ $# -gt 0 ]]; do
   markdown | md)
     TESTS_TO_RUN="$TESTS_TO_RUN markdown"
     ;;
+  check | chk)
+    TESTS_TO_RUN="$TESTS_TO_RUN check"
+    ;;
   all | "")
-    TESTS_TO_RUN="idempotence reformat roundtrip output error transcode ingest examples markdown"
+    TESTS_TO_RUN="idempotence reformat roundtrip output error transcode ingest examples markdown check"
     ;;
   *)
     echo "Unknown test category: $1"
-    echo "Usage: $0 [idempotence|reformat|roundtrip|output|error|transcode|ingest|examples|markdown|all]"
+    echo "Usage: $0 [idempotence|reformat|roundtrip|output|error|transcode|ingest|examples|markdown|check|all]"
     exit 1
     ;;
   esac
@@ -744,7 +838,7 @@ done
 
 # Default to all tests
 if [[ -z "$TESTS_TO_RUN" ]]; then
-  TESTS_TO_RUN="idempotence reformat roundtrip output error transcode ingest examples markdown"
+  TESTS_TO_RUN="idempotence reformat roundtrip output error transcode ingest examples markdown check"
 fi
 
 # Run selected tests
@@ -759,6 +853,7 @@ for test in $TESTS_TO_RUN; do
   ingest) run_ingest_tests ;;
   examples) run_cli_examples_tests ;;
   markdown) run_markdown_tests ;;
+  check) run_check_tests ;;
   esac
 done
 

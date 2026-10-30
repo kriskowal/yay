@@ -23,11 +23,11 @@ The `test/meh/` fixtures with `.yay` extension test this.
 The expected `.yay` file is both the expected output and a valid input that
 should reproduce itself.
 
-### Canonical Form
+### Formatted Form
 
-The formatter writes canonical YAY, and `yay --canonical` refuses a document
-that is not in it.
-In canonical YAY a block string is followed by exactly one blank line, unless
+`yay -t yay` writes YAY in the formatter's form, and `yay --check -t yay`
+refuses a document that is not in it.
+In the formatter's form a block string is followed by exactly one blank line, unless
 it is the last thing in the document, at every depth and whatever follows it
 (a sibling property, a key at a lesser indent, or the next list item).
 Readers accept both forms: the blank line is never part of the value, because
@@ -633,7 +633,7 @@ See [CLI.md](CLI.md) for full documentation.
 Key capabilities:
 
 - **Validation**: `yay --check file.yay`
-- **Formatting**: `yay file.yay` (canonical YAY output)
+- **Formatting**: `yay file.yay` (YAY in the formatter's form)
 - **Transcoding**: `yay -f json -t yay` (convert between formats)
 - **Code generation**: `yay -t js`, `yay -t go`, etc.
 
@@ -648,11 +648,11 @@ The CLI supports multiple input formats:
 
 MEH ("meh") is a loose variant of YAY that accepts formatting variations that
 strict YAY would reject.
-The formatter normalizes MEH input to canonical YAY output.
+The formatter normalizes MEH input to YAY in the formatter's form.
 
 The `test/reformat/` directory contains reformatter test cases:
 
-- `.yay` files: Expected canonical output
+- `.yay` files: Expected formatted output
 - `.meh` files: Loose input variants (named `basename.variant.meh`)
 
 For example:
@@ -823,7 +823,7 @@ All PRs must pass:
 
 ### Output Stability
 
-The canonical YAY output format should remain stable.
+The formatter's YAY output should remain stable.
 Changes to formatting behavior should be documented in release notes, tested
 with updated fixtures, and backward compatible when possible.
 
