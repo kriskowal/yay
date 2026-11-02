@@ -30,7 +30,8 @@ pub use encode::{encode, Format};
 pub use error::{ParseError, Result};
 pub use meh::format_yay;
 pub use shon::{
-    parse_shon_bracket, parse_shon_file_bytes, parse_shon_file_string, parse_shon_hex, ShonError,
+    parse_shon, parse_shon_bracket, parse_shon_file_bytes, parse_shon_file_string, parse_shon_hex,
+    scan_shon, ShonError,
 };
 pub use value::Value;
 pub use yson::{parse_json, parse_yson};

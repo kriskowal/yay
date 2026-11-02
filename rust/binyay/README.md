@@ -29,6 +29,9 @@ yay -t json -w ./configs/
 
 # Convert JSON to YAY
 yay -f json -t yay data.json
+
+# Read a value from stdin into a document built with SHON
+echo hi | yay [ --content -s - ] -t md
 ```
 
 See [CLI.md](https://github.com/kriskowal/yay/blob/main/CLI.md) for full documentation.

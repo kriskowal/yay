@@ -101,7 +101,17 @@ Two flags read file contents into values:
 ```
 -b image.png        → <...bytes of image.png...>
 -s message.txt      → "...contents of message.txt..."
+-s -                → "...contents of stdin..."
 ```
+
+The path `-` reads stdin: `-s -` as a UTF-8 string, `-b -` as raw bytes.
+Stdin can be read only once, so a command line that names `-` after `-s` or
+`-b` more than once, or that also reads stdin as its input (`yay - -s -`), is
+refused before anything is read. A file named `-` is reached as `./-`.
+
+Reading stdin, rather than a path such as `/dev/fd/63` from a shell's
+process substitution `<(…)`, also works where a launcher does not pass the
+shell's extra file descriptors on to `yay`, as `npx` on macOS does not.
 
 ## Arrays
 
@@ -314,6 +324,11 @@ $ yay -b icon.png -o icon.yay
 $ yay -s message.txt
 `
   ...contents of message.txt...
+```
+
+```bash
+$ echo hi | yay [ --content -s - ] -t md
+hi
 ```
 
 ### String escaping inside brackets

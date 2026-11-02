@@ -506,6 +506,22 @@ echo '{"a": 1, "b": 2}' | yay -f json -t yay
 # {a: 1.0, b: 2.0}
 ```
 
+### Read a SHON value from stdin
+
+In a SHON expression (see [SHON.md](SHON.md)), `-s -` reads stdin as a
+string and `-b -` reads it as bytes, so a pipe can supply one value of a
+document built on the command line:
+
+```bash
+echo hi | yay [ --content -s - ] -t md
+# Output:
+# hi
+```
+
+Stdin can be read only once: `yay` refuses a command line that names `-`
+after `-s` or `-b` more than once, or that also names `-` as its input, before
+reading anything. A file named `-` is reached as `./-`.
+
 ### Generate Go code from YAY
 
 ```bash
