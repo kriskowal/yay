@@ -2,6 +2,7 @@
 # Test scripts/check-npm-packages.sh against copies of the npm packages:
 # it must refuse a platform package that would publish without a working
 # binary, and pass the host's package once it holds the release binary.
+# Then test binyay's install script, which replaces bin/yay with that binary.
 
 set -ueo pipefail
 
@@ -102,6 +103,25 @@ fi
 
 printf '#!/bin/sh\necho yay 0.0.0\n' >"$pkg/bin/$bin_name"
 expect fail "refuses a stand-in that is not a binary"
+
+# The install script puts the native yay in place of the Node wrapper, except
+# on Windows, where npm's shims need the wrapper.
+if [[ "$host" != win32-* ]]; then
+  if cmp -s "$work/app/node_modules/binyay/bin/yay" "$yay"; then
+    echo "PASS: installing binyay puts the native yay at bin/yay"
+  else
+    echo "FAIL: installing binyay puts the native yay at bin/yay"
+    failed=$((failed + 1))
+  fi
+fi
+
+if node --test "$ROOT_DIR/js/binyay/test/postinstall.test.js" >"$work/out" 2>&1; then
+  echo "PASS: postinstall tests"
+else
+  echo "FAIL: postinstall tests"
+  sed 's/^/    /' "$work/out"
+  failed=$((failed + 1))
+fi
 
 if [[ $failed -gt 0 ]]; then
   echo "$failed npm package check test(s) failed"

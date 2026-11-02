@@ -41,8 +41,13 @@ try {
     stdio: 'inherit',
   });
 } catch (e) {
-  if (e.status !== undefined) {
+  if (e.status !== undefined && e.status !== null) {
     process.exit(e.status);
+  }
+  if (e.code === 'ENOENT') {
+    console.error(`Missing binary: ${binary}`);
+    console.error('Try reinstalling: npm install binyay');
+    process.exit(1);
   }
   throw e;
 }
