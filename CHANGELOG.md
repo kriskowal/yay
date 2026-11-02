@@ -1,5 +1,38 @@
 # Changelog
 
+## binyay 2.1.0
+
+Two additions; nothing is removed or changed in meaning.
+
+**`-s -` and `-b -` read stdin.** In a SHON expression, the path `-` after
+`-s` reads stdin as a UTF-8 string, and after `-b` as raw bytes, so a pipe
+can supply one value of a document built on the command line:
+
+```bash
+echo hi | yay [ --content -s - ] -t md
+```
+
+Stdin can be read only once: a command line that names `-` after `-s` or
+`-b` more than once, or that also names `-` as its input (`yay - -s -`), is
+refused before anything is read. A file named `-` is reached as `./-`.
+Before, `-s -` failed with `Cannot read file '-'`.
+
+**npm installs the native `yay` as its bin, as esbuild does.** binyay's
+install script checks that the platform package's binary reports binyay's
+version and puts it at `bin/yay`, in place of the Node wrapper that ran it,
+so the `yay` command starts no Node process. On macOS that wrapper lost
+every file descriptor beyond stdio, so `yay -s <(echo hi)` failed with
+`Bad file descriptor` from a global install; it now works. If the step
+fails, or on Windows, under Yarn or with `--ignore-scripts`, the wrapper
+stays, with one warning, and installation still succeeds. `npx binyay` on
+macOS still cannot pass `<(…)`, since npm's own launcher drops the
+descriptor: use `-s -`.
+
+libyay (Rust) is 1.2.0: SHON reading treats `-` as stdin, and gains
+`parse_shon`, which takes any SHON trigger, and `scan_shon`, which counts an
+expression's reads of stdin without reading anything. The other ports have
+no SHON reader, do not change, and stay at 1.1.1.
+
 ## binyay 2.0.0
 
 **Breaking:** `--canonical` is removed. `--check` takes its place when `-t`
