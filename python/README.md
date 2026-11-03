@@ -57,7 +57,9 @@ Serializes a Python value to a file in YAY format.
 A tagged value, `'X-1' (com.example/sku)` or a block below `key: (tag)`:
 a frozen dataclass with the tag, a string, and the payload, any value.
 Tagged values are equal when their tags and payloads are; a tagged value
-never equals its payload. YAY gives no tag a meaning.
+never equals its payload. YAY gives no tag a meaning. `dumps` writes a tag
+after its value with one space, innermost first, and before its payload on
+the line above exactly when the payload is written as a block.
 
 ```python
 yay.loads("count: 10 (s)\n")

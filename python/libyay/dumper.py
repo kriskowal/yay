@@ -6,6 +6,8 @@ import math
 import re
 from typing import Any, TextIO
 
+from .tagged import Tagged
+
 
 def _is_simple_key(key: str) -> bool:
     """Check if a key can be written without quotes."""
@@ -56,9 +58,64 @@ def _escape_single_quoted(s: str) -> str:
     return s.replace("'", "''")
 
 
+def _format_tag(tag: str) -> str:
+    """Format a tag: its characters as they are, but ")" as "\\)", "\\" as
+    "\\\\" and the control characters escaped as in a double-quoted string."""
+    result = []
+    for ch in tag:
+        if ch == ")":
+            result.append("\\)")
+        elif ch == "\\":
+            result.append("\\\\")
+        elif ch == "\n":
+            result.append("\\n")
+        elif ch == "\r":
+            result.append("\\r")
+        elif ch == "\t":
+            result.append("\\t")
+        elif ch == "\b":
+            result.append("\\b")
+        elif ch == "\f":
+            result.append("\\f")
+        elif ord(ch) < 0x20 or 0x7F <= ord(ch) <= 0x9F:
+            result.append("\\u{%X}" % ord(ch))
+        else:
+            result.append(ch)
+    return "(" + "".join(result) + ")"
+
+
+def _untag(value: Any) -> tuple[list[str], Any]:
+    """Split a value into its tags, outermost first, and its payload."""
+    tags = []
+    while isinstance(value, Tagged):
+        tags.append(value.tag)
+        value = value.payload
+    return tags, value
+
+
+def _is_block(value: Any) -> bool:
+    """Is the payload written as a block, where blocks may go?"""
+    return isinstance(value, (dict, list)) and bool(value)
+
+
+def _format_prefix(tags: list[str]) -> str:
+    """Format the tags before a block, outermost first."""
+    return " ".join(_format_tag(tag) for tag in tags)
+
+
 def _format_value(value: Any, indent: int = 0, inline: bool = False) -> str:
     """Format a value as YAY."""
     prefix = "  " * indent
+
+    if isinstance(value, Tagged):
+        tags, payload = _untag(value)
+        if not inline and _is_block(payload):
+            # A tag before the block, on its own line above it
+            block = _format_value(payload, indent, inline=False)
+            return f"{prefix}{_format_prefix(tags)}\n{block}"
+        # Tags after the inline value, innermost first
+        suffix = "".join(" " + _format_tag(tag) for tag in reversed(tags))
+        return _format_value(payload, indent, inline=True) + suffix
 
     if value is None:
         return "null"
@@ -102,7 +159,14 @@ def _format_value(value: Any, indent: int = 0, inline: bool = False) -> str:
             # Block array
             lines = []
             for item in value:
-                if isinstance(item, (dict, list)) and item:
+                tags, payload = _untag(item)
+                if tags and isinstance(payload, dict) and payload:
+                    # A tagged object: the tags on the item's line
+                    lines.append(f"{prefix}- {_format_prefix(tags)}")
+                    nested = _format_value(payload, 0, inline=False)
+                    for line in nested.split("\n"):
+                        lines.append(f"{prefix}  {line}")
+                elif isinstance(item, (dict, list)) and item:
                     # Complex nested item
                     item_str = _format_value(item, indent + 1, inline=False)
                     if isinstance(item, list):
@@ -133,8 +197,14 @@ def _format_value(value: Any, indent: int = 0, inline: bool = False) -> str:
             lines = []
             for k, v in value.items():
                 key_str = k if _is_simple_key(k) else f"'{_escape_single_quoted(k)}'"
+                tags, payload = _untag(v)
 
-                if isinstance(v, dict) and v:
+                if tags and _is_block(payload):
+                    # A tagged block: the tags after the key
+                    lines.append(f"{prefix}{key_str}: {_format_prefix(tags)}")
+                    nested = _format_value(payload, indent + 1, inline=False)
+                    lines.append(nested)
+                elif isinstance(v, dict) and v:
                     # Nested object
                     lines.append(f"{prefix}{key_str}:")
                     nested = _format_value(v, indent + 1, inline=False)

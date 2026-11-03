@@ -164,5 +164,45 @@ class Parse(unittest.TestCase):
                     yay.loads(bad)
 
 
+class Write(unittest.TestCase):
+    def test_suffix_one_space_innermost_first(self):
+        self.assertEqual(yay.dumps(Tagged("s", 10)), "10 (s)")
+        self.assertEqual(yay.dumps(Tagged("b", Tagged("a", "x"))), "'x' (a) (b)")
+        self.assertEqual(
+            yay.dumps({"a": [Tagged("x", 1), Tagged("y", [])]}, indent=False),
+            "{a: [1 (x), [] (y)]}",
+        )
+
+    def test_tag_escapes(self):
+        self.assertEqual(yay.dumps(Tagged("a)b\\c", 1)), "1 (a\\)b\\\\c)")
+        self.assertEqual(yay.dumps(Tagged("\t\x01\x7f", 1)), "1 (\\t\\u{1}\\u{7F})")
+        self.assertEqual(yay.dumps(Tagged(" (\"') ", 1)), "1 ( (\"'\\) )")
+        self.assertEqual(yay.dumps(Tagged("", 1)), "1 ()")
+
+    def test_prefix_exactly_over_a_block(self):
+        self.assertEqual(
+            yay.dumps({"a": Tagged("o", Tagged("i", [1, 2])), "b": Tagged("e", {})}),
+            "a: (o) (i)\n  - 1\n  - 2\nb: {} (e)",
+        )
+        self.assertEqual(yay.dumps(Tagged("p", {"x": 1})), "(p)\nx: 1")
+        self.assertEqual(yay.dumps([Tagged("p", {"x": 1})]), "- (p)\n  x: 1")
+
+    def test_round_trip(self):
+        values = [
+            Tagged("s", 10),
+            {"a": Tagged("rgb", [255, 136, 0]), "b": Tagged("x)y\\", b"\xff")},
+            {"c": [Tagged("t", {"k": 1}), Tagged("u", [1, 2]), Tagged("e", [])]},
+            Tagged("p", {"x": 1, "y": Tagged("q", {"z": Tagged("r", None)})}),
+            [Tagged("a", Tagged("b", {"k": "v"}))],
+            {"d": Tagged("", Tagged(" edge ", 1.5))},
+        ]
+        for value in values:
+            with self.subTest(value):
+                self.assertEqual(yay.loads(yay.dumps(value) + "\n"), value)
+                self.assertEqual(
+                    yay.loads(yay.dumps(value, indent=False) + "\n"), value
+                )
+
+
 if __name__ == "__main__":
     unittest.main()
