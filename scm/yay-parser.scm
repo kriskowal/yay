@@ -427,16 +427,23 @@
       s
       (let* ((len (string-length s))
              (inner (substring s 1 (- len 1))))
+        (unless (char=? (string-ref s (- len 1)) #\')
+          (yay-error "Unterminated string"))
         ;; Handle \' escapes
         (let loop ((i 0) (acc '()))
           (if (>= i (string-length inner))
               (list->string (reverse acc))
               (let ((ch (string-ref inner i)))
-                (if (and (char=? ch #\\)
-                         (< (+ i 1) (string-length inner))
-                         (char=? (string-ref inner (+ i 1)) #\'))
-                    (loop (+ i 2) (cons #\' acc))
-                    (loop (+ i 1) (cons ch acc)))))))))
+                (cond
+                 ((and (char=? ch #\\)
+                       (< (+ i 1) (string-length inner))
+                       (char=? (string-ref inner (+ i 1)) #\'))
+                  (loop (+ i 2) (cons #\' acc)))
+                 ;; The string ends here, and something follows it
+                 ((char=? ch #\')
+                  (yay-error "Unexpected character after string"))
+                 (else
+                  (loop (+ i 1) (cons ch acc))))))))))
 
 ;; Parse hex bytes - returns a tagged bytevector
 (define (parse-hex-bytes hex-str)
