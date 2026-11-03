@@ -1607,10 +1607,10 @@
               (begin
                 (parser-advance! p)
                 (loop pairs)))))
-       ((and (eq? (token-type t) 'text)
+       ;; Nothing may stand indented under a property's inline value
+       ((and (memq (token-type t) '(text start))
              (> (token-indent t) base-indent))
-        (parser-advance! p)
-        (loop pairs))
+        (yay-error "Unexpected indent"))
        (else
         (parser-advance! p)
         (loop pairs))))))
