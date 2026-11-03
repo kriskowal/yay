@@ -23,6 +23,8 @@ pub enum Value {
     Object(HashMap<String, Value>),
     /// Byte array.
     Bytes(Vec<u8>),
+    /// Tagged value: a tag (any string) and one payload (any value).
+    Tagged(String, Box<Value>),
 }
 
 impl Value {
@@ -87,6 +89,14 @@ impl Value {
         }
     }
 
+    /// Returns the tag and payload if this is a `Tagged`.
+    pub fn as_tagged(&self) -> Option<(&str, &Value)> {
+        match self {
+            Value::Tagged(tag, payload) => Some((tag, payload)),
+            _ => None,
+        }
+    }
+
     /// Returns a description of why this value cannot be represented in JSON,
     /// or `None` if it can be represented.
     ///
@@ -114,6 +124,7 @@ impl Value {
                 }
                 None
             }
+            Value::Tagged(_, payload) => payload.json_incompatibility(),
             _ => None,
         }
     }
@@ -148,6 +159,7 @@ impl fmt::Debug for Value {
                 }
                 write!(f, ">")
             }
+            Value::Tagged(tag, payload) => write!(f, "{:?} ({:?})", payload, tag),
         }
     }
 }

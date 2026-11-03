@@ -97,6 +97,9 @@ pub fn encode(value: &Value) -> Result<Vec<u8>, String> {
 
 fn write_value(buf: &mut Vec<u8>, value: &Value) -> Result<(), String> {
     match value {
+        Value::Tagged(_, _) => {
+            Err("CBOR has no tagged value with a string tag (its tags are numbers)".to_string())
+        }
         Value::Null => {
             // CBOR simple value 22 = null
             buf.push(0xf6);

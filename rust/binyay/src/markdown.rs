@@ -270,6 +270,7 @@ fn kind(value: &Value) -> &'static str {
         Value::Array(_) => "an array",
         Value::Object(_) => "an object",
         Value::Bytes(_) => "a byte array",
+        Value::Tagged(_, _) => "a tagged value",
     }
 }
 
