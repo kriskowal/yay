@@ -96,6 +96,7 @@ fn encode_yay(value: &Value, indent: usize) -> String {
             }
         }
         Value::String(s) => encode_yay_string(s),
+        Value::Reference(uri) => format!("<{}>", uri),
         Value::Tagged(_, _) => {
             let (tags, payload) = collect_tags(value);
             if is_block_value(payload) {
@@ -270,6 +271,7 @@ fn is_simple_value(v: &Value) -> bool {
             | Value::Float(_)
             | Value::String(_)
             | Value::Bytes(_)
+            | Value::Reference(_)
     )
 }
 
@@ -315,6 +317,7 @@ fn encode_js_inner(value: &Value, indent: usize, is_top_level: bool) -> String {
             }
         }
         Value::String(s) => encode_js_string(s),
+        Value::Reference(uri) => format!("reference({})", encode_js_string(uri)),
         Value::Tagged(tag, payload) => format!(
             "tagged({}, {})",
             encode_js_string(tag),
@@ -445,6 +448,7 @@ fn encode_go(value: &Value, indent: usize) -> String {
             }
         }
         Value::String(s) => encode_json_string(s),
+        Value::Reference(uri) => format!("yay.Reference({})", encode_json_string(uri)),
         Value::Tagged(tag, payload) => format!(
             "yay.Tagged{{Tag: {}, Payload: {}}}",
             encode_json_string(tag),
@@ -550,6 +554,7 @@ fn encode_python(value: &Value, indent: usize) -> String {
             }
         }
         Value::String(s) => encode_json_string(s),
+        Value::Reference(uri) => format!("Reference({})", encode_json_string(uri)),
         Value::Tagged(tag, payload) => format!(
             "Tagged({}, {})",
             encode_json_string(tag),
@@ -658,6 +663,7 @@ fn encode_rust(value: &Value, indent: usize) -> String {
             }
         }
         Value::String(s) => format!("Value::String({}.into())", encode_json_string(s)),
+        Value::Reference(uri) => format!("Value::Reference({}.into())", encode_json_string(uri)),
         Value::Tagged(tag, payload) => format!(
             "Value::Tagged({}.into(), Box::new({}))",
             encode_json_string(tag),
@@ -760,6 +766,7 @@ fn encode_c_value(value: &Value, indent: usize) -> String {
             }
         }
         Value::String(s) => format!("yay_string({})", encode_c_string(s)),
+        Value::Reference(uri) => format!("yay_reference({})", encode_c_string(uri)),
         Value::Tagged(tag, payload) => format!(
             "yay_tagged({}, {})",
             encode_c_string(tag),
@@ -893,6 +900,7 @@ fn encode_java(value: &Value, indent: usize) -> String {
             }
         }
         Value::String(s) => encode_java_string(s),
+        Value::Reference(uri) => format!("new Reference({})", encode_java_string(uri)),
         Value::Tagged(tag, payload) => format!(
             "new Tagged({}, {})",
             encode_java_string(tag),
@@ -1015,6 +1023,7 @@ fn encode_scheme(value: &Value) -> String {
             }
         }
         Value::String(s) => encode_scheme_string(s),
+        Value::Reference(uri) => format!("(make-reference {})", encode_scheme_string(uri)),
         Value::Tagged(tag, payload) => format!(
             "(make-tagged {} {})",
             encode_scheme_string(tag),
@@ -1105,6 +1114,7 @@ fn encode_json(value: &Value, indent: usize) -> String {
             }
         }
         Value::String(s) => encode_json_string(s),
+        Value::Reference(uri) => encode_json_string(&format!("${}", uri)),
         Value::Tagged(tag, payload) => format!(
             "{{\n{}\"#tag\": {},\n{}\"payload\": {}\n{}}}",
             pad1,
@@ -1240,6 +1250,7 @@ fn encode_yson(value: &Value, indent: usize) -> String {
             }
         }
         Value::String(s) => encode_yson_string(s),
+        Value::Reference(uri) => encode_json_string(&format!("${}", uri)),
         Value::Tagged(tag, payload) => format!(
             "{{\n{}\"#tag\": {},\n{}\"payload\": {}\n{}}}",
             pad1,

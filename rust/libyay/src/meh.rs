@@ -117,6 +117,7 @@ pub enum CstValue {
     Array(CstArray),
     Object(CstObject),
     Tagged(Box<CstValue>, Vec<String>), // Tags after an inline value, innermost first
+    Reference(String),                  // The URI, its scheme lowercased
 }
 
 /// A string value
@@ -847,6 +848,15 @@ impl<'a> MehParser<'a> {
             return Ok(CstValue::String(CstString::SingleQuoted(s.to_string())));
         }
 
+        // Reference; text glued to it falls to a bare string, as for bytes
+        if crate::reference::is_reference_start(s) {
+            if let Ok((uri, n)) = crate::reference::scan_reference(s, true) {
+                if n == s.len() {
+                    return Ok(CstValue::Reference(uri));
+                }
+            }
+        }
+
         // Inline bytes
         if s.starts_with('<') && s.ends_with('>') {
             return Ok(CstValue::Bytes(CstBytes::Inline(InlineBytes {
@@ -1432,6 +1442,7 @@ impl Transformer {
             CstValue::Float(s) => s.len(),
             CstValue::String(s) => self.measure_string(s),
             CstValue::Bytes(b) => self.measure_bytes(b),
+            CstValue::Reference(uri) => uri.len() + 2,
             CstValue::Array(a) => self.measure_array(a),
             CstValue::Object(o) => self.measure_object(o),
             CstValue::Tagged(v, tags) => {
@@ -1573,6 +1584,7 @@ impl Transformer {
             CstValue::Float(s) => CstValue::Float(canonicalize_float(s)),
             CstValue::String(s) => CstValue::String(s.clone()),
             CstValue::Bytes(b) => self.transform_bytes(b, indent),
+            CstValue::Reference(uri) => CstValue::Reference(uri.clone()),
             CstValue::Array(a) => self.transform_array(a, indent),
             CstValue::Object(o) => self.transform_object(o, indent),
             CstValue::Tagged(v, tags) => {
@@ -2529,6 +2541,11 @@ impl Formatter {
             CstValue::Float(s) => self.write(s),
             CstValue::String(s) => self.format_string(s),
             CstValue::Bytes(b) => self.format_bytes(b),
+            CstValue::Reference(uri) => {
+                self.write_char('<');
+                self.write(uri);
+                self.write_char('>');
+            }
             CstValue::Array(a) => self.format_array(a),
             CstValue::Object(o) => self.format_object(o),
             CstValue::Tagged(v, tags) => {

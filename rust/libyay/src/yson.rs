@@ -12,6 +12,8 @@
 //! - Bytes: `"*cafe"` (asterisk prefix + hex)
 //! - Escaped strings: `"!*hello"` (exclamation prefix for strings starting with reserved chars)
 //! - Tagged: `{"#tag": "s", "payload": "+10"}` (the tag a YSON string)
+//! - Reference: `"$https://example.com/"` (dollar prefix + URI, as smallcaps
+//!   writes a remotable, the URI in place of its slot)
 //! - Escaped keys: `{"!#x": …}` (exclamation prefix for keys starting with `#`, `*` or `!`)
 //!
 //! Reserved prefixes (ASCII `!` through `/`) are escaped with `!`.
@@ -128,6 +130,23 @@ fn parse_string(input: &str, yson: bool) -> Result<(Value, &str), String> {
                     Ok(bytes) => return Ok((Value::Bytes(bytes), rest)),
                     Err(e) => return Err(format!("Invalid hex: {}", e)),
                 }
+            }
+            '$' => {
+                // Reference: a scheme, a colon, and the rest of the URI,
+                // held to the rules of YAY's angle brackets
+                let bracketed = format!("<{}>", &s[1..]);
+                if crate::reference::is_reference_start(&bracketed) {
+                    match crate::reference::scan_reference(&bracketed, false) {
+                        Ok((uri, n)) if n == bracketed.len() => {
+                            return Ok((Value::Reference(uri), rest))
+                        }
+                        Ok(_) => {
+                            return Err(format!("Unexpected character \">\" in reference: {:?}", s))
+                        }
+                        Err(e) => return Err(format!("{}: {:?}", e.message(), s)),
+                    }
+                }
+                return Err(format!("A reference needs a scheme: {:?}", s));
             }
             '!' => {
                 // Escaped string - remove the escape prefix

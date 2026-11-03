@@ -102,6 +102,11 @@ does not survive a round trip through JSON. The lossless round trip is YSON:
 plain key that begins with `#` (`"!#tag"`), so a plain object never reads
 back as a tag.
 
+A reference becomes the string YSON writes for it, `"$"` and the URI
+(`"$https://example.com/"`). `-f json` reads that back as a string; `-f
+yson` reads it as the reference, and refuses a `"$"` without a scheme.
+YAML, TOML and CBOR refuse a reference, as they refuse a tagged value.
+
 ```bash
 yay -t json strings.yay
 ```

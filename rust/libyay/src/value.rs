@@ -25,6 +25,9 @@ pub enum Value {
     Bytes(Vec<u8>),
     /// Tagged value: a tag (any string) and one payload (any value).
     Tagged(String, Box<Value>),
+    /// Reference: a URI or IRI, held as written; designates, never
+    /// dereferenced. Never equal to a string.
+    Reference(String),
 }
 
 impl Value {
@@ -97,6 +100,14 @@ impl Value {
         }
     }
 
+    /// Returns the URI if this is a `Reference`.
+    pub fn as_reference(&self) -> Option<&str> {
+        match self {
+            Value::Reference(uri) => Some(uri),
+            _ => None,
+        }
+    }
+
     /// Returns a description of why this value cannot be represented in JSON,
     /// or `None` if it can be represented.
     ///
@@ -160,6 +171,7 @@ impl fmt::Debug for Value {
                 write!(f, ">")
             }
             Value::Tagged(tag, payload) => write!(f, "{:?} ({:?})", payload, tag),
+            Value::Reference(uri) => write!(f, "<{}>", uri),
         }
     }
 }

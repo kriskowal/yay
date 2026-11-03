@@ -21,6 +21,7 @@ mod error;
 mod lexer;
 mod meh;
 mod parser;
+mod reference;
 mod scanner;
 pub mod shon;
 mod value;

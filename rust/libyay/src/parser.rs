@@ -9,6 +9,7 @@
 
 use crate::error::{ParseContext, ParseError, Result};
 use crate::lexer::{Token, TokenType};
+use crate::reference::{is_reference_start, scan_reference, skip_reference, ReferenceError};
 use crate::value::Value;
 use num_bigint::BigInt;
 use std::collections::HashMap;
@@ -58,6 +59,8 @@ pub fn parse_root(tokens: &[Token], ctx: &ParseContext, had_comments: bool) -> R
         && t.text.contains(':')
         && t.indent == 0
         && !t.text.starts_with('{')
+        && !is_reference_start(&t.text)
+        && !(t.text.contains('<') && find_colon_outside_quotes(&t.text).is_none())
         && !(t.text.contains('(') && find_colon_outside_quotes(&t.text).is_none())
     {
         let (value, next) = parse_root_object(tokens, i, ctx)?;
@@ -225,6 +228,12 @@ fn parse_text_value(tokens: &[Token], i: usize, ctx: &ParseContext) -> Result<(V
     // Try inline object
     if s.starts_with('{') {
         return parse_inline_object_value(s, t, i, ctx);
+    }
+
+    // Try a reference, which may hold a colon
+    if is_reference_start(s) {
+        let s = strip_inline_comment(s);
+        return Ok((parse_scalar(s, ctx, t.line_num, t.col)?, i + 1));
     }
 
     // Try inline bytes
@@ -1144,6 +1153,10 @@ fn parse_inline_atom(
         })?;
         let obj = parse_inline_object(&s[..=end], ctx, line_num, col)?;
         return Ok((Value::Object(obj), end + 1));
+    }
+
+    if is_reference_start(s) {
+        return parse_reference(s, ctx, line_num, col);
     }
 
     if s.starts_with('<') {
@@ -2850,6 +2863,20 @@ fn parse_scalar_atom(s: &str, ctx: &ParseContext, line_num: usize, col: usize) -
         return Ok(Value::Object(parse_inline_object(s, ctx, line_num, col)?));
     }
 
+    // Reference
+    if is_reference_start(s) {
+        let (value, n) = parse_reference(s, ctx, line_num, col)?;
+        if n != s.len() {
+            let c = s[n..].chars().next().unwrap_or('?');
+            return Err(ParseError::UnexpectedChar(c, String::new()).with_location(
+                ctx,
+                line_num,
+                col + n,
+            ));
+        }
+        return Ok(value);
+    }
+
     // Inline bytes
     if s.starts_with('<') {
         return Ok(Value::Bytes(parse_angle_bytes(s, ctx, line_num, col)?));
@@ -2919,6 +2946,15 @@ pub(crate) fn mask_tags(s: &str) -> (String, Option<usize>) {
             i += 1;
             continue;
         }
+        if b == b'<' {
+            if let Some(n) = skip_reference(&s[i..]) {
+                for b in &mut out[i + 1..i + n - 1] {
+                    *b = b'x';
+                }
+                i += n;
+                continue;
+            }
+        }
         match b {
             b'"' | b'\'' => quote = b,
             b'[' | b'{' => depth += 1,
@@ -2946,6 +2982,26 @@ pub(crate) fn mask_tags(s: &str) -> (String, Option<usize>) {
         String::from_utf8(out).unwrap_or_else(|_| s.to_string()),
         first,
     )
+}
+
+/// Parse a reference at the start of `s`, which begins with `<` and a
+/// scheme. Returns the value and the bytes consumed, the `>` included.
+fn parse_reference(
+    s: &str,
+    ctx: &ParseContext,
+    line_num: usize,
+    col: usize,
+) -> Result<(Value, usize)> {
+    match scan_reference(s, false) {
+        Ok((uri, n)) => Ok((Value::Reference(uri), n)),
+        Err(ReferenceError::Unclosed) => {
+            Err(ParseError::UnmatchedAngle(String::new()).with_location(ctx, line_num, col))
+        }
+        Err(e) => {
+            let at = s[..e.offset()].chars().count();
+            Err(ParseError::Generic(e.message()).with_location(ctx, line_num, col + at))
+        }
+    }
 }
 
 /// Parse one tag at the start of `s`, which begins with `(`. Returns the tag

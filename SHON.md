@@ -167,6 +167,21 @@ Nothing is fused onto a token: `10s` is the string `"10s"`.
 -T utc -T datetime 2026  → 2026 (datetime) (utc)
 ```
 
+## References
+
+The `-r` flag takes the next token as a reference, a URI or IRI. The token
+must have a scheme (a letter, then letters, digits, `+`, `-` or `.`, then a
+colon), and holds to the rules of YAY's angle brackets: no spaces, no `<`,
+`>`, `"`, `{`, `}`, `|`, `\`, `^` or backtick, and `%` before two hex
+digits. An uppercase scheme is lowercased, as `-x` takes uppercase hex. A
+bare token is never a reference.
+
+```
+-r https://example.com/cat.png     → <https://example.com/cat.png>
+-T image/png -r https://x          → <https://x> (image/png)
+-r ./cat.png                       → error: no scheme
+```
+
 ## Reserved Flags
 
 All reserved flags are single characters:
@@ -183,6 +198,7 @@ All reserved flags are single characters:
 | `-b` | next token as file → bytes  |
 | `-s` | next token as file → string |
 | `-T` | next token as a tag, the value after it as its payload |
+| `-r` | next token as a reference (a URI with a scheme) |
 
 Everything else (inside `[ ]`):
 
@@ -195,7 +211,7 @@ Everything else (inside `[ ]`):
 ## Grammar
 
 ```
-value       = null | bool | float-special | bytes | file | tagged
+value       = null | bool | float-special | bytes | file | tagged | reference
             | number | escaped-string | array | object | string
 
 null        = '-n'
@@ -206,6 +222,7 @@ file-bytes  = '-b' token
 file-string = '-s' token
 escaped-string = '--' token
 tagged      = '-T' token value                          (the token is the tag)
+reference   = '-r' token                                (a scheme required)
 
 number      = integer | float
 integer     = /^-?[0-9]+$/

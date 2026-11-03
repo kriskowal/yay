@@ -122,6 +122,27 @@ fn shon_expression(args: &[String], files: &mut Files) -> Result<(Value, usize),
     }
 }
 
+/// Reads a `-r` token as a reference: a scheme and a colon, then the URI as
+/// YAY's angle brackets hold it. An uppercase scheme is lowercased, as `-x`
+/// takes uppercase hex.
+fn parse_reference_token(token: &str) -> Result<String, ShonError> {
+    let bracketed = format!("<{}>", token);
+    if !crate::reference::is_reference_start(&bracketed) {
+        return Err(ShonError(format!(
+            "-r requires a URI with a scheme: {:?}",
+            token
+        )));
+    }
+    match crate::reference::scan_reference(&bracketed, true) {
+        Ok((uri, n)) if n == bracketed.len() => Ok(uri),
+        Ok(_) => Err(ShonError(format!(
+            "Unexpected \">\" in reference: {:?}",
+            token
+        ))),
+        Err(e) => Err(ShonError(format!("{}: {:?}", e.message(), token))),
+    }
+}
+
 /// Parse a SHON compound value from CLI arguments starting with `[`, `[]`, or `[--]`.
 /// The `args` slice should begin with the trigger token.
 /// Returns the parsed value and the number of arguments consumed (including the brackets).
@@ -391,6 +412,16 @@ fn parse_value(args: &[String], pos: &mut usize, files: &mut Files) -> Result<Va
             let bytes = parse_hex_token(&args[*pos])?;
             *pos += 1;
             Ok(Value::Bytes(bytes))
+        }
+        // Reference: the next token is a URI, which must have a scheme
+        "-r" => {
+            *pos += 1;
+            if *pos >= args.len() {
+                return Err(ShonError("-r requires a URI argument".into()));
+            }
+            let uri = parse_reference_token(&args[*pos])?;
+            *pos += 1;
+            Ok(Value::Reference(uri))
         }
         // File → bytes
         "-b" => {

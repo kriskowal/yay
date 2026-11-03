@@ -135,6 +135,7 @@ fn toml_value_to_yay(v: &toml_edit::Value) -> Result<Value, String> {
 
 fn value_to_toml(value: &Value) -> Result<toml_edit::Item, String> {
     match value {
+        Value::Reference(_) => Err("TOML has no reference type".to_string()),
         Value::Tagged(_, _) => Err("TOML has no tagged type".to_string()),
         Value::Null => Err("TOML has no null type".to_string()),
         Value::Bool(b) => Ok(toml_edit::Item::Value(toml_edit::Value::Boolean(
