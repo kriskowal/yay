@@ -48,8 +48,9 @@ pub enum Item {
     Property(Property),
     /// An array item (- prefix)
     ArrayItem(ArrayItem),
-    /// The tags alone on the root's first line, over the root block
-    Tags(Vec<String>),
+    /// The tags alone on the root's first line, over the root block, and
+    /// the comment after them
+    Tags(Vec<String>, Option<Comment>),
 }
 
 /// A comment with its content
@@ -219,7 +220,7 @@ impl<'a> MehParser<'a> {
         }
 
         // Tags over the root need the root block below them
-        if let Some(at) = items.iter().position(|i| matches!(i, Item::Tags(_))) {
+        if let Some(at) = items.iter().position(|i| matches!(i, Item::Tags(..))) {
             let has_block = items[at + 1..]
                 .iter()
                 .any(|i| !matches!(i, Item::BlankLine | Item::Comment(_)));
@@ -275,13 +276,13 @@ impl<'a> MehParser<'a> {
 
         // Tags alone over the root block
         if content.starts_with('(') && indent == 0 && min_indent == 0 {
-            let (value_part, _) = split_inline_comment(content);
+            let (value_part, comment) = split_inline_comment(content);
             let (tags, rest) = split_prefix(value_part)?;
             if !rest.is_empty() {
                 return Err("A tag before a value needs a block below it; write the tag after an inline value".to_string());
             }
             self.advance_line();
-            return Ok(Some(Item::Tags(tags)));
+            return Ok(Some(Item::Tags(tags, comment)));
         }
 
         // Array item
@@ -1483,7 +1484,7 @@ impl Transformer {
         match item {
             Item::BlankLine => Item::BlankLine,
             Item::Comment(c) => Item::Comment(c.clone()),
-            Item::Tags(t) => Item::Tags(t.clone()),
+            Item::Tags(t, c) => Item::Tags(t.clone(), c.clone()),
             Item::Value(v) => Item::Value(self.transform_value(v, indent)),
             Item::Property(p) => Item::Property(self.transform_property(p, indent)),
             Item::ArrayItem(a) => Item::ArrayItem(self.transform_array_item(a, indent)),
@@ -2200,13 +2201,16 @@ impl Formatter {
             Item::Property(p) => {
                 self.format_property(p);
             }
-            Item::Tags(tags) => {
+            Item::Tags(tags, comment) => {
                 self.write_indent();
                 let line: Vec<String> = tags
                     .iter()
                     .map(|t| crate::encode::encode_yay_tag(t))
                     .collect();
                 self.write(&line.join(" "));
+                if let Some(c) = comment {
+                    self.write_inline_comment(c);
+                }
                 self.newline();
             }
             Item::ArrayItem(a) => {
