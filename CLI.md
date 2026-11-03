@@ -58,7 +58,8 @@ When a directory is specified, processes all `.yay` files recursively.
   This is lenient and reformats the input as YAY.
 - **`yay`**: Enforces strict YAY syntax.
   Use this to validate that files are strict YAY.
-- **`json`**: Standard JSON input.
+- **`json`**: Standard JSON input. Every JSON object reads as an object,
+  `{"#tag": …, "payload": …}` included: only YSON reads that as a tagged value.
 - **`yson`**: JSON extended with YAY features (big integers, byte arrays).
 - **`md`** (Mehdown): Markdown with YAY front matter, read as an object (see
   [Markdown](#markdown)). The front matter is read leniently, as MEH.
@@ -93,8 +94,28 @@ The following YAY features cannot be represented in JSON and will cause an error
 
 Use YSON format (`-t yson`) instead if your data contains these types.
 
+A tagged value becomes the object YSON writes for it,
+`{"#tag": tag, "payload": value}`. JSON has no tags, so `-f json` reads that
+object back as a plain object with the keys `#tag` and `payload`, and a tag
+does not survive a round trip through JSON. The lossless round trip is YSON:
+`-f yson` reads the same object as the tagged value, and `-t yson` escapes a
+plain key that begins with `#` (`"!#tag"`), so a plain object never reads
+back as a tag.
+
 ```bash
 yay -t json strings.yay
+```
+
+```bash
+echo '"ff8800" (rgb)' | yay -t json | yay -f json -t yay
+# Output:
+# {"#tag": "rgb", payload: "ff8800"}
+```
+
+```bash
+echo '"ff8800" (rgb)' | yay -t yson | yay -f yson -t yay
+# Output:
+# "ff8800" (rgb)
 ```
 
 ### YSON

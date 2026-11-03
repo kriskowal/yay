@@ -14,7 +14,8 @@ payload is innermost. YAY has exactly one space before each tag; MEH accepts
 any number, or none, so `yay -f meh -t yay` normalizes tags and
 `yay --check -t yay` flags them. YAY gives no tag a meaning and names no
 tags. SHON gains `-T tag value`. `-t json` writes a tagged value as the
-smallcaps object; YAML, TOML and CBOR refuse one.
+smallcaps object, which `-f json` reads back as a plain object, so the
+lossless round trip is YSON; YAML, TOML and CBOR refuse one.
 
 Every port reads tagged values, as the model its language suits: `Value::Tagged`
 in Rust, a frozen `tagged(tag, payload)` in JavaScript, `yay.Tagged` in Go, a
