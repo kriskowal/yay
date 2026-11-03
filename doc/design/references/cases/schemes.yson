@@ -1,0 +1,1 @@
+{"icon":"$https://example.com/cat.png","peer":"$ocapn://a2ef69ddd5f8.tcp-testing-only?host=127.0.0.1&port=22046","spec":"$urn:ietf:rfc:3986","mail":"$mailto:kris@example.com"}
