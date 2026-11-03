@@ -155,6 +155,18 @@ Nested objects and arrays:
 → {servers: ["localhost:8080", "localhost:8081"], options: {verbose: true}}
 ```
 
+## Tagged Values
+
+The `-T` flag takes the next token as a tag and the value after it as the
+tag's payload. A payload that is an array or object is a bracket group.
+Nothing is fused onto a token: `10s` is the string `"10s"`.
+
+```
+-T s 10                  → 10 (s)
+-T rgb [ 255 136 0 ]     → [255, 136, 0] (rgb)
+-T utc -T datetime 2026  → 2026 (datetime) (utc)
+```
+
 ## Reserved Flags
 
 All reserved flags are single characters:
@@ -170,6 +182,7 @@ All reserved flags are single characters:
 | `-x` | next token as hex  |
 | `-b` | next token as file → bytes  |
 | `-s` | next token as file → string |
+| `-T` | next token as a tag, the value after it as its payload |
 
 Everything else (inside `[ ]`):
 
@@ -182,7 +195,7 @@ Everything else (inside `[ ]`):
 ## Grammar
 
 ```
-value       = null | bool | float-special | bytes | file
+value       = null | bool | float-special | bytes | file | tagged
             | number | escaped-string | array | object | string
 
 null        = '-n'
@@ -192,6 +205,7 @@ bytes       = '-x' token                                (hex is case-insensitive
 file-bytes  = '-b' token
 file-string = '-s' token
 escaped-string = '--' token
+tagged      = '-T' token value                          (the token is the tag)
 
 number      = integer | float
 integer     = /^-?[0-9]+$/

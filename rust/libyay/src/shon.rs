@@ -368,6 +368,20 @@ fn parse_value(args: &[String], pos: &mut usize, files: &mut Files) -> Result<Va
             *pos += 1;
             Ok(Value::Float(f64::NAN))
         }
+        // Tagged value: the next token is the tag, the value after it the payload
+        "-T" => {
+            *pos += 1;
+            if *pos >= args.len() {
+                return Err(ShonError("-T requires a tag and a value".into()));
+            }
+            let tag = args[*pos].clone();
+            *pos += 1;
+            if *pos >= args.len() {
+                return Err(ShonError(format!("-T {} requires a value", tag)));
+            }
+            let payload = parse_value(args, pos, files)?;
+            Ok(Value::Tagged(tag, Box::new(payload)))
+        }
         // Hex bytes
         "-x" => {
             *pos += 1;
@@ -574,6 +588,32 @@ mod tests {
     }
 
     // ---- Scalars inside brackets ----
+
+    #[test]
+    fn test_tagged() {
+        let tagged = |tag: &str, v: Value| Value::Tagged(tag.to_string(), Box::new(v));
+        let a = args(&["[", "-T", "s", "10", "]"]);
+        let (val, _) = parse_shon_bracket(&a).unwrap();
+        assert_eq!(val, Value::Array(vec![tagged("s", Value::from(10i64))]));
+        let a = args(&["[", "--c", "-T", "rgb", "[", "255", "136", "0", "]", "]"]);
+        let (val, _) = parse_shon_bracket(&a).unwrap();
+        let rgb = Value::Array(vec![255i64.into(), 136i64.into(), 0i64.into()]);
+        assert_eq!(
+            val,
+            Value::Object(HashMap::from([("c".to_string(), tagged("rgb", rgb))]))
+        );
+        let a = args(&["[", "-T", "utc", "-T", "datetime", "t", "]"]);
+        let (val, _) = parse_shon_bracket(&a).unwrap();
+        assert_eq!(
+            val,
+            Value::Array(vec![tagged("utc", tagged("datetime", "t".into()))])
+        );
+        // Nothing is fused onto a token
+        let a = args(&["[", "10s", "]"]);
+        let (val, _) = parse_shon_bracket(&a).unwrap();
+        assert_eq!(val, Value::Array(vec![Value::String("10s".into())]));
+        assert!(parse_shon_bracket(&args(&["[", "-T", "s", "]"])).is_err());
+    }
 
     #[test]
     fn test_null() {
