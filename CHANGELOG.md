@@ -25,6 +25,29 @@ in C and a record `tagged` in Scheme, and `yay -t js`, `-t go`, `-t python`,
 the same shared cases and refuse the same malformed tags. The Rust and Python
 ports also write tags; only Rust has a SHON reader and a YSON codec.
 
+**References.** YAY gains a tenth kind of value: a reference, a URI or IRI
+in angle brackets with its scheme (`<https://example.com/cat.png>`,
+`<ocapn://…>`, `<urn:ietf:rfc:3986>`), held as written and never
+dereferenced. After `<`, a scheme and a colon make a reference and anything
+else is bytes, so `<ff8800>` and `<>` read as before and the bytes typos
+`<deadbeefXX>` and `<DEADBEEF>` stay refused. Nothing is escaped: a URI
+cannot hold a space, `<`, `>`, `"`, `{`, `}`, `|`, `\`, `^` or a backtick,
+so `>` always closes it, and the brackets shield their text, `#` and the
+inline delimiters included. The scheme is lowercase; MEH lowercases it, and
+reads `a: <https://x/#f>` as a reference where 3.0.0's MEH read the string
+`"<https://x/"`. A reference equals another by its text and never equals a
+string. A tagged reference (`<ocapn://…> (Counter)`) is a tagged value.
+YSON writes a reference as smallcaps writes a remotable, `"$"` and the URI
+in place of the slot (`"$https://example.com/"`), and reads `"$"` without a
+scheme as an error; `-t json` writes the same string, which `-f json` reads
+back as a string. YAML, TOML and CBOR refuse a reference. SHON gains
+`-r uri`, which requires a scheme. `yay -t js`, `-t go`, `-t python`,
+`-t rust`, `-t c`, `-t java` and `-t scheme` write `reference(uri)`,
+`yay.Reference(uri)`, `Reference(uri)`, `Value::Reference(uri)`,
+`yay_reference(uri)`, `new Reference(uri)` and `(make-reference uri)`.
+The Rust port reads and writes references (`Value::Reference`), YAY, MEH
+and YSON.
+
 **Breaking: YSON follows smallcaps.** A tagged value is
 `{"#tag": tag, "payload": value}`. An integer is `"+42"` or `"-7"`, not
 `"#42"`, which YSON no longer reads. An object key that begins with `#`, `*`
