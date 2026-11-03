@@ -69,15 +69,21 @@ syntax match yayHexLine          /\v^\s+[0-9a-f][0-9a-f \t]*%(\s+#.*)?$/ contain
 syntax match yayHexData          /\v[0-9a-f][0-9a-f \t]*[0-9a-f]/ contained
 syntax match yayHexData          /\v[0-9a-f]{2}/ contained
 
+" --- Tags -------------------------------------------------------------------
+
+" A tag: (name), before a block or after a value; \) and \\ are its escapes.
+syntax region yayTag matchgroup=yayTagDelim start=/(/ skip=/\\\\\|\\)/ end=/)/ contains=yayTagEscape oneline
+syntax match  yayTagEscape /\\[\\)]/ contained
+
 " --- Arrays -----------------------------------------------------------------
 
 " Inline arrays.
-syntax region yayInlineArray start=/\[/ end=/\]/ contains=yayString,yaySingleString,yayNull,yayBoolean,yayFloat,yayInteger,yayBytes,yayInlineArray,yayInlineObject,yayComment transparent
+syntax region yayInlineArray start=/\[/ end=/\]/ contains=yayString,yaySingleString,yayNull,yayBoolean,yayFloat,yayInteger,yayBytes,yayTag,yayInlineArray,yayInlineObject,yayComment transparent
 
 " --- Objects ----------------------------------------------------------------
 
 " Inline objects.
-syntax region yayInlineObject start=/{/ end=/}/ contains=yayString,yaySingleString,yayNull,yayBoolean,yayFloat,yayInteger,yayBytes,yayInlineArray,yayInlineObject,yayKey,yayComment transparent
+syntax region yayInlineObject start=/{/ end=/}/ contains=yayString,yaySingleString,yayNull,yayBoolean,yayFloat,yayInteger,yayBytes,yayTag,yayInlineArray,yayInlineObject,yayKey,yayComment transparent
 
 " --- Keys -------------------------------------------------------------------
 
@@ -124,6 +130,9 @@ highlight default link yayKey           Identifier
 highlight default link yayColon         Delimiter
 highlight default link yayDash          Delimiter
 highlight default link yayListMarker    Delimiter
+highlight default link yayTag           Type
+highlight default link yayTagDelim      Delimiter
+highlight default link yayTagEscape     SpecialChar
 highlight default link yayComment       Comment
 highlight default link yayTodo          Todo
 

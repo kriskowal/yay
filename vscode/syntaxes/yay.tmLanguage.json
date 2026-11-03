@@ -33,7 +33,27 @@
         { "include": "#boolean" },
         { "include": "#float" },
         { "include": "#integer" },
+        { "include": "#tag" },
         { "include": "#comment" }
+      ]
+    },
+
+    "tag": {
+      "comment": "A tag: (name), before a block or after a value; \\) and \\\\ are its escapes",
+      "begin": "\\(",
+      "end": "\\)",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.tag.begin.yay" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.tag.end.yay" }
+      },
+      "name": "entity.name.type.tag.yay",
+      "patterns": [
+        {
+          "match": "\\\\[\\\\)]",
+          "name": "constant.character.escape.yay"
+        }
       ]
     },
 
