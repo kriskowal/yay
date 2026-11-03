@@ -16,7 +16,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-libyay = "1"
+libyay = "2"
 ```
 
 ## Usage

@@ -18,4 +18,4 @@ __all__ = [
     "YayError",
     "YaySyntaxError",
 ]
-__version__ = "1.1.1"
+__version__ = "2.0.0"

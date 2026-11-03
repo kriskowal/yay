@@ -14,7 +14,7 @@ Add the dependency to your `pom.xml`:
 <dependency>
     <groupId>com.kriskowal</groupId>
     <artifactId>yay</artifactId>
-    <version>1.1.1</version>
+    <version>2.0.0</version>
 </dependency>
 ```
 
