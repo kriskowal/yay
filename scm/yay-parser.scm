@@ -836,7 +836,32 @@
               (list key value-part)))))))
 
 ;; Parse scalar value
+;; The text before an inline comment, " #" outside quotes, without the
+;; spaces before it
+(define (strip-inline-comment s)
+  (let loop ((i 0) (quote-char #f))
+    (if (>= i (string-length s))
+        s
+        (let ((c (string-ref s i)))
+          (cond
+           (quote-char
+            (cond
+             ((char=? c #\\) (loop (+ i 2) quote-char))
+             ((char=? c quote-char) (loop (+ i 1) #f))
+             (else (loop (+ i 1) quote-char))))
+           ((or (char=? c #\") (char=? c #\')) (loop (+ i 1) c))
+           ((and (char=? c #\#) (> i 0) (char=? (string-ref s (- i 1)) #\space))
+            (let trim ((j (- i 1)))
+              (if (and (> j 0) (char=? (string-ref s (- j 1)) #\space))
+                  (trim (- j 1))
+                  (substring s 0 j))))
+           (else (loop (+ i 1) #f)))))))
+
+;; Parse a scalar value and any inline comment after it
 (define (parse-scalar s)
+  (parse-scalar-atom (strip-inline-comment s)))
+
+(define (parse-scalar-atom s)
   (cond
    ((string=? s "null") 'null)
    ((string=? s "true") #t)
