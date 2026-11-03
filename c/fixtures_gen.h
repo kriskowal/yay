@@ -895,9 +895,20 @@ static yay_value_t *make_expected_tagged_block_root_object(void) {
     return yay_tagged("point", YAY_OBJECT("x", yay_int(1), "y", yay_int(2)));
 }
 
+static yay_value_t *make_expected_tagged_block_string_item_dash_line(void) {
+    return YAY_ARRAY(yay_tagged("md", yay_string("\n- not an item\n")), yay_int(2));
+}
+
 static yay_value_t *make_expected_tagged_block_string_item_same_line(void) {
     return YAY_ARRAY(
     yay_tagged("text/markdown", yay_string("First line.\nSecond line.\n"))
+);
+}
+
+static yay_value_t *make_expected_tagged_block_string_property_dash_line(void) {
+    return YAY_OBJECT(
+    "a", yay_tagged("md", yay_string("- not an item\n")),
+    "b", yay_int(1)
 );
 }
 
@@ -1202,7 +1213,9 @@ static test_fixture_t test_fixtures[] = {
     {"tagged_block_root_array", "(rgb)\n- 255\n- 136\n- 0\n", make_expected_tagged_block_root_array},
     {"tagged_block_root_colon_in_tag", "(match:splitRecord)\n- {}\n- 'x' (a: b)\n", make_expected_tagged_block_root_colon_in_tag},
     {"tagged_block_root_object", "(point)\nx: 1\ny: 2\n", make_expected_tagged_block_root_object},
+    {"tagged_block_string_item_dash_line", "- (md) `\n  - not an item\n- 2\n", make_expected_tagged_block_string_item_dash_line},
     {"tagged_block_string_item_same_line", "- (text/markdown) ` First line.\n    Second line.\n", make_expected_tagged_block_string_item_same_line},
+    {"tagged_block_string_property_dash_line", "a: (md) `\n  - not an item\nb: 1\n", make_expected_tagged_block_string_property_dash_line},
     {"tagged_block_string_property", "text: (markdown) `\n  # Notes\n\n  Tagged values arrive.\n", make_expected_tagged_block_string_property},
     {"tagged_block_then_comment", "color: (rgb)  # red, green, blue\n  - 255\n  - 0\n", make_expected_tagged_block_then_comment},
     {"tagged_block_under_item_key", "- color: (rgb)\n    - 1\n  name: 'a'\n", make_expected_tagged_block_under_item_key},
@@ -1224,7 +1237,7 @@ static test_fixture_t test_fixtures[] = {
     {NULL, NULL, NULL}
 };
 
-#define TEST_FIXTURE_COUNT 166
+#define TEST_FIXTURE_COUNT 168
 
 static error_fixture_t error_fixtures[] = {
     {"array_inline_invalid_multiline", "array-inline-invalid-multiline.nay", "[\n  1,\n  2\n]\n", 13, "Unexpected newline in inline array at 1:1 of <array-inline-invalid-multiline.nay>"},

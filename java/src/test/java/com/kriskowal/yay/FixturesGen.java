@@ -338,7 +338,9 @@ public class FixturesGen {
     FIXTURES.put("tagged-block-root-colon-in-tag", new Tagged("match:splitRecord", list(map(), new Tagged("a: b", "x"))));
     FIXTURES.put("tagged-block-root-object", new Tagged("point", map("x", bi(1), "y", bi(2))));
     FIXTURES.put("tagged-block-string-item-same-line", list(new Tagged("text/markdown", "First line.\nSecond line.\n")));
+    FIXTURES.put("tagged-block-string-item-dash-line", list(new Tagged("md", "\n- not an item\n"), bi(2)));
     FIXTURES.put("tagged-block-string-property", map("text", new Tagged("markdown", "# Notes\n\nTagged values arrive.\n")));
+    FIXTURES.put("tagged-block-string-property-dash-line", map("a", new Tagged("md", "- not an item\n"), "b", bi(1)));
     FIXTURES.put("tagged-block-then-comment", map("color", new Tagged("rgb", list(bi(255), bi(0)))));
     FIXTURES.put("tagged-block-under-item-key", list(map("color", new Tagged("rgb", list(bi(1))), "name", "a")));
     FIXTURES.put("tagged-inline-on-every-kind", map("a", new Tagged("date", "x"), "b", new Tagged("t", "y"), "c", new Tagged("rgb", bytes(0xff)), "d", new Tagged("rgb", list(bi(255), bi(136), bi(0))), "e", new Tagged("point", map("x", bi(1))), "f", new Tagged("ms", 1.5), "g", new Tagged("h", bi(-3)), "h", new Tagged("us", 1000.0), "i", new Tagged("ms", bi(10000)), "j", new Tagged("x", bi(0))));

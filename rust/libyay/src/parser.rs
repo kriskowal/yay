@@ -3098,6 +3098,27 @@ fn wrap_prefix(value: Value, mut tags: Vec<String>) -> Value {
     wrap_tags(value, tags)
 }
 
+/// What follows a line's prefix of tags, or `None` if it has none.
+pub(crate) fn after_prefix(s: &str) -> Option<&str> {
+    if !s.starts_with('(') {
+        return None;
+    }
+    parse_prefix(s, &ParseContext::new(None), 0, 0)
+        .ok()
+        .map(|(_, rest)| rest)
+}
+
+/// Whether a line is a property whose tags introduce a block string, as in
+/// `key: (tag) \``.
+pub(crate) fn is_tagged_property_opener(s: &str) -> bool {
+    match find_colon_outside_quotes(s) {
+        Some(colon) if s[colon + 1..].starts_with(" (") => {
+            after_prefix(&s[colon + 2..]) == Some("`")
+        }
+        _ => false,
+    }
+}
+
 /// Is `rest`, what follows a prefix, a block it may introduce on its own line?
 fn prefix_takes(rest: &str) -> bool {
     rest.is_empty() || rest.starts_with('`') || rest.starts_with('>')

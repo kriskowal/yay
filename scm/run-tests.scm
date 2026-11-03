@@ -412,7 +412,9 @@
            "tagged-tag-escapes"
            "tagged-tag-quotes-are-text"
            "tagged-tag-text"
-           "string-block-root-parens")))
+           "string-block-root-parens"
+           "tagged-block-string-property-dash-line"
+           "tagged-block-string-item-dash-line")))
     (for-each
      (lambda (name)
        (let ((yay-path (string-append test-dir "/yay/" name ".yay"))

@@ -392,11 +392,19 @@ var fixtures = map[string]any{
 	"tagged-block-root-array":        Tagged{Tag: "rgb", Payload: []any{big.NewInt(255), big.NewInt(136), big.NewInt(0)}},
 	"tagged-block-root-colon-in-tag": Tagged{Tag: "match:splitRecord", Payload: []any{map[string]any{}, Tagged{Tag: "a: b", Payload: "x"}}},
 	"tagged-block-root-object":       Tagged{Tag: "point", Payload: map[string]any{"x": big.NewInt(1), "y": big.NewInt(2)}},
+	"tagged-block-string-item-dash-line": []any{
+		Tagged{Tag: "md", Payload: "\n- not an item\n"},
+		big.NewInt(2),
+	},
 	"tagged-block-string-item-same-line": []any{
 		Tagged{Tag: "text/markdown", Payload: "First line.\nSecond line.\n"},
 	},
 	"tagged-block-string-property": map[string]any{
 		"text": Tagged{Tag: "markdown", Payload: "# Notes\n\nTagged values arrive.\n"},
+	},
+	"tagged-block-string-property-dash-line": map[string]any{
+		"a": Tagged{Tag: "md", Payload: "- not an item\n"},
+		"b": big.NewInt(1),
 	},
 	"tagged-block-then-comment": map[string]any{
 		"color": Tagged{Tag: "rgb", Payload: []any{big.NewInt(255), big.NewInt(0)}},

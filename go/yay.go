@@ -235,7 +235,7 @@ func scanLines(source string, ctx *parseContext) ([]scanLine, error) {
 
 		if isBareBlockOpener(content) {
 			blockOpener = indent
-		} else if strings.HasSuffix(content, ": `") {
+		} else if strings.HasSuffix(content, ": `") || isTaggedPropertyOpener(content) {
 			blockOpener = indent + len(leader)
 		}
 
@@ -251,9 +251,32 @@ func scanLines(source string, ctx *parseContext) ([]scanLine, error) {
 }
 
 // isBareBlockOpener reports whether a line's content (after any list leader)
-// is a bare "`" or "` text" block string opener.
+// is a bare "`" or "` text" block string opener, tags before it or not.
 func isBareBlockOpener(content string) bool {
-	return content == "`" || strings.HasPrefix(content, "` ")
+	bare := func(s string) bool { return s == "`" || strings.HasPrefix(s, "` ") }
+	rest, ok := afterPrefix(content)
+	return bare(content) || ok && bare(rest)
+}
+
+// isTaggedPropertyOpener reports whether a line is a property whose tags
+// introduce a block string, as in "key: (tag) `".
+func isTaggedPropertyOpener(content string) bool {
+	colon := findColonOutsideQuotes(content)
+	if colon < 0 || !strings.HasPrefix(content[colon+1:], " (") {
+		return false
+	}
+	rest, ok := afterPrefix(content[colon+2:])
+	return ok && rest == "`"
+}
+
+// afterPrefix returns what follows a line's prefix of tags, and whether it
+// has one.
+func afterPrefix(s string) (string, bool) {
+	if !strings.HasPrefix(s, "(") {
+		return "", false
+	}
+	_, rest, err := parsePrefix(s, &parseContext{}, 0, 0)
+	return rest, err == nil
 }
 
 // countIndent returns the number of leading spaces in a line.
