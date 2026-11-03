@@ -28,7 +28,8 @@ typedef enum {
     YAY_STRING,     /* UTF-8 string */
     YAY_BYTES,      /* byte array */
     YAY_ARRAY,      /* array of values */
-    YAY_OBJECT      /* key-value object */
+    YAY_OBJECT,     /* key-value object */
+    YAY_TAGGED      /* tagged value: a tag and a payload */
 } yay_type_t;
 
 /* Forward declaration */
@@ -68,6 +69,10 @@ struct yay_value {
             size_t length;
             size_t capacity;
         } object;
+        struct {
+            char *tag;
+            yay_value_t *payload;
+        } tagged;
     } data;
 };
 
@@ -140,6 +145,8 @@ yay_value_t *yay_bytes(const uint8_t *data, size_t length);
 yay_value_t *yay_bytes_from_hex(const char *hex);
 yay_value_t *yay_array(void);
 yay_value_t *yay_object(void);
+/* A tagged value; takes ownership of the payload and copies the tag */
+yay_value_t *yay_tagged(const char *tag, yay_value_t *payload);
 
 /* Array operations - returns array for chaining */
 yay_value_t *yay_array_push(yay_value_t *array, yay_value_t *item);

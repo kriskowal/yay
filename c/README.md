@@ -77,6 +77,7 @@ case YAY_STRING:  printf("string: %s\n", v->data.string); break;
 case YAY_BYTES:   printf("bytes: %zu bytes\n", v->data.bytes.length); break;
 case YAY_ARRAY:   printf("array: %zu items\n", v->data.array.length); break;
 case YAY_OBJECT:  printf("object: %zu pairs\n", v->data.object.length); break;
+case YAY_TAGGED:  printf("tagged: (%s)\n", v->data.tagged.tag); break;
 }
 ```
 
@@ -134,6 +135,21 @@ yay_value_t *lookup(yay_value_t *obj, const char *key) {
 }
 ```
 
+### Tagged Values
+
+A tagged value, `'X-1' (com.example/sku)` or a block below `key: (tag)`,
+has type `YAY_TAGGED`: its tag, a UTF-8 string, is `data.tagged.tag`, and its
+payload, any value, is `data.tagged.payload`. `yay_tagged(tag, payload)`
+makes one, copying the tag and taking the payload. Tagged values are equal
+when their tags and payloads are; a tagged value never equals its payload.
+YAY gives no tag a meaning.
+
+```c
+yay_result_t r = yay_parse("count: 10 (s)\n", 0, NULL);
+yay_value_t *count = r.value->data.object.pairs[0].value;
+/* count->type == YAY_TAGGED, tag "s", payload the integer 10 */
+```
+
 ## Code Generation
 
 The [`yay` CLI](../CLI.md) can generate C expressions from YAY documents:
@@ -173,6 +189,7 @@ YAY_OBJECT(
 | array | `yay_value_t **` | Array of value pointers |
 | object | `yay_pair_t *` | Array of key-value pairs |
 | bytes | `uint8_t *` | With length field |
+| tagged | `YAY_TAGGED` | `data.tagged.tag` and `data.tagged.payload` |
 
 # YAY Format
 
