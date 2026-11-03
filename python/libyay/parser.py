@@ -6,6 +6,11 @@ import math
 from typing import Any, TextIO
 from .lexer import Lexer, Token
 from .errors import YaySyntaxError
+from .tagged import Tagged
+
+PREFIX_WITHOUT_BLOCK = (
+    "A tag before a value needs a block below it; write the tag after an inline value"
+)
 
 
 class Parser:
@@ -72,12 +77,22 @@ class Parser:
 
         in_single = False
         in_double = False
+        in_tag = False
         escape = False
         depth = 0
 
         for i, ch in enumerate(s):
             if escape:
                 escape = False
+                continue
+            if in_tag:
+                if ch == "\\":
+                    escape = True
+                elif ch == ")":
+                    in_tag = False
+                continue
+            if ch == "(":
+                in_tag = True
                 continue
             if in_single:
                 if ch == "\\":
@@ -125,12 +140,22 @@ class Parser:
                     lookahead_depth = depth
                     in_s = False
                     in_d = False
+                    in_t = False
                     esc = False
                     next_is_closing_with_space = False
                     for j in range(i + 1, len(s)):
                         cj = s[j]
                         if esc:
                             esc = False
+                            continue
+                        if in_t:
+                            if cj == "\\":
+                                esc = True
+                            elif cj == ")":
+                                in_t = False
+                            continue
+                        if cj == "(":
+                            in_t = True
                             continue
                         if in_s:
                             if cj == "\\":
@@ -197,6 +222,52 @@ class Parser:
         while self.peek().kind in ("NEWLINE", "INDENT"):
             self.advance()
 
+    def parse_suffix(self, value: Any) -> Any:
+        """Wrap an inline value in the tags after it, innermost first."""
+        while self.peek().kind == "TAG":
+            value = Tagged(self.advance().value, value)
+        return value
+
+    def parse_prefix(self) -> list[str]:
+        """Read the tags before a block, outermost first."""
+        tags = []
+        while self.peek().kind == "TAG":
+            tags.append(self.advance().value)
+        return tags
+
+    @staticmethod
+    def wrap_prefix(tags: list[str], value: Any) -> Any:
+        """Wrap a block in a prefix's tags, outermost first."""
+        for tag in reversed(tags):
+            value = Tagged(tag, value)
+        return value
+
+    def is_block_leader(self, token: Token, leader: str) -> bool:
+        """Is the token a block string or block bytes opened by its leader?"""
+        return self.char_at(token.line, token.col) == leader and (
+            (token.kind == "STRING" and leader == "`")
+            or (token.kind == "BYTES" and leader == ">")
+        )
+
+    def parse_root_prefix(self) -> Any:
+        """Parse a tag alone on the root's first line over a column-0 block."""
+        first = self.peek()
+        tags = self.parse_prefix()
+        if self.peek().kind != "NEWLINE":
+            raise YaySyntaxError(PREFIX_WITHOUT_BLOCK, first.line, first.col)
+        self.advance()
+        token = self.peek()
+        if token.kind == "INDENT":
+            if token.value != 0:
+                raise YaySyntaxError("Unexpected indent", token.line, 1)
+            self.advance()
+            token = self.peek()
+        if token.kind == "DASH":
+            return self.wrap_prefix(tags, self.parse_block_array(0))
+        if token.kind in ("IDENT", "STRING") and self.peek(1).kind == "COLON":
+            return self.wrap_prefix(tags, self.parse_block_object(0))
+        raise YaySyntaxError(PREFIX_WITHOUT_BLOCK, first.line, first.col)
+
     def parse(self) -> Any:
         """Parse the entire document."""
         # Check if document is comment-only (has content but no values)
@@ -219,7 +290,10 @@ class Parser:
                 raise YaySyntaxError("No value found in document", 1, 1)
             return None
 
-        result = self.parse_value(0)
+        if self.peek().kind == "TAG":
+            result = self.parse_root_prefix()
+        else:
+            result = self.parse_value(0)
 
         # Skip trailing whitespace
         self.skip_newlines()
@@ -233,41 +307,22 @@ class Parser:
         """Parse a value at the given indentation level."""
         token = self.peek()
 
-        # Inline values
-        if token.kind == "NULL":
-            self.advance()
-            return None
+        # A quoted object key
+        if token.kind == "STRING" and self.peek(1).kind == "COLON":
+            return self.parse_block_object(min_indent)
 
-        if token.kind == "BOOL":
-            self.advance()
-            return token.value
-
-        if token.kind == "INT":
-            self.advance()
-            return token.value
-
-        if token.kind == "FLOAT":
-            self.advance()
-            return token.value
-
-        if token.kind == "STRING":
-            # Check if this is a quoted object key
-            if self.peek(1).kind == "COLON":
-                return self.parse_block_object(min_indent)
-            self.advance()
-            return token.value
-
-        if token.kind == "BYTES":
-            self.advance()
-            return token.value
-
-        # Inline array
-        if token.kind == "LBRACKET":
-            return self.parse_inline_array()
-
-        # Inline object
-        if token.kind == "LBRACE":
-            return self.parse_inline_object()
+        # Inline values, inline arrays and inline objects
+        if token.kind in (
+            "NULL",
+            "BOOL",
+            "INT",
+            "FLOAT",
+            "STRING",
+            "BYTES",
+            "LBRACKET",
+            "LBRACE",
+        ):
+            return self.parse_inline_value()
 
         # Block array (starts with dash)
         if token.kind == "DASH":
@@ -388,6 +443,10 @@ class Parser:
         return obj
 
     def parse_inline_value(self) -> Any:
+        """Parse an inline value (no block forms) and the tags after it."""
+        return self.parse_suffix(self.parse_untagged_inline_value())
+
+    def parse_untagged_inline_value(self) -> Any:
         """Parse an inline value (no block forms)."""
         token = self.peek()
 
@@ -499,15 +558,47 @@ class Parser:
         if token.kind in ("IDENT", "STRING") and self.peek(1).kind == "COLON":
             return self.parse_block_object(item_indent)
 
+        # A tagged block, below or, for a block string or block bytes, here
+        if token.kind == "TAG":
+            tags = self.parse_prefix()
+            token = self.peek()
+            if self.is_block_leader(token, "`") or self.is_block_leader(token, ">"):
+                self.advance()
+                return self.wrap_prefix(tags, token.value)
+            if token.kind != "NEWLINE":
+                raise self.error(PREFIX_WITHOUT_BLOCK)
+            self.advance()
+            indent_token = self.peek()
+            if indent_token.kind != "INDENT" or indent_token.value < item_indent:
+                raise self.error(PREFIX_WITHOUT_BLOCK, indent_token)
+            self.advance()
+            child_indent = indent_token.value
+            token = self.peek()
+            if token.kind == "DASH":
+                return self.wrap_prefix(tags, self.parse_block_array(child_indent))
+            if token.kind in ("IDENT", "STRING") and self.peek(1).kind == "COLON":
+                return self.wrap_prefix(tags, self.parse_block_object(child_indent))
+            if self.is_block_leader(token, "`"):
+                self.advance()
+                return self.wrap_prefix(tags, token.value)
+            if token.kind == "STRING":
+                result = self.parse_concatenated_strings(child_indent)
+                if result is not None:
+                    return self.wrap_prefix(tags, result)
+            raise self.error(PREFIX_WITHOUT_BLOCK, token)
+
         # Inline values
-        if token.kind in ("NULL", "BOOL", "INT", "FLOAT", "STRING", "BYTES"):
+        if token.kind in (
+            "NULL",
+            "BOOL",
+            "INT",
+            "FLOAT",
+            "STRING",
+            "BYTES",
+            "LBRACKET",
+            "LBRACE",
+        ):
             return self.parse_inline_value()
-
-        if token.kind == "LBRACKET":
-            return self.parse_inline_array()
-
-        if token.kind == "LBRACE":
-            return self.parse_inline_object()
 
         # Bare words are not valid - strings must be quoted
         if token.kind == "IDENT":
@@ -587,9 +678,22 @@ class Parser:
 
         return obj
 
-    def parse_object_value(self, key_indent: int) -> Any:
-        """Parse the value part of a key: value pair."""
+    def parse_object_value(self, key_indent: int, prefix: bool = False) -> Any:
+        """Parse the value part of a key: value pair. After a prefix of tags,
+        only a block may follow."""
         token = self.peek()
+
+        # A tagged block
+        if token.kind == "TAG" and not prefix:
+            tags = self.parse_prefix()
+            token = self.peek()
+            if not (
+                token.kind == "NEWLINE"
+                or self.is_block_leader(token, "`")
+                or self.is_block_leader(token, ">")
+            ):
+                raise self.error(PREFIX_WITHOUT_BLOCK)
+            return self.wrap_prefix(tags, self.parse_object_value(key_indent, True))
 
         # Empty object
         if token.kind == "LBRACE":
@@ -602,8 +706,8 @@ class Parser:
                     )
                 self.advance()
                 self.advance()
-                return {}
-            return self.parse_inline_object()
+                return self.parse_suffix({})
+            return self.parse_inline_value()
 
         # Inline values on same line
         if token.kind in ("NULL", "BOOL", "INT", "FLOAT"):
@@ -628,6 +732,9 @@ class Parser:
                             token.line,
                             token.col,
                         )
+            if prefix:
+                self.advance()
+                return token.value
             return self.parse_inline_value()
 
         if token.kind == "BYTES":
@@ -653,10 +760,13 @@ class Parser:
                             token.line,
                             token.col,
                         )
+            if prefix:
+                self.advance()
+                return token.value
             return self.parse_inline_value()
 
         if token.kind == "LBRACKET":
-            return self.parse_inline_array()
+            return self.parse_inline_value()
 
         # Block string starting with quote
         # (handled by lexer as STRING token)
@@ -667,6 +777,8 @@ class Parser:
 
             # Check indent of next line
             if self.peek().kind != "INDENT":
+                if prefix:
+                    raise self.error(PREFIX_WITHOUT_BLOCK)
                 raise self.error("Expected value after property")
 
             indent_token = self.peek()
@@ -677,9 +789,13 @@ class Parser:
             if child_indent < key_indent:
                 raise self.error("Expected indentation for nested value")
 
-            self.advance()  # consume INDENT
+            next_token = self.peek(1)
 
-            next_token = self.peek()
+            # Under a tag, only an array may stand at the key's indent
+            if prefix and child_indent == key_indent and next_token.kind != "DASH":
+                raise self.error(PREFIX_WITHOUT_BLOCK)
+
+            self.advance()  # consume INDENT
 
             # Block array (can be at same indent for named arrays)
             if next_token.kind == "DASH":

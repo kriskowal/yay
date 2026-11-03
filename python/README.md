@@ -52,6 +52,18 @@ Serializes a Python value to a YAY string.
 
 Serializes a Python value to a file in YAY format.
 
+### `Tagged(tag, payload)`
+
+A tagged value, `'X-1' (com.example/sku)` or a block below `key: (tag)`:
+a frozen dataclass with the tag, a string, and the payload, any value.
+Tagged values are equal when their tags and payloads are; a tagged value
+never equals its payload. YAY gives no tag a meaning.
+
+```python
+yay.loads("count: 10 (s)\n")
+# {'count': Tagged(tag='s', payload=10)}
+```
+
 ## Type Mapping
 
 | YAY Type | Python Type | Notes |
@@ -64,6 +76,7 @@ Serializes a Python value to a file in YAY format.
 | array | `list` | |
 | object | `dict` | |
 | bytes | `bytes` | |
+| tagged | `Tagged` | `Tagged(tag, payload)`, a frozen dataclass |
 
 # YAY Format
 
@@ -877,6 +890,8 @@ python -m pytest test_yay.py
 The test runner uses fixture files from `../test/`.
 Files with `.yay` extension contain YAY input.
 Files with `.py` extension contain expected Python output.
+`test_tagged.py` reads the tagged-value cases of the design, in
+`../doc/design/tagged-values-g/cases/`, until they join the shared corpus.
 
 ## References
 

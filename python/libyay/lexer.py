@@ -149,7 +149,12 @@ class Lexer:
         # The text before the backtick on its line: a property ("key: `") or
         # a bare opener at root or after list leaders ("`", "- `").
         line_start = self.source.rfind("\n", 0, self.pos) + 1
-        prefix = self.source[line_start : self.pos]
+        if self._last_token is not None and self._last_token.kind == "TAG":
+            # A tagged block string: the tags before the backtick are not
+            # its leader
+            prefix = self.source[line_start : self._tag_run_start]
+        else:
+            prefix = self.source[line_start : self.pos]
         in_property = prefix.rstrip().endswith(":")
         if in_property:
             # The block ends at the key's column, past any list leaders.
@@ -654,6 +659,81 @@ class Lexer:
 
         return Token("BYTES", value, start_line, start_col)
 
+    def read_tag(self) -> Token:
+        """Read a tag, "(" to ")", escaped as a double-quoted string is but
+        with \\) in the place of \\". One space comes before a tag unless it
+        begins its line, and after it the line ends, an inline container goes
+        on, another tag or a block follows after one space, or an inline
+        comment begins."""
+        start_line = self.line
+        start_col = self.col
+        if self.pos > 0 and self.source[self.pos - 1] != "\n":
+            if self.source[self.pos - 1] != " ":
+                raise self.error("Expected one space before a tag")
+            if self.pos > 1 and self.source[self.pos - 2] == " ":
+                raise YaySyntaxError(
+                    'Unexpected space before "("', self.line, self.col - 1
+                )
+        self.advance()  # consume '('
+        chars = []
+        while True:
+            ch = self.peek()
+            if ch == "" or ch == "\n":
+                raise YaySyntaxError("Unterminated string", start_line, start_col)
+            if ch == ")":
+                self.advance()
+                break
+            if ch == "\t":
+                raise self.error("Tab not allowed (use spaces)")
+            if ch == "\\":
+                self.advance()
+                esc = self.peek()
+                simple = {
+                    ")": ")",
+                    "\\": "\\",
+                    "/": "/",
+                    "b": "\b",
+                    "f": "\f",
+                    "n": "\n",
+                    "r": "\r",
+                    "t": "\t",
+                }
+                if esc in simple:
+                    chars.append(simple[esc])
+                    self.advance()
+                    continue
+                if esc != "u":
+                    raise self.error("Bad escaped character")
+                self.advance()  # consume 'u'
+                if self.peek() != "{":
+                    raise self.error("Bad escaped character")
+                self.advance()  # consume '{'
+                hex_chars = ""
+                while self.peek() != "}":
+                    h = self.peek()
+                    hex_digit = h != "" and h in "0123456789abcdefABCDEF"
+                    if not hex_digit or len(hex_chars) == 6:
+                        raise self.error("Bad Unicode escape")
+                    hex_chars += self.advance()
+                self.advance()  # consume '}'
+                if not hex_chars:
+                    raise self.error("Bad Unicode escape")
+                codepoint = int(hex_chars, 16)
+                if 0xD800 <= codepoint <= 0xDFFF:
+                    raise self.error("Illegal surrogate")
+                if codepoint > 0x10FFFF:
+                    raise self.error("Unicode code point out of range")
+                chars.append(chr(codepoint))
+                continue
+            chars.append(self.advance())
+
+        after = self.peek()
+        if after not in ("", "\n", ",", "]", "}", " "):
+            raise self.error('Unexpected character after ")"')
+        if after == " " and self.peek(1) == " " and self.peek(2) not in ("#", "("):
+            raise self.error('Unexpected space after ")"')
+        return Token("TAG", "".join(chars), start_line, start_col)
+
     def read_identifier(self) -> Token:
         """Read an identifier or keyword."""
         start_line = self.line
@@ -686,6 +766,7 @@ class Lexer:
     def tokenize(self) -> Iterator[Token]:
         """Generate tokens from the source."""
         self._last_token = None
+        self._tag_run_start = 0
 
         def emit(token):
             self._last_token = token
@@ -810,6 +891,13 @@ class Lexer:
                     yield emit(Token("DASH", "-", self.line, self.col))
                     self.advance()
                     continue
+
+            # Tag, in parentheses
+            if ch == "(":
+                if self._last_token is None or self._last_token.kind != "TAG":
+                    self._tag_run_start = self.pos
+                yield emit(self.read_tag())
+                continue
 
             # Punctuation
             if ch == ":":
