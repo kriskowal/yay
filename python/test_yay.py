@@ -203,6 +203,44 @@ def run_error_tests(test_root: str, verbose: bool = False) -> tuple[int, int, li
     return passed, failed, errors
 
 
+# Documents the shared fixtures do not hold, each with its value, or None
+# where it must be refused.
+PORT_CASES = [
+    # GRAMMAR.md's nested-content: a block string opened below its key with
+    # text on the backtick's line reads as at the root (a backtick alone
+    # there is test/nay's string-block-property-invalid-leader-next-line)
+    ("key:\n  ` First line.\n    more\n", {"key": "First line.\nmore\n"}),
+    ("key:\n  ` text\nnext: 1\n", {"key": "text\n", "next": 1}),
+    ("a:\n  b:\n    ` x\n  c: 1\n", {"a": {"b": "x\n", "c": 1}}),
+    ("key:\n  ` x\n  y: 1\n", None),
+]
+
+
+def run_port_cases(verbose: bool = False) -> tuple[int, int, list]:
+    """Run PORT_CASES. Returns (passed, failed, errors)."""
+    passed = 0
+    failed = 0
+    errors = []
+    for source, expected in PORT_CASES:
+        try:
+            result = yay.loads(source)
+        except yay.YayError as e:
+            if expected is None:
+                passed += 1
+            else:
+                failed += 1
+                errors.append((repr(source), str(e)))
+            continue
+        if expected is not None and values_equal(result, expected):
+            passed += 1
+            if verbose:
+                print(f"  {source!r}: OK -> {result!r}")
+        else:
+            failed += 1
+            errors.append((repr(source), f"got {result!r}, expected {expected!r}"))
+    return passed, failed, errors
+
+
 def main():
     import argparse
 
@@ -251,9 +289,14 @@ def main():
         e_passed, e_failed, e_errors = run_error_tests(test_root, args.verbose)
         print(f"  {e_passed} passed, {e_failed} failed")
 
-        total_passed = v_passed + e_passed
-        total_failed = v_failed + e_failed
-        all_errors = v_errors + e_errors
+        # Run the port's own cases
+        print("\nPort cases:")
+        p_passed, p_failed, p_errors = run_port_cases(args.verbose)
+        print(f"  {p_passed} passed, {p_failed} failed")
+
+        total_passed = v_passed + e_passed + p_passed
+        total_failed = v_failed + e_failed + p_failed
+        all_errors = v_errors + e_errors + p_errors
 
         print(f"\nTotal: {total_passed} passed, {total_failed} failed")
 

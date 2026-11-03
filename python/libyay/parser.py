@@ -689,6 +689,17 @@ class Parser:
             if next_token.kind in ("IDENT", "STRING") and self.peek(1).kind == "COLON":
                 return self.parse_block_object(child_indent)
 
+            # A block string opened on the line below the key with text after
+            # its backtick, as GRAMMAR.md's nested-content allows; a backtick
+            # alone there stays refused, as test/nay has it
+            if (
+                next_token.kind == "STRING"
+                and self.char_at(next_token.line, next_token.col) == "`"
+                and self.char_at(next_token.line, next_token.col + 1) == " "
+            ):
+                self.advance()
+                return next_token.value
+
             # Concatenated quoted strings (multiple quoted strings on consecutive lines)
             if next_token.kind == "STRING":
                 result = self.parse_concatenated_strings(child_indent)
