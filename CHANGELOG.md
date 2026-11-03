@@ -2,6 +2,33 @@
 
 ## binyay 3.0.0
 
+**Tagged values.** YAY gains a ninth kind of value: a tag, which is any
+string, and one payload, which is any value, as Endo's `makeTagged`,
+OCapN and CBOR have it. A tag is always in parentheses: after an inline
+value with one space (`10 (s)`, `<ff8800ff> (rgba)`, `'X-1' (com.example/sku)`),
+or before a block where the block is introduced (`color: (rgb)` over its
+items, `- (outer) (inner)`, `(point)` alone on the root's first line). Inside
+the parentheses a tag reads as a double-quoted string does, with `\)` in the
+place of `\"`; `()` is the empty tag. With several tags the nearest the
+payload is innermost. YAY has exactly one space before each tag; MEH accepts
+any number, or none, so `yay -f meh -t yay` normalizes tags and
+`yay --check -t yay` flags them. YAY gives no tag a meaning and names no
+tags. SHON gains `-T tag value`. `-t json` writes a tagged value as the
+smallcaps object; YAML, TOML and CBOR refuse one. On this branch the Rust
+`libyay` and binyay carry tags; the other ports follow.
+
+**Breaking: YSON follows smallcaps.** A tagged value is
+`{"#tag": tag, "payload": value}`. An integer is `"+42"` or `"-7"`, not
+`"#42"`, which YSON no longer reads. An object key that begins with `#`, `*`
+or `!` takes the `!` escape (`"!#x"`), so no plain object reads back as a
+tagged value.
+
+```bash
+echo 42 | yay -t yson
+# 2.0: "#42"
+# 3.0: "+42"
+```
+
 **Breaking:** a Markdown body ends with a newline. Yaydown (`-f yd`) refuses
 a non-empty body without one, and `-t md` and `-t yd` write a `content`
 without a final newline in the front matter, not as the body. Two additions
