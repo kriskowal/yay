@@ -428,7 +428,10 @@ impl<'a> MehParser<'a> {
                     nested_item.value = Some(PropertyValue::Block(prop_block));
                 }
             }
-            if !nested_item.tags.is_empty() && nested_item.value.is_none() {
+            if !nested_item.tags.is_empty()
+                && nested_item.value.is_none()
+                && !self.flush_array_follows(indent + 2)
+            {
                 return Err("A tag before a value needs a block below it".to_string());
             }
             let mut block_items = vec![Item::Property(nested_item)];
@@ -533,7 +536,8 @@ impl<'a> MehParser<'a> {
 
         if !tags.is_empty() {
             let single = match &value {
-                None => true,
+                // A block array may sit at the key's own column
+                None => !self.flush_array_follows(indent),
                 Some(PropertyValue::Block(b)) => {
                     b.items
                         .iter()
@@ -558,6 +562,21 @@ impl<'a> MehParser<'a> {
             value,
             inline_comment,
         })))
+    }
+
+    /// Whether the next line with a value is an array item at the key's
+    /// own column, which makes a block array under the key.
+    fn flush_array_follows(&self, key_indent: usize) -> bool {
+        self.lines[self.line_idx..]
+            .iter()
+            .find(|l| {
+                let t = l.trim();
+                !t.is_empty() && !t.starts_with('#')
+            })
+            .is_some_and(|l| {
+                let content = &l[count_indent(l)..];
+                count_indent(l) == key_indent && (content.starts_with("- ") || content == "-")
+            })
     }
 
     fn parse_block(&mut self, parent_indent: usize) -> Result<Block, String> {

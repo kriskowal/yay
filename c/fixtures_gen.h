@@ -870,9 +870,26 @@ static yay_value_t *make_expected_tagged_block_item_array(void) {
 );
 }
 
+static yay_value_t *make_expected_tagged_block_item_property_flush_array(void) {
+    return YAY_ARRAY(
+    YAY_OBJECT(
+        "color", yay_tagged("rgb", YAY_ARRAY(yay_int(255), yay_int(136), yay_int(0))),
+        "next", yay_int(1)
+    ),
+    yay_int(2)
+);
+}
+
 static yay_value_t *make_expected_tagged_block_nested_outer_first(void) {
     return YAY_ARRAY(
     yay_tagged("outer", yay_tagged("inner", YAY_ARRAY(yay_int(1))))
+);
+}
+
+static yay_value_t *make_expected_tagged_block_property_flush_array(void) {
+    return YAY_OBJECT(
+    "color", yay_tagged("rgb", YAY_ARRAY(yay_int(255), yay_int(136), yay_int(0))),
+    "next", yay_int(1)
 );
 }
 
@@ -1208,7 +1225,9 @@ static test_fixture_t test_fixtures[] = {
     {"tagged_block_empty_tag", "a: ()\n  - 1\n", make_expected_tagged_block_empty_tag},
     {"tagged_block_escaped_tag", "a: (x\\)y)\n  - 1\n", make_expected_tagged_block_escaped_tag},
     {"tagged_block_item_array", "- (rgb)\n  - 255\n  - 136\n  - 0\n", make_expected_tagged_block_item_array},
+    {"tagged_block_item_property_flush_array", "- color: (rgb)\n  - 255\n  - 136\n  - 0\n  next: 1\n- 2\n", make_expected_tagged_block_item_property_flush_array},
     {"tagged_block_nested_outer_first", "- (outer) (inner)\n  - 1\n", make_expected_tagged_block_nested_outer_first},
+    {"tagged_block_property_flush_array", "color: (rgb)\n- 255\n- 136\n- 0\nnext: 1\n", make_expected_tagged_block_property_flush_array},
     {"tagged_block_property_object", "at: (point)\n  x: 1\n  y: 2\nnext: 3\n", make_expected_tagged_block_property_object},
     {"tagged_block_root_array", "(rgb)\n- 255\n- 136\n- 0\n", make_expected_tagged_block_root_array},
     {"tagged_block_root_colon_in_tag", "(match:splitRecord)\n- {}\n- 'x' (a: b)\n", make_expected_tagged_block_root_colon_in_tag},
@@ -1237,7 +1256,7 @@ static test_fixture_t test_fixtures[] = {
     {NULL, NULL, NULL}
 };
 
-#define TEST_FIXTURE_COUNT 168
+#define TEST_FIXTURE_COUNT 170
 
 static error_fixture_t error_fixtures[] = {
     {"array_inline_invalid_multiline", "array-inline-invalid-multiline.nay", "[\n  1,\n  2\n]\n", 13, "Unexpected newline in inline array at 1:1 of <array-inline-invalid-multiline.nay>"},

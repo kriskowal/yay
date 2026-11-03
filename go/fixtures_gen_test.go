@@ -382,8 +382,19 @@ var fixtures = map[string]any{
 	"tagged-block-item-array": []any{
 		Tagged{Tag: "rgb", Payload: []any{big.NewInt(255), big.NewInt(136), big.NewInt(0)}},
 	},
+	"tagged-block-item-property-flush-array": []any{
+		map[string]any{
+			"color": Tagged{Tag: "rgb", Payload: []any{big.NewInt(255), big.NewInt(136), big.NewInt(0)}},
+			"next":  big.NewInt(1),
+		},
+		big.NewInt(2),
+	},
 	"tagged-block-nested-outer-first": []any{
 		Tagged{Tag: "outer", Payload: Tagged{Tag: "inner", Payload: []any{big.NewInt(1)}}},
+	},
+	"tagged-block-property-flush-array": map[string]any{
+		"color": Tagged{Tag: "rgb", Payload: []any{big.NewInt(255), big.NewInt(136), big.NewInt(0)}},
+		"next":  big.NewInt(1),
 	},
 	"tagged-block-property-object": map[string]any{
 		"at":   Tagged{Tag: "point", Payload: map[string]any{"x": big.NewInt(1), "y": big.NewInt(2)}},

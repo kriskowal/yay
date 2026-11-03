@@ -1,0 +1,9 @@
+color: (rgb)
+- 255
+- 136  # green
+
+- 0
+items:
+- name: "x"
+  color: (rgb)
+  - 1

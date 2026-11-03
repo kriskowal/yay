@@ -331,8 +331,10 @@ public class FixturesGen {
     FIXTURES.put("tagged-block-concatenated-string", map("msg", new Tagged("note", "Hello, world.")));
     FIXTURES.put("tagged-block-empty-tag", map("a", new Tagged("", list(bi(1)))));
     FIXTURES.put("tagged-block-escaped-tag", map("a", new Tagged("x)y", list(bi(1)))));
+    FIXTURES.put("tagged-block-item-property-flush-array", list(map("color", new Tagged("rgb", list(bi(255), bi(136), bi(0))), "next", bi(1)), bi(2)));
     FIXTURES.put("tagged-block-item-array", list(new Tagged("rgb", list(bi(255), bi(136), bi(0)))));
     FIXTURES.put("tagged-block-nested-outer-first", list(new Tagged("outer", new Tagged("inner", list(bi(1))))));
+    FIXTURES.put("tagged-block-property-flush-array", map("color", new Tagged("rgb", list(bi(255), bi(136), bi(0))), "next", bi(1)));
     FIXTURES.put("tagged-block-property-object", map("at", new Tagged("point", map("x", bi(1), "y", bi(2))), "next", bi(3)));
     FIXTURES.put("tagged-block-root-array", new Tagged("rgb", list(bi(255), bi(136), bi(0))));
     FIXTURES.put("tagged-block-root-colon-in-tag", new Tagged("match:splitRecord", list(map(), new Tagged("a: b", "x"))));

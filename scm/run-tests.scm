@@ -391,6 +391,8 @@
            "tagged-block-item-array"
            "tagged-block-nested-outer-first"
            "tagged-block-property-object"
+           "tagged-block-property-flush-array"
+           "tagged-block-item-property-flush-array"
            "tagged-block-root-array"
            "tagged-block-root-colon-in-tag"
            "tagged-block-root-object"
