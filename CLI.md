@@ -199,7 +199,7 @@ Front matter opens with a `---` line at the very start of the document and ends
 at the next line that is exactly `---`.
 Its content is YAY, and must be an object.
 After the closing `---` line comes one blank line, then the body, which runs
-to the end of the document.
+to the end of the document and ends with a newline.
 A document without front matter is all body.
 
 Mehdown and Yaydown differ in how strictly they read:
@@ -212,13 +212,19 @@ Mehdown and Yaydown differ in how strictly they read:
   closing `---` when there is no body.
   `yay -f yd --check` refuses a document with no blank line there, with more
   than one, with spaces on it, or with a blank line and no body after it.
+- A body ends with a newline. `-f yd` refuses a non-empty body that does not
+  (`the content does not end with a newline; end the file with a newline, or
+  put "content" in the front matter as a string`), and so does
+  `yay -f yd --check`. `-f md` reads such a body and adds the missing newline
+  to `content`.
 
 The two read every document that Yaydown accepts as the same object.
 
 Reading a document:
 
 - Each front matter property becomes a property of the object.
-- A non-empty body becomes `content`.
+- A non-empty body becomes `content`, which ends with a newline (Mehdown adds
+  one if the file lacks it; Yaydown refuses the document).
   A document whose front matter has `content`, of any type, and that also has
   a non-empty body, is refused.
 - An empty body adds nothing, so a document with front matter only is just its
@@ -230,14 +236,31 @@ Writing an object (`-t md` or `-t yd`):
 - `-t md` and `-t yd` write the same document. Its front matter is YAY in the
   formatter's form, so the document is both valid Mehdown and valid Yaydown.
 - Only an object can be written; an array or a scalar is refused.
-- When `content` is a string that is not empty, the front matter is every other
-  property and the body is `content`, written exactly, with no newline added,
-  after the closing `---` and one blank line.
-- Otherwise, when `content` is absent, empty, or not a string, the front matter
-  is the whole object and the body is empty.
-  So `{content: ""}` writes `content: ""` in the front matter, and an object
-  without `content` writes front matter only, with nothing after the closing
-  `---`.
+- When `content` is a string that ends with a newline, the front matter is
+  every other property and the body is `content`, written exactly, after the
+  closing `---` and one blank line.
+- Otherwise, when `content` is absent, empty, not a string, or a string
+  without a final newline, the front matter is the whole object and the body
+  is empty.
+  So `{content: ""}` writes `content: ""` in the front matter, `{content: "hi"}`
+  writes `content: "hi"` there, quoted, with or without other properties, and
+  an object without `content` writes front matter only, with nothing after the
+  closing `---`.
+
+```bash
+yay [ --content hi ] -t md
+# Output:
+# ---
+# content: "hi"
+# ---
+```
+
+```bash
+yay [ --content $'hi\n' ] -t md
+# Output:
+# hi
+```
+
 - A `content` whose first line is blank cannot follow front matter as a body,
   since the blank line there is the separator; when the object has other
   properties, it stays in the front matter as a string instead.
@@ -257,9 +280,10 @@ document its object writes.
 `-f md -t md` normalizes a document to that form, with one blank line after
 the front matter however many it read, except that it keeps the front matter's
 key order and comments.
-A front matter `content` that is a non-empty string, with an empty body, reads
-the same as a body, and normalizing moves it into the body when a body can
-carry it (reformatting the front matter from its value).
+A front matter `content` that is a string a body can carry (one that ends with
+a newline), with an empty body, reads the same as a body, and normalizing moves
+it into the body (reformatting the front matter from its value).
+A front matter `content` without a final newline stays in the front matter.
 
 ## Validation Mode
 

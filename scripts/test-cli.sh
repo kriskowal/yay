@@ -691,7 +691,44 @@ run_markdown_tests() {
         fail "markdown/lenient/$name (-f md refused it, or wrote it without one blank line)"
       fi
     fi
+    # A body ends with a newline: Yaydown's refusal names the fix, and
+    # Mehdown adds the newline.
+    if [[ $name == *final-newline* ]]; then
+      if ! "$YAY" -f yd -t yay "$input_file" 2>"$tmp" >/dev/null &&
+        grep -q 'does not end with a newline; end the file with a newline, or put "content" in the front matter as a string' "$tmp"; then
+        pass "markdown/strict/$name (names the fix)"
+      else
+        fail "markdown/strict/$name (the error does not name the fix)"
+      fi
+      if "$YAY" -f md --check "$input_file" >/dev/null 2>&1 &&
+        "$YAY" -f md -t yd "$input_file" >"$tmp" 2>/dev/null &&
+        "$YAY" --check -f yd -t yd "$tmp" >/dev/null 2>&1 &&
+        cmp -s "$tmp" <(cat "$input_file" && echo); then
+        pass "markdown/lenient/$name"
+      else
+        fail "markdown/lenient/$name (-f md refused it, or did not add the final newline)"
+      fi
+    fi
   done
+
+  # Kris's examples: content without a final newline stays in the front
+  # matter, quoted; with one, it is the body.
+  if [[ $(
+    "$YAY" [ --content hi ] -t md
+    echo .
+  ) == $'---\ncontent: "hi"\n---\n.' ]]; then
+    pass "markdown/shon/content-hi"
+  else
+    fail "markdown/shon/content-hi (yay [ --content hi ] -t md)"
+  fi
+  if [[ $(
+    "$YAY" [ --content $'hi\n' ] -t md
+    echo .
+  ) == $'hi\n.' ]]; then
+    pass "markdown/shon/content-hi-newline"
+  else
+    fail "markdown/shon/content-hi-newline (yay [ --content \$'hi\\n' ] -t md)"
+  fi
 
   echo ""
 }
