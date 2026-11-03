@@ -801,7 +801,7 @@ function parseScalarAtom(s, ctx = {}, lineNum = 0, col = 0) {
   if (s.startsWith('"')) {
     if (!s.endsWith('"') || s.length < 2) {
       throw new Error(
-        "Unterminated string" + locSuffix(ctx, lineNum, col + s.length),
+        `Unexpected character "${s[0]}"` + locSuffix(ctx, lineNum, col),
       );
     }
     return parseQuotedString(s, ctx, lineNum, col);
@@ -809,7 +809,7 @@ function parseScalarAtom(s, ctx = {}, lineNum = 0, col = 0) {
   if (s.startsWith("'")) {
     if (!s.endsWith("'") || s.length < 2) {
       throw new Error(
-        "Unterminated string" + locSuffix(ctx, lineNum, col + s.length),
+        `Unexpected character "${s[0]}"` + locSuffix(ctx, lineNum, col),
       );
     }
     return s.slice(1, -1);
