@@ -20,4 +20,4 @@ fi
 cd "$DIR"
 
 echo "Running tests..."
-node --test yay.test.js
+node --test yay.test.js tagged.test.js

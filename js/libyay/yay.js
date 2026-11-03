@@ -44,6 +44,11 @@ function isAllowedCodePoint(cp) {
  * @returns {string}
  */
 function stripInlineComment(s) {
+  const end = stripInlineCommentRaw(maskTags(s).masked).length;
+  return s.slice(0, end);
+}
+
+function stripInlineCommentRaw(s) {
   let inDouble = false;
   let inSingle = false;
   let escape = false;
@@ -215,9 +220,9 @@ function scan(source, ctx = {}) {
     ) {
       throw new Error('Unexpected character "*"' + locSuffix(ctx, i, indent));
     }
-    if (isBareBlockOpener(line)) {
+    if (isBareBlockOpener(line) || isBareBlockOpener(afterPrefix(line) ?? "")) {
       blockOpener = indent;
-    } else if (line.endsWith(": `")) {
+    } else if (line.endsWith(": `") || isTaggedPropertyOpener(line)) {
       blockOpener = indent + (rest.length - line.length);
     }
     lines.push({ line, indent, leader, lineNum: i });
@@ -315,6 +320,22 @@ function parseRoot(tokens, ctx = {}) {
         (ctx.filename ? " at " + line + ":1 of <" + ctx.filename + ">" : ""),
     );
   }
+  // A tagged root block: the tags alone on the first line, the block below
+  // at column 0
+  if (t.type === "text" && t.text.startsWith("(")) {
+    const [tags, rest] = parsePrefix(t.text, ctx, t.lineNum ?? 0, t.col ?? 0);
+    if (rest !== "") throw prefixWithoutBlock(ctx, t.lineNum ?? 0, t.col ?? 0);
+    let j = i + 1;
+    while (
+      j < tokens.length &&
+      (tokens[j].type === "stop" || tokens[j].type === "break")
+    )
+      j++;
+    if (j >= tokens.length) {
+      throw prefixWithoutBlock(ctx, t.lineNum ?? 0, t.col ?? 0);
+    }
+    return wrapPrefix(parseRoot(tokens.slice(j), ctx), tags);
+  }
   if (
     t.type === "text" &&
     findKeyColonOutsideQuotes(t.text) >= 0 &&
@@ -388,6 +409,19 @@ function parseValue(tokens, i, ctx = {}) {
     const raw = t.text;
     const s = raw;
     const sCol = t.col ?? 0;
+    // A tagged inline value: tags after it, and no property's colon before
+    const { first } = maskTags(s);
+    if (
+      first !== undefined &&
+      first > 0 &&
+      !s.startsWith("`") &&
+      !s.startsWith(">") &&
+      (s.startsWith("{") ||
+        s.startsWith("[") ||
+        findKeyColonOutsideQuotes(s.slice(0, first)) < 0)
+    ) {
+      return [parseScalar(s, ctx, t.lineNum ?? 0, sCol), i + 1];
+    }
     if (s === "null") return [null, i + 1];
     if (s === "true") return [true, i + 1];
     if (s === "false") return [false, i + 1];
@@ -545,6 +579,7 @@ function splitKeyValue(s, sCol, ctx, lineNum, inlineCol) {
  * @returns {number}
  */
 function findKeyColonOutsideQuotes(s) {
+  s = maskTags(s).masked;
   let inSingle = false;
   let inDouble = false;
   let escape = false;
@@ -627,6 +662,7 @@ function parseInlineObject(s, ctx = {}, lineNum = 0, col = 0) {
     );
   }
   const body = s.slice(1, -1);
+  const maskedBody = maskTags(body).masked;
   const parts = [];
   let start = 0;
   let inSingle = false;
@@ -635,7 +671,7 @@ function parseInlineObject(s, ctx = {}, lineNum = 0, col = 0) {
   let braceDepth = 0;
   let bracketDepth = 0;
   for (let i = 0; i < body.length; i++) {
-    const ch = body[i];
+    const ch = maskedBody[i];
     if (escape) {
       escape = false;
       continue;
@@ -728,7 +764,32 @@ function parseInlineObject(s, ctx = {}, lineNum = 0, col = 0) {
 function parseScalar(s, ctx = {}, lineNum = 0, col = 0) {
   // Strip inline comments first
   s = stripInlineComment(s);
+  const { first } = maskTags(s);
+  if (first !== undefined) {
+    if (first === 0) throw prefixWithoutBlock(ctx, lineNum, col);
+    const atomEnd = s.slice(0, first).trimEnd().length;
+    const [tags, n] = parseSuffix(
+      s.slice(atomEnd),
+      ctx,
+      lineNum,
+      col + atomEnd,
+    );
+    if (atomEnd + n !== s.length) {
+      throw new Error(
+        `Unexpected character "${s[atomEnd + n]}"` +
+          locSuffix(ctx, lineNum, col + atomEnd + n),
+      );
+    }
+    const atom = s.slice(0, atomEnd);
+    if (atom.startsWith("[")) {
+      validateInlineArrayWhitespace(atom, ctx, lineNum, col);
+    }
+    return wrapTags(parseScalarAtom(atom, ctx, lineNum, col), tags);
+  }
+  return parseScalarAtom(s, ctx, lineNum, col);
+}
 
+function parseScalarAtom(s, ctx = {}, lineNum = 0, col = 0) {
   if (s === "null") return null;
   if (s === "true") return true;
   if (s === "false") return false;
@@ -1026,8 +1087,9 @@ function parseInlineArray(s, ctx = {}, lineNum = 0, col = 0) {
   let braceDepth = 0;
   let bracketDepth = 0;
   let angleDepth = 0;
+  const maskedBody = maskTags(body).masked;
   for (let i = 0; i < body.length; i++) {
-    const ch = body[i];
+    const ch = maskedBody[i];
     if (escape) {
       escape = false;
       continue;
@@ -1122,6 +1184,7 @@ function parseInlineArray(s, ctx = {}, lineNum = 0, col = 0) {
  * @param {number} col
  */
 function validateInlineArrayWhitespace(s, ctx = {}, lineNum = 0, col = 0) {
+  s = maskTags(s).masked;
   let inSingle = false;
   let inDouble = false;
   let escape = false;
@@ -1318,148 +1381,9 @@ function parseListArray(tokens, i, ctx = {}, minIndent = -1) {
     i++;
     while (i < tokens.length && tokens[i].type === "break") i++;
     if (i >= tokens.length) break;
-    const next = tokens[i];
-    if (
-      next.type === "text" &&
-      next.text === "" &&
-      i + 1 < tokens.length &&
-      tokens[i + 1].type === "start" &&
-      tokens[i + 1].text === "-"
-    ) {
-      const [value, j] = parseListArray(tokens, i + 1, ctx);
-      arr.push(value);
-      i = j;
-    } else if (next.type === "start" && next.text === "-") {
-      const [value, j] = parseListArray(tokens, i, ctx);
-      arr.push(value);
-      i = j;
-    } else if (
-      next.type === "text" &&
-      (next.indent ?? 0) >= listIndent &&
-      isInlineBullet(next.text)
-    ) {
-      // Inline bullet list inside a multiline list item.
-      const group = [];
-      let j = i;
-      for (;;) {
-        if (
-          j < tokens.length &&
-          tokens[j].type === "text" &&
-          (tokens[j].indent ?? 0) >= listIndent &&
-          isInlineBullet(tokens[j].text)
-        ) {
-          const valStr = parseInlineBulletValue(
-            tokens[j].text,
-            ctx,
-            tokens[j].lineNum ?? 0,
-            tokens[j].col ?? 0,
-          );
-          group.push(
-            parseNestedInlineBullet(
-              valStr,
-              ctx,
-              tokens[j].lineNum ?? 0,
-              (tokens[j].col ?? 0) + 2,
-            ),
-          );
-          j++;
-        } else if (
-          j < tokens.length &&
-          tokens[j].type === "start" &&
-          tokens[j].text === "-" &&
-          (tokens[j].indent ?? 0) > listIndent &&
-          j + 1 < tokens.length &&
-          tokens[j + 1].type === "text" &&
-          isInlineBullet(tokens[j + 1].text)
-        ) {
-          const valStr = parseInlineBulletValue(
-            tokens[j + 1].text,
-            ctx,
-            tokens[j + 1].lineNum ?? 0,
-            tokens[j + 1].col ?? 0,
-          );
-          group.push(
-            parseNestedInlineBullet(
-              valStr,
-              ctx,
-              tokens[j + 1].lineNum ?? 0,
-              (tokens[j + 1].col ?? 0) + 2,
-            ),
-          );
-          j += 2;
-        } else {
-          break;
-        }
-      }
-      // If next token is start(-) at deeper indent, same list continues with nested bullets (e.g. "- - a" then "  - b").
-      while (
-        j < tokens.length &&
-        tokens[j].type === "start" &&
-        tokens[j].text === "-" &&
-        (tokens[j].indent ?? 0) > listIndent
-      ) {
-        j++;
-        while (j < tokens.length && tokens[j].type === "break") j++;
-        if (j >= tokens.length) break;
-        const [subVal, nextJ] = parseValue(tokens, j, ctx);
-        group.push(subVal);
-        j = nextJ;
-        while (j < tokens.length && tokens[j].type === "stop") j++;
-      }
-      arr.push(group);
-      i = j;
-    } else if (
-      next.type === "text" &&
-      findKeyColonOutsideQuotes(next.text) >= 0
-    ) {
-      const nextIndent = next.indent ?? 0;
-      const inlineIndent = nextIndent === listIndent ? nextIndent : undefined;
-      const baseIndent =
-        inlineIndent !== undefined ? nextIndent + 2 : nextIndent;
-      const [obj, nextIndex] = parseObjectBlock(
-        tokens,
-        i,
-        baseIndent,
-        ctx,
-        inlineIndent,
-      );
-      arr.push(obj);
-      i = nextIndex;
-    } else if (next.type === "text" || next.type === "start") {
-      const [value, j] = parseValue(tokens, i, ctx);
-      let k = j;
-      while (k < tokens.length && tokens[k].type === "break") k++;
-      const afterBreak = k < tokens.length ? tokens[k] : null;
-      if (
-        afterBreak &&
-        afterBreak.type === "start" &&
-        afterBreak.text === "-" &&
-        (afterBreak.indent ?? 0) > listIndent
-      ) {
-        const group = [value];
-        i = k;
-        while (
-          i < tokens.length &&
-          tokens[i].type === "start" &&
-          tokens[i].text === "-" &&
-          (tokens[i].indent ?? 0) > listIndent
-        ) {
-          i++;
-          while (i < tokens.length && tokens[i].type === "break") i++;
-          if (i >= tokens.length) break;
-          const [subVal, nextI] = parseValue(tokens, i, ctx);
-          group.push(subVal);
-          i = nextI;
-          while (i < tokens.length && tokens[i].type === "stop") i++;
-        }
-        arr.push(group);
-      } else {
-        arr.push(value);
-        i = j;
-      }
-    } else {
-      i++;
-    }
+    const [value, j, some] = parseListItem(tokens, i, listIndent, ctx);
+    if (some !== false) arr.push(value);
+    i = j;
     // Skip stops and breaks between items
     while (
       i < tokens.length &&
@@ -1468,6 +1392,178 @@ function parseListArray(tokens, i, ctx = {}, minIndent = -1) {
       i++;
   }
   return [arr, i];
+}
+
+/**
+ * Parse one list item's content, at tokens[i], after its "-".
+ * @param {Token[]} tokens
+ * @param {number} i
+ * @param {number} listIndent
+ * @param {ParseContext} ctx
+ * @returns {[unknown, number, boolean?]} the value, the next index, and
+ * false when the item holds no value
+ */
+function parseListItem(tokens, i, listIndent, ctx) {
+  const next = tokens[i];
+  // A tagged block: the item's content follows the tags
+  if (next.type === "text" && next.text.startsWith("(")) {
+    const lineNum = next.lineNum ?? 0;
+    const col = next.col ?? 0;
+    const [tags, rest] = parsePrefix(next.text, ctx, lineNum, col);
+    if (rest === "") {
+      let j = i + 1;
+      while (j < tokens.length && tokens[j].type === "break") j++;
+      if (
+        j >= tokens.length ||
+        tokens[j].type === "stop" ||
+        (tokens[j].indent ?? 0) <= listIndent
+      ) {
+        throw prefixWithoutBlock(ctx, lineNum, col);
+      }
+      const [value, k] = parseListItem(tokens, j, listIndent, ctx);
+      return [wrapPrefix(value, tags), k];
+    }
+    if (!prefixTakes(rest)) throw prefixWithoutBlock(ctx, lineNum, col);
+    const retokened = tokens.slice();
+    retokened[i] = {
+      ...next,
+      text: rest,
+      col: col + next.text.length - rest.length,
+    };
+    const [value, k] = parseListItem(retokened, i, listIndent, ctx);
+    return [wrapPrefix(value, tags), k];
+  }
+  if (
+    next.type === "text" &&
+    next.text === "" &&
+    i + 1 < tokens.length &&
+    tokens[i + 1].type === "start" &&
+    tokens[i + 1].text === "-"
+  ) {
+    return parseListArray(tokens, i + 1, ctx);
+  } else if (next.type === "start" && next.text === "-") {
+    return parseListArray(tokens, i, ctx);
+  } else if (
+    next.type === "text" &&
+    (next.indent ?? 0) >= listIndent &&
+    isInlineBullet(next.text)
+  ) {
+    // Inline bullet list inside a multiline list item.
+    const group = [];
+    let j = i;
+    for (;;) {
+      if (
+        j < tokens.length &&
+        tokens[j].type === "text" &&
+        (tokens[j].indent ?? 0) >= listIndent &&
+        isInlineBullet(tokens[j].text)
+      ) {
+        const valStr = parseInlineBulletValue(
+          tokens[j].text,
+          ctx,
+          tokens[j].lineNum ?? 0,
+          tokens[j].col ?? 0,
+        );
+        group.push(
+          parseNestedInlineBullet(
+            valStr,
+            ctx,
+            tokens[j].lineNum ?? 0,
+            (tokens[j].col ?? 0) + 2,
+          ),
+        );
+        j++;
+      } else if (
+        j < tokens.length &&
+        tokens[j].type === "start" &&
+        tokens[j].text === "-" &&
+        (tokens[j].indent ?? 0) > listIndent &&
+        j + 1 < tokens.length &&
+        tokens[j + 1].type === "text" &&
+        isInlineBullet(tokens[j + 1].text)
+      ) {
+        const valStr = parseInlineBulletValue(
+          tokens[j + 1].text,
+          ctx,
+          tokens[j + 1].lineNum ?? 0,
+          tokens[j + 1].col ?? 0,
+        );
+        group.push(
+          parseNestedInlineBullet(
+            valStr,
+            ctx,
+            tokens[j + 1].lineNum ?? 0,
+            (tokens[j + 1].col ?? 0) + 2,
+          ),
+        );
+        j += 2;
+      } else {
+        break;
+      }
+    }
+    // If next token is start(-) at deeper indent, same list continues with nested bullets (e.g. "- - a" then "  - b").
+    while (
+      j < tokens.length &&
+      tokens[j].type === "start" &&
+      tokens[j].text === "-" &&
+      (tokens[j].indent ?? 0) > listIndent
+    ) {
+      j++;
+      while (j < tokens.length && tokens[j].type === "break") j++;
+      if (j >= tokens.length) break;
+      const [subVal, nextJ] = parseValue(tokens, j, ctx);
+      group.push(subVal);
+      j = nextJ;
+      while (j < tokens.length && tokens[j].type === "stop") j++;
+    }
+    return [group, j];
+  } else if (
+    next.type === "text" &&
+    findKeyColonOutsideQuotes(next.text) >= 0
+  ) {
+    const nextIndent = next.indent ?? 0;
+    const inlineIndent = nextIndent === listIndent ? nextIndent : undefined;
+    const baseIndent = inlineIndent !== undefined ? nextIndent + 2 : nextIndent;
+    const [obj, nextIndex] = parseObjectBlock(
+      tokens,
+      i,
+      baseIndent,
+      ctx,
+      inlineIndent,
+    );
+    return [obj, nextIndex];
+  } else if (next.type === "text" || next.type === "start") {
+    const [value, j] = parseValue(tokens, i, ctx);
+    let k = j;
+    while (k < tokens.length && tokens[k].type === "break") k++;
+    const afterBreak = k < tokens.length ? tokens[k] : null;
+    if (
+      afterBreak &&
+      afterBreak.type === "start" &&
+      afterBreak.text === "-" &&
+      (afterBreak.indent ?? 0) > listIndent
+    ) {
+      const group = [value];
+      i = k;
+      while (
+        i < tokens.length &&
+        tokens[i].type === "start" &&
+        tokens[i].text === "-" &&
+        (tokens[i].indent ?? 0) > listIndent
+      ) {
+        i++;
+        while (i < tokens.length && tokens[i].type === "break") i++;
+        if (i >= tokens.length) break;
+        const [subVal, nextI] = parseValue(tokens, i, ctx);
+        group.push(subVal);
+        i = nextI;
+        while (i < tokens.length && tokens[i].type === "stop") i++;
+      }
+      return [group, i];
+    }
+    return [value, j];
+  }
+  return [undefined, i + 1, false];
 }
 
 /**
@@ -1817,8 +1913,18 @@ function parseObjectOrNamedArray(tokens, i, key, ctx = {}) {
       const keyValue = splitKeyValue(s, t.col ?? 0, ctx, t.lineNum ?? 0);
       if (keyValue) {
         const k = keyValue.key;
-        const vPart = keyValue.valuePart;
+        let vPart = keyValue.valuePart;
         if ((t.indent ?? 0) < baseIndent) break;
+        // A tagged block: read the property without its tags, then tag
+        // the value
+        let tags = null;
+        if (vPart.startsWith("(")) {
+          const lineNum = t.lineNum ?? 0;
+          [tags, vPart] = parsePrefix(vPart, ctx, lineNum, keyValue.valueCol);
+          if (!prefixTakes(vPart)) {
+            throw prefixWithoutBlock(ctx, lineNum, keyValue.valueCol);
+          }
+        }
         if (k && (t.indent ?? 0) <= baseIndent && obj.hasOwnProperty(k)) break;
         if (k && (t.indent ?? 0) <= baseIndent && !obj.hasOwnProperty(k)) {
           if (vPart === "{}") {
@@ -1895,6 +2001,12 @@ function parseObjectOrNamedArray(tokens, i, key, ctx = {}) {
             obj[k] = parseScalar(vPart, ctx, t.lineNum ?? 0, keyValue.valueCol);
             i++;
           }
+          if (tags) {
+            if (isMissingBlock(obj[k])) {
+              throw prefixWithoutBlock(ctx, t.lineNum ?? 0, keyValue.valueCol);
+            }
+            obj[k] = wrapPrefix(obj[k], tags);
+          }
         } else {
           i++;
         }
@@ -1956,72 +2068,93 @@ function parseObjectBlock(tokens, i, baseIndent, ctx = {}, inlineIndent) {
       continue;
     }
     const k = keyValue.key;
-    const vPart = keyValue.valuePart;
-    // Note: "key: <" without closing ">" is invalid - inline byte arrays must be closed on the same line
-    if (vPart.startsWith(">")) {
-      if (!isPropertyBlockLeaderOnly(vPart, ">")) {
-        throw new Error("Expected newline after block leader in property");
+    let vPart = keyValue.valuePart;
+    // A tagged block: read the property without its tags, then tag the value
+    let tags = null;
+    if (vPart.startsWith("(")) {
+      const lineNum = t.lineNum ?? 0;
+      [tags, vPart] = parsePrefix(vPart, ctx, lineNum, keyValue.valueCol);
+      if (!prefixTakes(vPart)) {
+        throw prefixWithoutBlock(ctx, lineNum, keyValue.valueCol);
       }
-      const [bytes, j] = parseBlockBytes(tokens, i, ctx, "", baseIndent);
-      obj[k] = bytes;
-      i = j;
-      continue;
     }
-    if (vPart === "{}") {
-      obj[k] = {};
-      i++;
-      continue;
-    }
-    // Block string in property context: backtick alone on line
-    if (vPart.trim() === "`") {
-      // The block ends at the key's column, which for "- key: `" is past
-      // the list leader.
-      const [body, next] = parseBlockStringWithIndent(
-        tokens,
-        i,
-        "",
-        true,
-        indent,
-      );
-      obj[k] = body;
-      i = next;
-      continue;
-    }
-    if (vPart === "") {
-      i++;
-      while (
-        i < tokens.length &&
-        (tokens[i].type === "break" || tokens[i].type === "stop")
-      )
-        i++;
-      const nextT = tokens[i];
-      if (nextT && nextT.type === "start" && nextT.text === "-") {
-        // Pass baseIndent as minIndent so nested arrays stop at the object's level
-        const [arr, next] = parseListArray(tokens, i, ctx, baseIndent);
-        obj[k] = arr;
-        i = next;
-        continue;
-      }
+    property: {
       // Note: "key: <" without closing ">" is invalid - inline byte arrays must be closed on the same line
-      // Note: A line with just '"' is not valid - block strings use backtick (`)
-      if (nextT && nextT.type === "text" && (nextT.indent ?? 0) > baseIndent) {
-        const [child, next] = parseObjectBlock(
+      if (vPart.startsWith(">")) {
+        if (!isPropertyBlockLeaderOnly(vPart, ">")) {
+          throw new Error("Expected newline after block leader in property");
+        }
+        const [bytes, j] = parseBlockBytes(tokens, i, ctx, "", baseIndent);
+        obj[k] = bytes;
+        i = j;
+        break property;
+      }
+      if (vPart === "{}") {
+        obj[k] = {};
+        i++;
+        break property;
+      }
+      // Block string in property context: backtick alone on line
+      if (vPart.trim() === "`") {
+        // The block ends at the key's column, which for "- key: `" is past
+        // the list leader.
+        const [body, next] = parseBlockStringWithIndent(
           tokens,
           i,
-          nextT.indent ?? 0,
-          ctx,
+          "",
+          true,
+          indent,
         );
-        obj[k] = child;
+        obj[k] = body;
         i = next;
-        continue;
+        break property;
       }
-      // Empty property with no nested content is handled by parseObjectOrNamedArray
-      // which throws an error before we reach here
-      continue;
+      if (vPart === "") {
+        i++;
+        while (
+          i < tokens.length &&
+          (tokens[i].type === "break" || tokens[i].type === "stop")
+        )
+          i++;
+        const nextT = tokens[i];
+        if (nextT && nextT.type === "start" && nextT.text === "-") {
+          // Pass baseIndent as minIndent so nested arrays stop at the object's level
+          const [arr, next] = parseListArray(tokens, i, ctx, baseIndent);
+          obj[k] = arr;
+          i = next;
+          break property;
+        }
+        // Note: "key: <" without closing ">" is invalid - inline byte arrays must be closed on the same line
+        // Note: A line with just '"' is not valid - block strings use backtick (`)
+        if (
+          nextT &&
+          nextT.type === "text" &&
+          (nextT.indent ?? 0) > baseIndent
+        ) {
+          const [child, next] = parseObjectBlock(
+            tokens,
+            i,
+            nextT.indent ?? 0,
+            ctx,
+          );
+          obj[k] = child;
+          i = next;
+          break property;
+        }
+        // Empty property with no nested content is handled by parseObjectOrNamedArray
+        // which throws an error before we reach here
+        break property;
+      }
+      // Inline value (scalar, array, object, bytes)
+      obj[k] = parseScalar(vPart, ctx, t.lineNum ?? 0, keyValue.valueCol);
+      i++;
     }
-    // Inline value (scalar, array, object, bytes)
-    obj[k] = parseScalar(vPart, ctx, t.lineNum ?? 0, keyValue.valueCol);
-    i++;
+    if (tags) {
+      if (isMissingBlock(obj[k])) {
+        throw prefixWithoutBlock(ctx, t.lineNum ?? 0, keyValue.valueCol);
+      }
+      obj[k] = wrapPrefix(obj[k], tags);
+    }
   }
   return [obj, i];
 }
@@ -2047,7 +2180,17 @@ function parseRootObject(tokens, i, ctx = {}) {
       const keyValue = splitKeyValue(s, t.col ?? 0, ctx, t.lineNum ?? 0);
       if (keyValue && (t.indent ?? 0) === baseIndent) {
         const k = keyValue.key;
-        const vPart = keyValue.valuePart;
+        let vPart = keyValue.valuePart;
+        // A tagged block: read the property without its tags, then tag
+        // the value
+        let tags = null;
+        if (vPart.startsWith("(")) {
+          const lineNum = t.lineNum ?? 0;
+          [tags, vPart] = parsePrefix(vPart, ctx, lineNum, keyValue.valueCol);
+          if (!prefixTakes(vPart)) {
+            throw prefixWithoutBlock(ctx, lineNum, keyValue.valueCol);
+          }
+        }
         // Note: "key: <" without closing ">" is invalid - inline byte arrays must be closed on the same line
         if (vPart.startsWith(">")) {
           if (!isPropertyBlockLeaderOnly(vPart, ">")) {
@@ -2122,6 +2265,17 @@ function parseRootObject(tokens, i, ctx = {}) {
           obj[k] = parseScalar(vPart, ctx, t.lineNum ?? 0, keyValue.valueCol);
           i++;
         }
+        if (tags) {
+          if (isMissingBlock(obj[k])) {
+            throw prefixWithoutBlock(ctx, t.lineNum ?? 0, keyValue.valueCol);
+          }
+          obj[k] = wrapPrefix(obj[k], tags);
+        }
+      } else if ((t.indent ?? 0) > baseIndent) {
+        // A line indented under a property that took no block
+        throw new Error(
+          "Unexpected indent" + locSuffix(ctx, t.lineNum ?? 0, t.col ?? 0),
+        );
       } else {
         i++;
       }
@@ -2132,4 +2286,300 @@ function parseRootObject(tokens, i, ctx = {}) {
   return [obj, i];
 }
 
-export { parseYay };
+// --- Tagged values ---
+
+/**
+ * A tagged value: a tag, any string, and one payload, any YAY value.
+ * Instances are frozen. Two are equal when their tags and payloads are, and
+ * a tagged value never equals its payload or a plain object.
+ */
+class Tagged {
+  /**
+   * @param {string} tag
+   * @param {unknown} payload
+   */
+  constructor(tag, payload) {
+    if (typeof tag !== "string") {
+      throw new TypeError("A tag must be a string");
+    }
+    this.tag = tag;
+    this.payload = payload;
+    Object.freeze(this);
+  }
+}
+
+/**
+ * Make a tagged value, as the YAY parser does and as `yay -t js` writes it.
+ * @param {string} tag
+ * @param {unknown} payload
+ * @returns {Tagged}
+ */
+function tagged(tag, payload) {
+  return new Tagged(tag, payload);
+}
+
+/**
+ * @param {unknown} value
+ * @returns {value is Tagged}
+ */
+function isTagged(value) {
+  return value instanceof Tagged;
+}
+
+/**
+ * Replace the text inside each tag's parentheses (outside quotes) with "x",
+ * unit for unit, so that the scanners for quotes, brackets, colons and
+ * comments see no punctuation a tag holds. Also returns the offset of the
+ * first "(" outside quotes, brackets and braces.
+ * @param {string} s
+ * @returns {{masked: string, first: number|undefined}}
+ */
+function maskTags(s) {
+  if (!s.includes("(")) return { masked: s, first: undefined };
+  let out = "";
+  let first;
+  let quote = "";
+  let depth = 0;
+  let i = 0;
+  while (i < s.length) {
+    const c = s[i];
+    if (quote !== "") {
+      if (c === "\\") {
+        out += s.slice(i, i + 2);
+        i += 2;
+        continue;
+      }
+      if (c === quote) quote = "";
+      out += c;
+      i++;
+      continue;
+    }
+    out += c;
+    if (c === '"' || c === "'") {
+      quote = c;
+    } else if (c === "[" || c === "{") {
+      depth++;
+    } else if (c === "]" || c === "}") {
+      depth--;
+    } else if (c === "(") {
+      if (depth === 0 && first === undefined) first = i;
+      i++;
+      while (i < s.length && s[i] !== ")") {
+        const n = s[i] === "\\" ? Math.min(2, s.length - i) : 1;
+        out += "x".repeat(n);
+        i += n;
+      }
+      continue;
+    }
+    i++;
+  }
+  return { masked: out, first };
+}
+
+/**
+ * Parse one tag at the start of s, which begins with "(". Returns the tag
+ * and the number of units consumed, the closing ")" included. The tag is
+ * escaped as a double-quoted string is, with \) in the place of \".
+ * @param {string} s
+ * @param {ParseContext} ctx
+ * @param {number} lineNum
+ * @param {number} col
+ * @returns {[string, number]}
+ */
+function parseTag(s, ctx, lineNum, col) {
+  let out = "";
+  let i = 1;
+  while (i < s.length) {
+    const c = s[i];
+    if (c === ")") return [out, i + 1];
+    if (c === "\t") {
+      throw new Error(
+        "Tab not allowed (use spaces)" + locSuffix(ctx, lineNum, col + i),
+      );
+    }
+    if (c !== "\\") {
+      out += c;
+      i++;
+      continue;
+    }
+    const e = s[i + 1];
+    const simple = {
+      ")": ")",
+      "\\": "\\",
+      "/": "/",
+      b: "\b",
+      f: "\f",
+      n: "\n",
+      r: "\r",
+      t: "\t",
+    };
+    if (e !== undefined && Object.hasOwn(simple, e)) {
+      out += simple[e];
+      i += 2;
+      continue;
+    }
+    if (e !== "u" || s[i + 2] !== "{") {
+      throw new Error(
+        "Bad escaped character" + locSuffix(ctx, lineNum, col + i + 1),
+      );
+    }
+    const close = s.indexOf("}", i + 3);
+    const hex = close < 0 ? "" : s.slice(i + 3, close);
+    if (!/^[0-9a-fA-F]{1,6}$/.test(hex)) {
+      throw new Error(
+        "Bad Unicode escape" + locSuffix(ctx, lineNum, col + i + 2),
+      );
+    }
+    const code = parseInt(hex, 16);
+    if (code >= 0xd800 && code <= 0xdfff) {
+      throw new Error(
+        "Illegal surrogate" + locSuffix(ctx, lineNum, col + i + 2),
+      );
+    }
+    if (code > 0x10ffff) {
+      throw new Error(
+        "Unicode code point out of range" +
+          locSuffix(ctx, lineNum, col + i + 2),
+      );
+    }
+    out += String.fromCodePoint(code);
+    i = close + 1;
+  }
+  throw new Error("Unterminated string" + locSuffix(ctx, lineNum, col));
+}
+
+/**
+ * Parse a run of tags after a value: each one space, then a tag. Returns the
+ * tags, innermost first, and the number of units consumed. A tag fused to
+ * its value or after two spaces is refused.
+ * @param {string} s
+ * @param {ParseContext} ctx
+ * @param {number} lineNum
+ * @param {number} col
+ * @returns {[string[], number]}
+ */
+function parseSuffix(s, ctx, lineNum, col) {
+  const tags = [];
+  let pos = 0;
+  for (;;) {
+    let spaces = 0;
+    while (s[pos + spaces] === " ") spaces++;
+    if (s[pos + spaces] !== "(") break;
+    if (spaces !== 1) {
+      throw new Error(
+        (spaces === 0
+          ? "Expected one space before a tag"
+          : 'Unexpected space before "("') + locSuffix(ctx, lineNum, col + pos),
+      );
+    }
+    const [tag, n] = parseTag(s.slice(pos + 1), ctx, lineNum, col + pos + 1);
+    tags.push(tag);
+    pos += 1 + n;
+  }
+  return [tags, pos];
+}
+
+/**
+ * Parse a run of tags before a block: tags separated by one space. Returns
+ * the tags, outermost first, and what follows the last one (after its
+ * space, or a comment, which is the empty string).
+ * @param {string} s
+ * @param {ParseContext} ctx
+ * @param {number} lineNum
+ * @param {number} col
+ * @returns {[string[], string]}
+ */
+function parsePrefix(s, ctx, lineNum, col) {
+  const [first, n] = parseTag(s, ctx, lineNum, col);
+  const [tags, m] = parseSuffix(s.slice(n), ctx, lineNum, col + n);
+  tags.unshift(first);
+  const rest = s.slice(n + m);
+  if (rest === "" || rest.startsWith("  #")) return [tags, ""];
+  if (rest.startsWith(" ") && !rest.startsWith("  ")) {
+    return [tags, rest.slice(1)];
+  }
+  throw new Error(
+    'Unexpected space after ")"' + locSuffix(ctx, lineNum, col + n + m),
+  );
+}
+
+/**
+ * Wrap a payload in tags, innermost first.
+ * @param {unknown} value
+ * @param {string[]} tags
+ */
+function wrapTags(value, tags) {
+  return tags.reduce((v, tag) => tagged(tag, v), value);
+}
+
+/**
+ * Wrap a payload in a prefix's tags, outermost first.
+ * @param {unknown} value
+ * @param {string[]} tags
+ */
+function wrapPrefix(value, tags) {
+  return wrapTags(value, [...tags].reverse());
+}
+
+/**
+ * Is rest, what follows a prefix, a block it may introduce on its own line?
+ * @param {string} rest
+ */
+function prefixTakes(rest) {
+  return rest === "" || rest.startsWith("`") || rest.startsWith(">");
+}
+
+/**
+ * The tags at the start of a line, and the rest, or null if the line does
+ * not begin with well-formed tags. For the scanner, which finds block
+ * openers before the parser reports errors.
+ * @param {string} s
+ * @returns {string|null}
+ */
+function afterPrefix(s) {
+  if (!s.startsWith("(")) return null;
+  try {
+    return parsePrefix(s, {}, 0, 0)[1];
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether a line is a property whose tags introduce a block string, as in
+ * "key: (tag) `".
+ * @param {string} line
+ */
+function isTaggedPropertyOpener(line) {
+  const colon = findKeyColonOutsideQuotes(line);
+  if (colon < 0 || !line.startsWith(" (", colon + 1)) return false;
+  return afterPrefix(line.slice(colon + 2)) === "`";
+}
+
+/**
+ * Whether what a property's prefix tagged is no block: nothing, or the empty
+ * list a property reads when the next line is a sibling item.
+ * @param {unknown} value
+ */
+function isMissingBlock(value) {
+  return (
+    value === undefined ||
+    value === null ||
+    (Array.isArray(value) && value.length === 0)
+  );
+}
+
+/**
+ * The error for a prefix that introduces no block.
+ * @param {ParseContext} ctx
+ * @param {number} lineNum
+ * @param {number} col
+ */
+function prefixWithoutBlock(ctx, lineNum, col) {
+  return new Error(
+    "A tag before a value needs a block below it; write the tag after an inline value" +
+      locSuffix(ctx, lineNum, col),
+  );
+}
+
+export { parseYay, tagged, isTagged, Tagged };

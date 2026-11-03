@@ -6,12 +6,14 @@ on:
     paths:
       - 'js/**'
       - 'test/**'
+      - 'doc/design/tagged-values-g/cases/**'
       - '.github/workflows/js.yml'
   pull_request:
     branches: [main]
     paths:
       - 'js/**'
       - 'test/**'
+      - 'doc/design/tagged-values-g/cases/**'
       - '.github/workflows/js.yml'
 
 permissions:
@@ -33,4 +35,4 @@ jobs:
           node-version: '20'
 
       - name: Run tests
-        run: node --test yay.test.js
+        run: node --test yay.test.js tagged.test.js

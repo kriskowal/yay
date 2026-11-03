@@ -43,6 +43,25 @@ Parses a YAY document string and returns the corresponding JavaScript value.
 
 **Throws:** `Error` with line:column location if parsing fails.
 
+### `tagged(tag, payload)`, `isTagged(value)`, `Tagged`
+
+A tagged value is a tag, any string, and one payload, any YAY value. The
+parser makes them with `tagged`, which returns a frozen `Tagged` instance
+with `tag` and `payload` properties, the name `yay -t js` writes. Two tagged
+values are equal (`assert.deepStrictEqual`) when their tags and payloads are,
+and a tagged value never equals its payload or a plain `{tag, payload}`
+object. `isTagged` tells them apart. A caller that wants Endo's passable
+wraps one with `makeTagged(t.tag, t.payload)`.
+
+```js
+import { parseYay, tagged } from 'libyay';
+
+parseYay('a: 10 (s)');
+// => { a: tagged("s", 10n) }
+parseYay('(rgb)\n- 255\n- 136\n- 0');
+// => tagged("rgb", [255n, 136n, 0n])
+```
+
 ## Type Mapping
 
 | YAY Type | JavaScript Type |
@@ -55,6 +74,7 @@ Parses a YAY document string and returns the corresponding JavaScript value.
 | array | `Array` |
 | object | `Object` |
 | bytes | `Uint8Array` |
+| tagged | `Tagged`, from `tagged(tag, payload)` |
 
 # YAY Format
 
@@ -868,13 +888,15 @@ YAY has strict whitespace rules that the parser enforces:
 ## Running Tests
 
 ```bash
-cd js
-node --test yay.test.js
+cd js/libyay
+npm test
 ```
 
 The test runner uses fixture files from `../test/`.
 Files with `.yay` extension contain YAY input.
 Files with `.js` extension contain expected JavaScript output.
+`tagged.test.js` reads the tagged-value cases of the design, in
+`../../doc/design/tagged-values-g/cases/`, until they join the shared corpus.
 
 ## References
 
