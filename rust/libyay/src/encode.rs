@@ -1224,7 +1224,8 @@ fn encode_yson(value: &Value, indent: usize) -> String {
         Value::Null => "null".to_string(),
         Value::Bool(true) => "true".to_string(),
         Value::Bool(false) => "false".to_string(),
-        Value::Integer(n) => format!("\"#{}\"", n), // BigInt prefix
+        Value::Integer(n) if n.sign() == num_bigint::Sign::Minus => format!("\"{}\"", n),
+        Value::Integer(n) => format!("\"+{}\"", n), // BigInt, as smallcaps writes it
         Value::Float(f) => {
             if f.is_nan() {
                 "\"#NaN\"".to_string()
@@ -1279,7 +1280,7 @@ fn encode_yson(value: &Value, indent: usize) -> String {
                     .map(|k| {
                         format!(
                             "{}: {}",
-                            encode_json_string(k),
+                            encode_yson_key(k),
                             encode_yson(&obj[*k], indent + 1)
                         )
                     })
@@ -1295,6 +1296,17 @@ fn encode_yson(value: &Value, indent: usize) -> String {
                 )
             }
         }
+    }
+}
+
+/// An object key: one that begins with `#`, `*` or `!` takes the `!`
+/// escape, so that no key reads as smallcaps' `#tag` or a special.
+fn encode_yson_key(k: &str) -> String {
+    if k.starts_with(['#', '*', '!']) {
+        let json = encode_json_string(k);
+        format!("\"!{}", &json[1..])
+    } else {
+        encode_json_string(k)
     }
 }
 
@@ -1352,7 +1364,7 @@ mod tests {
     #[test]
     fn test_encode_yson_bigint() {
         let value = Value::Integer(12345678901234567890u64.into());
-        assert_eq!(encode(&value, Format::Yson), "\"#12345678901234567890\"");
+        assert_eq!(encode(&value, Format::Yson), "\"+12345678901234567890\"");
     }
 
     #[test]

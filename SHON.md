@@ -281,9 +281,9 @@ $ yay -t yson [ --name hello --values [ 1 2 3 ] ]
 {
   "name": "hello",
   "values": [
-    "#1",
-    "#2",
-    "#3"
+    "+1",
+    "+2",
+    "+3"
   ]
 }
 ```

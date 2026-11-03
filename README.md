@@ -977,14 +977,20 @@ YSON fills the gap by encoding these types as prefixed strings:
 
 | YAY type   | YSON encoding             | Example              |
 |------------|---------------------------|----------------------|
-| integer    | `"#"` + digits            | `"#42"`, `"#-7"`     |
+| integer    | `"+"` or `"-"` + digits   | `"+42"`, `"-7"`      |
 | float ∞    | `"#Infinity"`             | `"#Infinity"`        |
 | float −∞   | `"#-Infinity"`            | `"#-Infinity"`       |
 | float NaN  | `"#NaN"`                  | `"#NaN"`             |
 | bytes      | `"*"` + hex               | `"*cafe"`, `"*"`     |
+| tagged     | `{"#tag": …, "payload": …}` | `{"#tag": "s", "payload": "+10"}` |
 
-Strings that naturally start with `#` or `*` are escaped with a `!` prefix:
-`"!#not an integer"`, `"!*not bytes"`.
+Strings that naturally start with a character from `!` to `/` (`#`, `*`,
+`+`, `-` and the rest) are escaped with a `!` prefix:
+`"!#not an integer"`, `"!*not bytes"`, `"!-dash"`. A tag is a string and
+takes the same escape.
+Object keys that start with `#`, `*` or `!` are escaped the same way, so the
+YAY object `{"#tag": 'x', payload: 1}` is `{"!#tag": "x", "payload": "+1"}`
+in YSON, never a tagged value.
 
 YSON is useful when you need to round-trip YAY data through JSON-only tooling
 (APIs, databases, message queues) without losing type information.

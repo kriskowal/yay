@@ -808,7 +808,7 @@ run_check_tests() {
   # -t without --check converts, as always
   local out
   out=$(printf '%s' "$yay" | "$YAY" -t yson 2>/dev/null)
-  if [[ $out == $'{\n  "a": "#1"\n}' ]]; then
+  if [[ $out == $'{\n  "a": "+1"\n}' ]]; then
     pass "check/convert-without-check"
   else
     fail "check/convert-without-check" "got: $out"

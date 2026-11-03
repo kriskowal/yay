@@ -192,3 +192,56 @@ fn test_tagged_writer_normal_form() {
         "(outer) (inner)\n- [null]\n- [null]\n- [null]\n- [null]\n- [null]\n- [null]"
     );
 }
+
+#[test]
+fn test_yson_tagged_round_trip() {
+    use libyay::parse_yson;
+    for path in &cases("yay") {
+        let value = parse(&fs::read_to_string(path).unwrap()).unwrap();
+        let yson = encode(&value, Format::Yson);
+        let back = parse_yson(&yson).unwrap();
+        assert_eq!(
+            desugar(back),
+            desugar(value),
+            "{}: {}",
+            path.display(),
+            yson
+        );
+    }
+    let tagged = |tag: &str, v: Value| Value::Tagged(tag.to_string(), Box::new(v));
+    assert_eq!(
+        encode(&tagged("s", Value::from(10i64)), Format::Yson),
+        "{\n  \"#tag\": \"s\",\n  \"payload\": \"+10\"\n}"
+    );
+    for tag in ["", "a)b", "!x", "#y", "+z"] {
+        let value = tagged(tag, Value::from(-7i64));
+        let yson = encode(&value, Format::Yson);
+        assert_eq!(parse_yson(&yson).unwrap(), value, "{}", yson);
+    }
+    assert!(encode(&tagged("!x", Value::Null), Format::Yson).contains("\"!!x\""));
+}
+
+#[test]
+fn test_yson_key_escape() {
+    use libyay::parse_yson;
+    let mut obj = HashMap::new();
+    for k in ["#tag", "#x", "*y", "!z", "payload", "-w"] {
+        obj.insert(k.to_string(), Value::from(1i64));
+    }
+    let value = Value::Object(obj);
+    let yson = encode(&value, Format::Yson);
+    for k in [
+        "\"!#tag\"",
+        "\"!#x\"",
+        "\"!*y\"",
+        "\"!!z\"",
+        "\"payload\"",
+        "\"-w\"",
+    ] {
+        assert!(yson.contains(k), "{} in {}", k, yson);
+    }
+    assert_eq!(parse_yson(&yson).unwrap(), value);
+    assert!(parse_yson("{\"#x\": 1}").is_err());
+    assert!(parse_yson("\"#42\"").is_err());
+    assert_eq!(parse_yson("\"-42\"").unwrap(), Value::from(-42i64));
+}
