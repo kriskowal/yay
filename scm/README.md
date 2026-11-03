@@ -36,6 +36,19 @@ Parses a YAY document string and returns the corresponding Scheme value.
 
 Converts a parsed YAY value to its Scheme string representation.
 
+### `(make-tagged tag payload)`
+
+A tagged value, `'X-1' (com.example/sku)` or a block below `key: (tag)`:
+a record `tagged` with the tag, a string, and the payload, any value, read
+with `tagged-tag` and `tagged-payload` and recognized by `tagged?`.
+`yay-equal?` holds for equal tags and payloads; a tagged value never
+equals its payload. YAY gives no tag a meaning.
+
+```scheme
+(parse-yay "count: 10 (s)\n")
+;; (("count" . #<tagged tag: "s" payload: 10>))
+```
+
 ## Type Mapping
 
 | YAY Type | Scheme Type | Notes |
@@ -48,6 +61,7 @@ Converts a parsed YAY value to its Scheme string representation.
 | array | vector | `#(...)` |
 | object | alist | `((key . value) ...)` |
 | bytes | tagged list | `(bytevector b1 b2 ...)` |
+| tagged | record `tagged` | `(make-tagged tag payload)` |
 
 # YAY Format
 

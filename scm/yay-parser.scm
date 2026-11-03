@@ -1,7 +1,7 @@
 ;;; YAY Parser for Scheme
 ;;; A standalone parser that works with Guile, Chez, Chicken, etc.
 
-(use-modules (ice-9 receive))
+(use-modules (ice-9 receive) (srfi srfi-9))
 
 ;; Error handling
 (define (yay-error msg)
@@ -125,6 +125,202 @@
            (< (logand cp #xFFFF) #xFFFE))))
 
 ;; Scanner: source -> list of (line indent leader linenum)
+;; Tagged values: a tag, a string, and a payload, any value
+(define-record-type tagged
+  (make-tagged tag payload)
+  tagged?
+  (tag tagged-tag)
+  (payload tagged-payload))
+
+(define prefix-without-block
+  "A tag before a value needs a block below it; write the tag after an inline value")
+
+;; The index past the tag at s[start], "(", or s's length if it does not close
+(define (skip-tag s start)
+  (let loop ((i (+ start 1)))
+    (cond
+     ((>= i (string-length s)) (string-length s))
+     ((char=? (string-ref s i) #\\) (loop (+ i 2)))
+     ((char=? (string-ref s i) #\)) (+ i 1))
+     (else (loop (+ i 1))))))
+
+;; Read a tag at s[start], "(", escaped as a double-quoted string is but with
+;; \) in the place of \". Returns the tag and the index past the ")".
+(define (read-tag s start)
+  (let ((len (string-length s)))
+    (let loop ((i (+ start 1)) (acc '()))
+      (when (>= i len)
+        (yay-error "Unterminated string"))
+      (let ((c (string-ref s i)))
+        (cond
+         ((char=? c #\))
+          (let* ((end (+ i 1))
+                 (after (if (< end len) (string-ref s end) #f)))
+            ;; After a tag: the end, an inline container going on, or one
+            ;; space before another tag, a block or a comment
+            (when (and after (not (memv after '(#\, #\] #\} #\space))))
+              (yay-error "Unexpected character after \")\""))
+            (when (and after (char=? after #\space)
+                       (< (+ end 1) len)
+                       (char=? (string-ref s (+ end 1)) #\space)
+                       (not (and (< (+ end 2) len)
+                                 (memv (string-ref s (+ end 2)) '(#\# #\()))))
+              (yay-error "Unexpected space after \")\""))
+            (values (list->string (reverse acc)) end)))
+         ((char=? c #\tab)
+          (yay-error "Tab not allowed (use spaces)"))
+         ((not (char=? c #\\))
+          (loop (+ i 1) (cons c acc)))
+         (else
+          (let ((e (if (< (+ i 1) len) (string-ref s (+ i 1)) #f)))
+            (case e
+              ((#\)) (loop (+ i 2) (cons #\) acc)))
+              ((#\\) (loop (+ i 2) (cons #\\ acc)))
+              ((#\/) (loop (+ i 2) (cons #\/ acc)))
+              ((#\b) (loop (+ i 2) (cons #\backspace acc)))
+              ((#\f) (loop (+ i 2) (cons #\page acc)))
+              ((#\n) (loop (+ i 2) (cons #\newline acc)))
+              ((#\r) (loop (+ i 2) (cons #\return acc)))
+              ((#\t) (loop (+ i 2) (cons #\tab acc)))
+              ((#\u)
+               (unless (and (< (+ i 2) len) (char=? (string-ref s (+ i 2)) #\{))
+                 (yay-error "Bad escaped character"))
+               (let hex ((j (+ i 3)) (cp 0) (digits 0))
+                 (cond
+                  ((>= j len) (yay-error "Bad Unicode escape"))
+                  ((char=? (string-ref s j) #\})
+                   (when (= digits 0) (yay-error "Bad Unicode escape"))
+                   (when (and (>= cp #xD800) (<= cp #xDFFF))
+                     (yay-error "Illegal surrogate"))
+                   (when (> cp #x10FFFF)
+                     (yay-error "Unicode code point out of range"))
+                   (loop (+ j 1) (cons (integer->char cp) acc)))
+                  (else
+                   (let ((d (char->digit (string-ref s j))))
+                     (when (or (not d) (= digits 6))
+                       (yay-error "Bad Unicode escape"))
+                     (hex (+ j 1) (+ (* cp 16) d) (+ digits 1)))))))
+              (else (yay-error "Bad escaped character"))))))))))
+
+(define (char->digit c)
+  (let ((d (string->number (string c) 16)))
+    (and d (exact? d) d)))
+
+;; The index of the first tag at s's top level, outside quotes and inline
+;; containers, or #f
+(define (find-top-level-tag s)
+  (let ((len (string-length s)))
+    (let loop ((i 0) (quote-char #f) (depth 0))
+      (if (>= i len)
+          #f
+          (let ((c (string-ref s i)))
+            (cond
+             (quote-char
+              (cond
+               ((char=? c #\\) (loop (+ i 2) quote-char depth))
+               ((char=? c quote-char) (loop (+ i 1) #f depth))
+               (else (loop (+ i 1) quote-char depth))))
+             ((or (char=? c #\") (char=? c #\')) (loop (+ i 1) c depth))
+             ((or (char=? c #\[) (char=? c #\{)) (loop (+ i 1) #f (+ depth 1)))
+             ((or (char=? c #\]) (char=? c #\})) (loop (+ i 1) #f (- depth 1)))
+             ((char=? c #\()
+              (if (= depth 0) i (loop (skip-tag s i) #f depth)))
+             (else (loop (+ i 1) #f depth))))))))
+
+;; Parse an inline value with tags after it, innermost first, one space
+;; before each; parse-atom reads the value before them
+(define (parse-tagged parse-atom s)
+  (let ((tag-at (find-top-level-tag s))
+        (len (string-length s)))
+    (cond
+     ((not tag-at) (parse-atom s))
+     ((= tag-at 0) (yay-error prefix-without-block))
+     ((not (char=? (string-ref s (- tag-at 1)) #\space))
+      (yay-error "Expected one space before a tag"))
+     ((and (> tag-at 1) (char=? (string-ref s (- tag-at 2)) #\space))
+      (yay-error "Unexpected space before \"(\""))
+     (else
+      (let loop ((value (parse-atom (substring s 0 (- tag-at 1))))
+                 (i (- tag-at 1)))
+        (cond
+         ((= i len) value)
+         ((and (< (+ i 1) len)
+               (char=? (string-ref s i) #\space)
+               (char=? (string-ref s (+ i 1)) #\())
+          (receive (tag end) (read-tag s (+ i 1))
+            (loop (make-tagged tag value) end)))
+         (else
+          (yay-error (string-append "Unexpected character \""
+                                    (string (string-ref s i)) "\"")))))))))
+
+;; Read the tags before a block, outermost first, at the start of s. Returns
+;; the tags and what follows them; a comment after them is nothing.
+(define (parse-prefix s)
+  (let loop ((i 0) (tags '()))
+    (if (and (< i (string-length s)) (char=? (string-ref s i) #\())
+        (receive (tag end) (read-tag s i)
+          (loop (if (and (< end (string-length s))
+                         (char=? (string-ref s end) #\space))
+                    (+ end 1)
+                    end)
+                (cons tag tags)))
+        (let ((rest (substring s i (string-length s))))
+          (values (reverse tags)
+                  (if (string-starts-with? (string-trim rest) "#") "" rest))))))
+
+;; Wrap a block in a prefix's tags, outermost first
+(define (wrap-prefix value tags)
+  (if (null? tags)
+      value
+      (make-tagged (car tags) (wrap-prefix value (cdr tags)))))
+
+;; Past the tags, each "(...)" and one space, at the start of content
+(define (skip-prefix-tags content)
+  (let loop ((i 0))
+    (if (and (< i (string-length content)) (char=? (string-ref content i) #\())
+        (let ((end (skip-tag content i)))
+          (loop (if (and (< end (string-length content))
+                         (char=? (string-ref content end) #\space))
+                    (+ end 1)
+                    end)))
+        (substring content i (string-length content)))))
+
+;; Whether a line's content is a property whose tags precede a block string
+;; leader: "key: (tag) `"
+(define (tagged-property-opener? content)
+  (let ((at (string-contains-at content ": (")))
+    (and at
+         (string-ends-with? content "`")
+         (not (string-index (substring content 0 at) #\"))
+         (not (string-index (substring content 0 at) #\'))
+         (string=? (skip-prefix-tags (substring content (+ at 2) (string-length content)))
+                   "`"))))
+
+(define (string-contains-at s sub)
+  (let ((n (string-length sub)))
+    (let loop ((i 0))
+      (cond
+       ((> (+ i n) (string-length s)) #f)
+       ((string=? (substring s i (+ i n)) sub) i)
+       (else (loop (+ i 1)))))))
+
+;; A tag-aware colon finder: the first colon outside quotes and tags, or #f
+(define (find-key-colon s)
+  (let loop ((i 0) (quote-char #f))
+    (if (>= i (string-length s))
+        #f
+        (let ((c (string-ref s i)))
+          (cond
+           (quote-char
+            (cond
+             ((char=? c #\\) (loop (+ i 2) quote-char))
+             ((char=? c quote-char) (loop (+ i 1) #f))
+             (else (loop (+ i 1) quote-char))))
+           ((or (char=? c #\") (char=? c #\')) (loop (+ i 1) c))
+           ((char=? c #\() (loop (skip-tag s i) #f))
+           ((char=? c #\:) i)
+           (else (loop (+ i 1) #f)))))))
+
 (define (scan source)
   ;; Check for BOM
   (when (and (> (string-length source) 0)
@@ -219,8 +415,11 @@
                                       linenum) 
                                 acc)
                           (cond
-                           ((bare-block-opener? content) indent)
-                           ((string-ends-with? content ": `")
+                           ((or (bare-block-opener? content)
+                                (bare-block-opener? (skip-prefix-tags content)))
+                            indent)
+                           ((or (string-ends-with? content ": `")
+                                (tagged-property-opener? content))
                             (+ indent (- (string-length rest) (string-length content))))
                            (else -1))))))))))))
 
@@ -519,6 +718,8 @@
         (let ((ch (string-ref s i)))
           (cond
            ;; Track string state
+           ((and (not in-string) (char=? ch #\())
+            (loop (+ i 1) #t #\)))
            ((and (not in-string) (or (char=? ch #\") (char=? ch #\')))
             (loop (+ i 1) #t ch))
            ((and in-string (char=? ch string-char) 
@@ -579,7 +780,7 @@
              ;; Start of nested array
              ((char=? ch #\[)
               (receive (nested end-i) (parse-nested-inline-array s i)
-                (loop end-i (cons nested items) "")))
+                (loop end-i items (string-append current (substring s i end-i)))))
              ;; Start of string
              ((or (char=? ch #\") (char=? ch #\'))
               (receive (str end-i) (parse-inline-string s i ch)
@@ -587,7 +788,11 @@
              ;; Start of bytes
              ((char=? ch #\<)
               (receive (bytes end-i) (parse-inline-bytes s i)
-                (loop end-i (cons bytes items) "")))
+                (loop end-i items (string-append current (substring s i end-i)))))
+             ;; A tag, read with the value before it
+             ((char=? ch #\()
+              (let ((end-i (skip-tag s i)))
+                (loop end-i items (string-append current (substring s i end-i)))))
              ;; Regular character
              (else
               (loop (+ i 1) items (string-append current (string ch))))))))))
@@ -605,6 +810,9 @@
             (if (= depth 1)
                 (values (parse-inline-array (string-append content "]")) (+ i 1))
                 (loop (+ i 1) (- depth 1) (string-append content (string ch)))))
+           ((char=? ch #\()
+            (let ((end-i (skip-tag s i)))
+              (loop end-i depth (string-append content (substring s i end-i)))))
            ((or (char=? ch #\") (char=? ch #\'))
             (receive (str end-i) (parse-inline-string s i ch)
               (loop end-i depth (string-append content str))))
@@ -694,11 +902,15 @@
              ;; Start of nested object
              ((char=? ch #\{)
               (receive (nested end-i) (parse-nested-inline-object s i)
-                (loop end-i pairs current-key nested)))
+                (loop end-i pairs current-key (string-append current (substring s i end-i)))))
              ;; Start of nested array
              ((char=? ch #\[)
               (receive (nested end-i) (parse-nested-inline-array s i)
-                (loop end-i pairs current-key nested)))
+                (loop end-i pairs current-key (string-append current (substring s i end-i)))))
+             ;; A tag, read with the value before it
+             ((char=? ch #\()
+              (let ((end-i (skip-tag s i)))
+                (loop end-i pairs current-key (string-append current (substring s i end-i)))))
              ;; Start of string
              ((or (char=? ch #\") (char=? ch #\'))
               (receive (str end-i) (parse-inline-string s i ch)
@@ -720,6 +932,9 @@
             (if (= depth 1)
                 (values (parse-inline-object (string-append content "}")) (+ i 1))
                 (loop (+ i 1) (- depth 1) (string-append content (string ch)))))
+           ((char=? ch #\()
+            (let ((end-i (skip-tag s i)))
+              (loop end-i depth (string-append content (substring s i end-i)))))
            ((or (char=? ch #\") (char=? ch #\'))
             (receive (str end-i) (parse-inline-string s i ch)
               (loop end-i depth (string-append content str))))
@@ -728,6 +943,9 @@
 
 ;; Parse inline value (for array elements)
 (define (parse-inline-value s)
+  (parse-tagged parse-inline-atom (string-trim s)))
+
+(define (parse-inline-atom s)
   (let ((s (string-trim s)))
     (cond
      ((string=? s "") 'null)
@@ -808,6 +1026,8 @@
           (cond
            (escaped (loop (+ i 1) in-double in-single #f))
            ((and in-double (char=? c #\\)) (loop (+ i 1) in-double in-single #t))
+           ((and (char=? c #\() (not in-double) (not in-single))
+            (loop (skip-tag s i) in-double in-single #f))
            ((and (char=? c #\") (not in-single)) (loop (+ i 1) (not in-double) in-single #f))
            ((and (char=? c #\') (not in-double)) (loop (+ i 1) in-double (not in-single) #f))
            ((and (char=? c #\:) (not in-double) (not in-single)) i)
@@ -833,7 +1053,17 @@
                                        (char=? (string-ref value-slice 0) #\space))
                                   (substring value-slice 1 (string-length value-slice))
                                   value-slice)))
-              (list key value-part)))))))
+              (receive (tags rest)
+                  (if (string-starts-with? value-part "(")
+                      (parse-prefix value-part)
+                      (values '() value-part))
+                (when (and (pair? tags)
+                           (not (string=? rest ""))
+                           (not (string=? rest "`"))
+                           (not (and (string-starts-with? rest ">")
+                                     (not (string-contains? rest "<")))))
+                  (yay-error prefix-without-block))
+                (list key rest tags))))))))
 
 ;; Parse scalar value
 ;; The text before an inline comment, " #" outside quotes, without the
@@ -850,6 +1080,8 @@
              ((char=? c quote-char) (loop (+ i 1) #f))
              (else (loop (+ i 1) quote-char))))
            ((or (char=? c #\") (char=? c #\')) (loop (+ i 1) c))
+           ;; A tag's text is not a comment
+           ((char=? c #\() (loop (skip-tag s i) #f))
            ((and (char=? c #\#) (> i 0) (char=? (string-ref s (- i 1)) #\space))
             (let trim ((j (- i 1)))
               (if (and (> j 0) (char=? (string-ref s (- j 1)) #\space))
@@ -859,7 +1091,7 @@
 
 ;; Parse a scalar value and any inline comment after it
 (define (parse-scalar s)
-  (parse-scalar-atom (strip-inline-comment s)))
+  (parse-tagged parse-scalar-atom (strip-inline-comment s)))
 
 (define (parse-scalar-atom s)
   (cond
@@ -1002,6 +1234,12 @@
                      ((and next (eq? (token-type next) 'text))
                       (let* ((text (token-text next))
                              (text-indent (token-indent next)))
+                        (if (string-starts-with? text "(")
+                            ;; A tagged block: below the item, or a block
+                            ;; string or block bytes on its line
+                            (let ((value (parse-tagged-item p next list-indent)))
+                              (skip-stops-and-breaks! p)
+                              (loop (cons value items)))
                         (if (and (find-colon-outside-quotes text)
                                  (not (string-starts-with? text "{")))
                             ;; It's a key:value - parse as object block
@@ -1024,7 +1262,7 @@
                                                    (eq? (token-type t) 'break)))
                                     (parser-advance! p)
                                     (skip-stops-and-breaks))))
-                              (loop (cons value items))))))
+                              (loop (cons value items)))))))
                      (else
                       ;; Skip stops and breaks and continue
                       (let skip-stops-and-breaks ()
@@ -1260,6 +1498,19 @@
               ;; Dollar sign error
               ((string=? s "$")
                (yay-error "Unexpected character \"$\""))
+              ;; A tagged inline value: tags after it, and no property's
+              ;; colon before them
+              ((let ((tag-at (find-top-level-tag s)))
+                 (and tag-at
+                      (> tag-at 0)
+                      (not (string-starts-with? s "`"))
+                      (not (string-starts-with? s ">"))
+                      (or (string-starts-with? s "[")
+                          (string-starts-with? s "{")
+                          (let ((colon (find-key-colon s)))
+                            (or (not colon) (> colon tag-at))))))
+               (parser-advance! p)
+               (parse-scalar s))
               ;; Keywords
               ((string=? s "null")
                (parser-advance! p)
@@ -1322,6 +1573,7 @@
                  (if kv
                      (let ((key (car kv))
                            (value-part (cadr kv)))
+                       (wrap-property (caddr kv)
                        (cond
                         ;; Empty value - nested object or array
                         ((string=? value-part "")
@@ -1363,7 +1615,7 @@
                          (if (string-contains? value-part ">")
                              (begin
                                (parser-advance! p)
-                               (list (cons key (parse-angle-bytes value-part))))
+                               (list (cons key (parse-tagged parse-angle-bytes value-part))))
                              (yay-error "Unmatched angle bracket")))
                         ;; Block string as property (backtick)
                         ((or (string=? value-part "`")
@@ -1384,7 +1636,7 @@
                         ;; Regular value
                         (else
                          (parser-advance! p)
-                         (list (cons key (parse-scalar value-part))))))
+                         (list (cons key (parse-scalar value-part)))))))
                      (begin
                        (parser-advance! p)
                        (parse-scalar s)))))
@@ -1441,10 +1693,18 @@
 ;; enclosing object when the list sits at its key's indent
 ;; ("items:\n- a: 1\nnext: 1").
 (define (parse-object-block-in-array p first-indent array-indent)
+  ;; The tags before the last property's block, to wrap its value in
+  (define pending '())
   (let ((sibling-indent (+ array-indent 2))
         (item-line (token-linenum (parser-peek p))))
-    (let loop ((pairs '()))
-      (let ((t (parser-peek p)))
+    (let loop ((pairs0 '()))
+      (let ((pairs (if (null? pending)
+                       pairs0
+                       (let ((tags pending))
+                         (set! pending '())
+                         (cons (cons (caar pairs0) (wrap-prefix (cdar pairs0) tags))
+                               (cdr pairs0)))))
+            (t (parser-peek p)))
         (cond
          ((not t)
           (reverse pairs))
@@ -1469,6 +1729,7 @@
             (if kv
                 (let ((key (car kv))
                       (value-part (cadr kv)))
+                  (set! pending (caddr kv))
                   (cond
                    ;; Empty value - nested
                    ((string=? value-part "")
@@ -1496,7 +1757,7 @@
                     (if (string-contains? value-part ">")
                         (begin
                           (parser-advance! p)
-                          (loop (cons (cons key (parse-angle-bytes value-part)) pairs)))
+                          (loop (cons (cons key (parse-tagged parse-angle-bytes value-part)) pairs)))
                         (yay-error "Unmatched angle bracket")))
                    ;; Block string (backtick). The block ends at the key's
                    ;; column, which for "- key: `" is past the list leader.
@@ -1526,8 +1787,16 @@
 
 ;; Parse object block
 (define (parse-object-block p base-indent)
-  (let loop ((pairs '()))
-    (let ((t (parser-peek p)))
+  ;; The tags before the last property's block, to wrap its value in
+  (define pending '())
+  (let loop ((pairs0 '()))
+    (let ((pairs (if (null? pending)
+                     pairs0
+                     (let ((tags pending))
+                       (set! pending '())
+                       (cons (cons (caar pairs0) (wrap-prefix (cdar pairs0) tags))
+                             (cdr pairs0)))))
+          (t (parser-peek p)))
       (cond
        ((not t)
         (reverse pairs))
@@ -1551,6 +1820,7 @@
           (if kv
               (let ((key (car kv))
                     (value-part (cadr kv)))
+                (set! pending (caddr kv))
                 (cond
                  ;; Empty value - nested
                  ((string=? value-part "")
@@ -1614,7 +1884,7 @@
                   (if (string-contains? value-part ">")
                       (begin
                         (parser-advance! p)
-                        (loop (cons (cons key (parse-angle-bytes value-part)) pairs)))
+                        (loop (cons (cons key (parse-tagged parse-angle-bytes value-part)) pairs)))
                       (yay-error "Unmatched angle bracket")))
                  ;; Block string (backtick)
                  ((or (string=? value-part "`")
@@ -1647,14 +1917,90 @@
         (parser-advance! p)
         (loop pairs))))))
 
+;; Wrap a property's value, (list (cons key value)), in its prefix's tags
+(define (wrap-property tags result)
+  (if (null? tags)
+      result
+      (list (cons (caar result) (wrap-prefix (cdar result) tags)))))
+
+(define (skip-stops-and-breaks! p)
+  (let ((t (parser-peek p)))
+    (when (and t (or (eq? (token-type t) 'stop) (eq? (token-type t) 'break)))
+      (parser-advance! p)
+      (skip-stops-and-breaks! p))))
+
+;; A list item that begins with tags: a block below the item, or a block
+;; string or block bytes on the item's line
+(define (parse-tagged-item p next list-indent)
+  (receive (tags rest) (parse-prefix (token-text next))
+    (cond
+     ((bare-block-opener? rest)
+      (let ((first-line (if (> (string-length rest) 2)
+                            (substring rest 2 (string-length rest))
+                            "")))
+        (wrap-prefix (parse-block-string-with-indent p first-line (token-indent next))
+                     tags)))
+     ((and (string-starts-with? rest ">") (not (string-contains? rest "<")))
+      (wrap-prefix (parse-block-bytes p rest) tags))
+     ((string=? rest "")
+      (parser-advance! p)
+      (skip-stops-and-breaks! p)
+      (let ((below (parser-peek p)))
+        (cond
+         ((or (not below) (<= (token-indent below) list-indent))
+          (yay-error prefix-without-block))
+         ((and (eq? (token-type below) 'start) (string=? (token-text below) "-"))
+          (wrap-prefix (parse-list-array-impl p (token-indent below)) tags))
+         ((and (eq? (token-type below) 'text) (find-key-colon (token-text below)))
+          (wrap-prefix (parse-object-block p (token-indent below)) tags))
+         ((and (eq? (token-type below) 'text)
+               (or (string-starts-with? (token-text below) "\"")
+                   (string-starts-with? (token-text below) "'")))
+          (let ((result (parse-concatenated-strings p (token-indent below))))
+            (if result
+                (wrap-prefix result tags)
+                (yay-error prefix-without-block))))
+         (else (yay-error prefix-without-block)))))
+     (else (yay-error prefix-without-block)))))
+
+;; A tagged root block: the tags alone on the first line, the block below at
+;; column 0
+(define (parse-tagged-root p t)
+  (receive (tags rest) (parse-prefix (token-text t))
+    (unless (string=? rest "")
+      (yay-error prefix-without-block))
+    (parser-advance! p)
+    (skip-stops-and-breaks! p)
+    (let* ((below (parser-peek p))
+           (value
+            (cond
+             ((or (not below) (not (= (token-indent below) 0)))
+              (yay-error prefix-without-block))
+             ((and (eq? (token-type below) 'start) (string=? (token-text below) "-"))
+              (parse-list-array p))
+             ((and (eq? (token-type below) 'text)
+                   (not (string-starts-with? (token-text below) "{"))
+                   (find-key-colon (token-text below)))
+              (parse-object-block p 0))
+             (else (yay-error prefix-without-block)))))
+      (parser-skip-breaks! p)
+      (skip-stops-and-breaks! p)
+      (when (parser-peek p)
+        (yay-error "Unexpected extra content"))
+      (wrap-prefix value tags))))
+
 ;; Parse root
 (define (parse-root p)
   (parser-skip-breaks! p)
   (let ((t (parser-peek p)))
     (if (not t)
         (yay-error "No value found in document")
+        (if (and (eq? (token-type t) 'text)
+                 (string-starts-with? (token-text t) "("))
+            (parse-tagged-root p t)
         (let* ((is-root-object (and (eq? (token-type t) 'text)
-                                    (string-index (token-text t) #\:)
+                                    (find-key-colon (token-text t))
+                                    (not (string-starts-with? (token-text t) "("))
                                     (= (token-indent t) 0)
                                     ;; Don't treat inline objects as root objects
                                     (not (string-starts-with? (token-text t) "{"))))
@@ -1669,7 +2015,7 @@
             (let ((remaining (parser-peek p)))
               (when remaining
                 (yay-error "Unexpected extra content"))))
-          result))))
+          result)))))
 
 ;; Main entry point
 (define (parse-yay source)
@@ -1704,6 +2050,9 @@
    ((string? value) (format-scheme-string value))
    ((bytevector? value)
     (format-bytevector (bytevector-bytes value)))
+   ((tagged? value)
+    (string-append "(make-tagged " (format-scheme-string (tagged-tag value))
+                   " " (yay->scheme-string (tagged-payload value)) ")"))
    ((vector? value)
     ;; Regular array
     (string-append "#("
@@ -1798,6 +2147,10 @@
    ;; Both vectors (arrays) - order matters
    ((and (vector? a) (vector? b))
     (vector-equal? a b))
+   ;; Both tagged: equal tags and payloads; never equal to a payload
+   ((and (tagged? a) (tagged? b))
+    (and (string=? (tagged-tag a) (tagged-tag b))
+         (yay-equal? (tagged-payload a) (tagged-payload b))))
    ;; Both alists (objects) - order does NOT matter
    ((and (alist? a) (alist? b))
     (alist-equal? a b))
