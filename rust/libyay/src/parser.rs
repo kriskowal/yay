@@ -3043,7 +3043,7 @@ fn parse_suffix(
         }
         if spaces != 1 {
             let err = if spaces == 0 {
-                ParseError::ExpectedSpaceAfter("value".to_string(), String::new())
+                ParseError::Generic("Expected one space before a tag".to_string())
             } else {
                 ParseError::UnexpectedSpaceBefore("(".to_string(), String::new())
             };
