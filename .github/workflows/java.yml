@@ -6,12 +6,14 @@ on:
     paths:
       - 'java/**'
       - 'test/**'
+      - 'doc/design/tagged-values-g/cases/**'
       - '.github/workflows/java.yml'
   pull_request:
     branches: [main]
     paths:
       - 'java/**'
       - 'test/**'
+      - 'doc/design/tagged-values-g/cases/**'
       - '.github/workflows/java.yml'
 
 permissions:
