@@ -1,0 +1,1 @@
+{"a": {"#tag": "com.example.sku", "payload": 1}, "b": {"#tag": "match:any", "payload": 2}, "c": {"#tag": "image/png", "payload": 3}, "d": {"#tag": "my tag", "payload": 4}, "e": {"#tag": "a#b", "payload": 5}, "f": {"#tag": "a  # b", "payload": 6}, "g": {"#tag": "back\\slash", "payload": 7}, "h": {"#tag": "it's", "payload": 8}, "i": {"#tag": "a(b", "payload": 9}}

@@ -1,0 +1,1 @@
+{"a": {"#tag": "t", "payload": true}, "b": {"#tag": "null", "payload": null}, "c": {"#tag": "ms", "payload": "NaN"}, "d": {"#tag": "x", "payload": -Infinity}}

@@ -1,0 +1,7 @@
+color: (rgb)
+  - 255
+  - 136
+  - 0
+items:
+- (match:splitRecord)
+  name: 'x'

@@ -1,0 +1,9 @@
+a: 'x'date
+b: "y"t
+c: <ff>rgb
+d: [255, 136, 0]rgb
+e: {x: 1}point
+f: 1.5ms
+g: -3h
+h: 1e3us
+i: 10 000ms
