@@ -15,7 +15,7 @@ value do not cascade changes into the next or prior line.
 YAY has fewer surprising misfeatures than YAML.
 
 The root document may be any of the value types (null, big integer, float,
-boolean, string, array, object, bytes, or tagged).
+boolean, string, array, object, bytes, tagged, or reference).
 The root may use the multi-line form for values that support it: string,
 object, array and byte array.
 
@@ -944,6 +944,27 @@ MEH accepts any number of spaces, or none, so `yay -f meh -t yay`
 normalizes `'X-1'(sku)` to `'X-1' (sku)`.
 See [GRAMMAR.md](GRAMMAR.md#tagged-values) for the details.
 
+## URI References
+
+A reference is a URI or IRI in angle brackets, with its scheme: a name for
+something elsewhere, which no YAY reader fetches or resolves.
+After `<`, a scheme and a colon make a reference; anything else is bytes.
+The text between the brackets is the URI as written: nothing is escaped, a
+`#` inside is not a comment, and `>` always closes it.
+A reference is never equal to a string with the same text, and takes tags
+as any inline value does.
+
+```yay
+icon: <https://example.com/cat.png>
+peer: <ocapn://a2ef69ddd5f8.tcp-testing-only?host=127.0.0.1&port=22046>
+spec: <urn:ietf:rfc:3986>
+seed: <ff8800>
+thumb: <https://example.com/cat.png> (image/png)
+```
+
+The scheme is lowercase; MEH lowercases it.
+See [GRAMMAR.md](GRAMMAR.md#references) for the details.
+
 # Encoding And Text
 
 ## UTF-8
@@ -983,6 +1004,7 @@ YSON fills the gap by encoding these types as prefixed strings:
 | float NaN  | `"#NaN"`                  | `"#NaN"`             |
 | bytes      | `"*"` + hex               | `"*cafe"`, `"*"`     |
 | tagged     | `{"#tag": …, "payload": …}` | `{"#tag": "s", "payload": "+10"}` |
+| reference  | `"$"` + URI               | `"$https://example.com/"` |
 
 Strings that naturally start with a character from `!` to `/` (`#`, `*`,
 `+`, `-` and the rest) are escaped with a `!` prefix:

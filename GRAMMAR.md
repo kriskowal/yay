@@ -117,13 +117,14 @@ value⟨n⟩ = null
          | concatenated-string⟨n⟩
          | inline-bytes
          | block-bytes⟨n⟩
+         | inline-reference
          | inline-array
          | inline-object
          | block-array⟨n⟩ ;
 ```
 
 Each single-line alternative (the scalars, `inline-string`, `inline-bytes`,
-`inline-array` and `inline-object`) may be followed by a `suffix` of tags,
+`inline-reference`, `inline-array` and `inline-object`) may be followed by a `suffix` of tags,
 before any inline comment (see [Tagged Values](#tagged-values)).
 
 Note: block objects do not appear here because they are only valid as
@@ -386,6 +387,46 @@ comment        = "#" { char - LF } ;
 
 Spaces within hex content are for readability and are ignored.
 
+## References
+
+A reference is a URI or IRI in angle brackets: a name for something
+elsewhere, held as written and never dereferenced by a reader.
+
+```
+inline-reference = "<" scheme ":" { uri-char } ">" ;
+
+scheme           = "a".."z" { "a".."z" | digit | "+" | "-" | "." } ;
+
+uri-char         = unreserved | gen-delim | sub-delim | pct-encoded
+                 | ucschar ;
+
+unreserved       = "A".."Z" | "a".."z" | digit | "-" | "." | "_" | "~" ;
+
+gen-delim        = ":" | "/" | "?" | "#" | "[" | "]" | "@" ;
+
+sub-delim        = "!" | "$" | "&" | "'" | "(" | ")"
+                 | "*" | "+" | "," | ";" | "=" ;
+
+pct-encoded      = "%" hex hex ;   /* either case */
+
+ucschar          = /* U+00A0 and above, not a control, space or
+                      separator, nor U+FFFE or U+FFFF (RFC 3987) */ ;
+```
+
+- After `<`, a letter, then letters, digits, `+`, `-` or `.`, then `:`
+  make a reference; `<>` and anything else is an inline byte array. So
+  `<ff8800>` is bytes, `<urn:x>` a reference, and `<./a.yay>` and `<#f>`
+  are refused, since a reference needs a scheme.
+- The scheme is lowercase: `<HTTPS://x>` is refused (MEH lowercases it).
+- Nothing is escaped. A URI cannot hold a space, `<`, `>`, `"`, `{`, `}`,
+  `|`, `\`, `^` or a backtick, so `>` always closes a reference and the
+  text between the brackets is the URI, verbatim. Non-ASCII characters
+  are written as they are; percent-encodings are kept as written.
+- The brackets shield their text: `#` does not begin a comment inside
+  them, and `,`, `]`, `}`, `(`, `)` and `'` are not syntax there.
+- No space after `<`, before `>` or inside; closed on the same line.
+- No block form, and never a key.
+
 ## Arrays
 
 ### Inline Arrays
@@ -552,6 +593,7 @@ inline-atom  = null
              | double-quoted
              | single-quoted
              | inline-bytes
+             | inline-reference
              | inline-array
              | inline-object ;
 
@@ -660,7 +702,8 @@ Comments may appear:
 - After hex content in block byte lines
 - After `>` on a block bytes leader line (in property context)
 
-Comments are never recognized inside block strings.
+Comments are never recognized inside block strings, nor inside a
+reference's angle brackets.
 
 ## Whitespace Summary
 
@@ -682,7 +725,7 @@ Comments are never recognized inside block strings.
 
 ## Data Model
 
-YAY defines nine value types:
+YAY defines ten value types:
 
 | Type | Description |
 |------|-------------|
@@ -695,6 +738,12 @@ YAY defines nine value types:
 | Array | Ordered sequence of values |
 | Object | Unordered map from string keys to values |
 | Tagged | A tag (a string) and one payload (any value) |
+| Reference | A URI or IRI, held as written; designates, never dereferenced |
+
+A reference is never equal to a string, nor to bytes: two references are
+equal when their text is, code point for code point, with no URI
+normalization. Where a port orders values, references come after tagged
+values, by text.
 
 Object keys are always strings.
 Object key order is not significant; implementations may enumerate keys in
