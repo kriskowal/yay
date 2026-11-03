@@ -1,9 +1,10 @@
 //! Tagged values, against the cases of the design
 //! (doc/design/tagged-values-g/cases/): each .yay parses to its .json, with
 //! a tagged value as {"#tag": tag, "payload": payload} and bytes as "*hex",
-//! and each .nay is refused. The .meh cases wait for the MEH formatter.
+//! and each .nay is refused; the MEH formatter normalizes each .yay and
+//! .meh case to YAY that reads as the same value.
 
-use libyay::{encode, parse, parse_json, Format, Value};
+use libyay::{encode, format_yay, parse, parse_json, Format, Value};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
@@ -47,6 +48,62 @@ fn desugar(value: Value) -> Value {
             Value::String(if f > 0.0 { "Infinity" } else { "-Infinity" }.to_string())
         }
         other => other,
+    }
+}
+
+fn expected(path: &std::path::Path) -> Value {
+    let json = fs::read_to_string(path.with_extension("json")).unwrap();
+    let json = json.replace("-Infinity", "\"-Infinity\"");
+    desugar(parse_json(&json).unwrap())
+}
+
+#[test]
+fn test_tagged_cases_through_meh() {
+    let mut failures = Vec::new();
+    let mut paths = cases("yay");
+    paths.extend(cases("meh"));
+    for path in &paths {
+        let src = fs::read_to_string(path).unwrap();
+        let formatted = match format_yay(&src) {
+            Ok(f) => f,
+            Err(e) => {
+                failures.push(format!("{}: MEH refused: {}", path.display(), e));
+                continue;
+            }
+        };
+        match parse(&formatted) {
+            Ok(v) if desugar(v.clone()) == expected(path) => {}
+            other => failures.push(format!(
+                "{}: formatted\n{}\nread {:?}",
+                path.display(),
+                formatted,
+                other
+            )),
+        }
+        if format_yay(&formatted).as_deref() != Ok(formatted.as_str()) {
+            failures.push(format!("{}: formatting twice moves it", path.display()));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn test_meh_normalizes_tag_spacing() {
+    let cases = [
+        ("a: 'x'(t)\n", "a: 'x' (t)\n"),
+        ("a: 1  (a)(b)\n", "a: 1 (a) (b)\n"),
+        ("a: [1(x), 2]\n", "a: [1 (x), 2]\n"),
+        ("a: 1 (a\\)b)\n", "a: 1 (a\\)b)\n"),
+        ("a: 1 (\\u{41}\\/)\n", "a: 1 (A/)\n"),
+        ("- (a)  (b)\n  - 1\n", "- (a) (b)\n  - 1\n"),
+        ("a:  (t)\n  b: 1\n", "a: (t)\n  b: 1\n"),
+        ("(p)\nx: 1\n", "(p)\nx: 1\n"),
+    ];
+    for (meh, yay) in cases {
+        assert_eq!(format_yay(meh).unwrap(), yay, "from {:?}", meh);
+    }
+    for refused in ["(t)\n", "a: (t)\nb: 1\n", "a: (t) 1\n", "- a: (t)\n- 1\n"] {
+        assert!(format_yay(refused).is_err(), "{:?} formatted", refused);
     }
 }
 

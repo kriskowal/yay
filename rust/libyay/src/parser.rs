@@ -2885,7 +2885,7 @@ mod hex {
 /// byte for byte, so that the scanners for quotes, brackets, colons and
 /// comments see no punctuation a tag holds. Also returns the offset of the
 /// first `(` outside quotes, brackets and braces.
-fn mask_tags(s: &str) -> (String, Option<usize>) {
+pub(crate) fn mask_tags(s: &str) -> (String, Option<usize>) {
     let bytes = s.as_bytes();
     let mut out = bytes.to_vec();
     let mut first = None;
@@ -3015,6 +3015,13 @@ fn parse_tag(s: &str, ctx: &ParseContext, line_num: usize, col: usize) -> Result
         }
     }
     Err(ParseError::UnterminatedString(String::new()).with_location(ctx, line_num, col))
+}
+
+/// Parse one tag at the start of `s`, for the MEH formatter, which reports
+/// errors as text.
+pub(crate) fn parse_tag_text(s: &str) -> std::result::Result<(String, usize), String> {
+    let ctx = ParseContext::new(None);
+    parse_tag(s, &ctx, 0, 0).map_err(|e| e.to_string())
 }
 
 /// Parse a run of tags after a value: each one space, then a tag. Returns the

@@ -244,7 +244,7 @@ fn collect_tags(value: &Value) -> (Vec<&str>, &Value) {
 
 /// A tag in parentheses: its characters as they are, but `)` and `\`
 /// escaped, and control characters as the double-quoted writer escapes them.
-fn encode_yay_tag(tag: &str) -> String {
+pub(crate) fn encode_yay_tag(tag: &str) -> String {
     let quoted = encode_yay_string(tag);
     let inner = &quoted[1..quoted.len() - 1];
     format!("({})", inner.replace("\\\"", "\"").replace(')', "\\)"))
