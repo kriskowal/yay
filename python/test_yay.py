@@ -20,11 +20,21 @@ def parse_py_value(py_content: str):
     """
     Evaluate an expected-value fixture from test/py/.
 
-    The fixtures are Python literals, plus calls to bytes.fromhex("...") and
-    float("inf"), float("-inf") or float("nan"). Nothing else is evaluated.
+    The fixtures are Python literals, plus calls to bytes.fromhex("..."),
+    float("inf"), float("-inf") or float("nan"), and Tagged("tag", payload).
+    Nothing else is evaluated.
     """
 
     def evaluate(node):
+        if (
+            isinstance(node, ast.Call)
+            and ast.unparse(node.func) == "Tagged"
+            and len(node.args) == 2
+            and not node.keywords
+        ):
+            tag = ast.literal_eval(node.args[0])
+            if isinstance(tag, str):
+                return yay.Tagged(tag, evaluate(node.args[1]))
         if isinstance(node, ast.Call) and len(node.args) == 1 and not node.keywords:
             func = ast.unparse(node.func)
             arg = ast.literal_eval(node.args[0])
@@ -65,6 +75,9 @@ def values_equal(a, b) -> bool:
         if set(a.keys()) != set(b.keys()):
             return False
         return all(values_equal(a[k], b[k]) for k in a)
+
+    if isinstance(a, yay.Tagged):
+        return a.tag == b.tag and values_equal(a.payload, b.payload)
 
     if isinstance(a, list):
         if len(a) != len(b):

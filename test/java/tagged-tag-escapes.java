@@ -1,0 +1,1 @@
+Map.of("a", new Tagged("a)b", BigInteger.valueOf(1)), "b", new Tagged("back\\slash", BigInteger.valueOf(2)), "c", new Tagged("tab\there", BigInteger.valueOf(3)), "d", new Tagged("😀", BigInteger.valueOf(4)), "e", new Tagged("a/b", BigInteger.valueOf(5)), "f", new Tagged("\n", BigInteger.valueOf(6)))

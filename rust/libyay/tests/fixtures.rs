@@ -34,6 +34,7 @@ fn values_equal(a: &Value, b: &Value) -> bool {
                 && a.iter()
                     .all(|(k, v)| b.get(k).map_or(false, |bv| values_equal(v, bv)))
         }
+        (Value::Tagged(at, ap), Value::Tagged(bt, bp)) => at == bt && values_equal(ap, bp),
         _ => false,
     }
 }

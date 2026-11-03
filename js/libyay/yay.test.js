@@ -4,7 +4,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "node:url";
 
-import { parseYay } from "./yay.js";
+import { parseYay, tagged } from "./yay.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const testRoot = path.join(__dirname, "..", "..", "test");

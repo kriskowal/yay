@@ -325,6 +325,35 @@ public class FixturesGen {
     FIXTURES.put("string-inline-singlequote-basic", "Are you suggesting coconuts migrate?");
     FIXTURES.put("string-inline-singlequote-doublequote", "He said \"yay.\" and left.");
     FIXTURES.put("string-multiline-concat", map("confession", "I'm not dead yet. I feel happy!"));
+    FIXTURES.put("tagged-block-bytes-item-same-line", list(new Tagged("sha256", bytes(0x89, 0x50, 0x4e, 0x47))));
+    FIXTURES.put("tagged-block-bytes-property", map("sum", new Tagged("sha256", bytes(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a))));
+    FIXTURES.put("tagged-block-concatenated-string", map("msg", new Tagged("note", "Hello, world.")));
+    FIXTURES.put("tagged-block-empty-tag", map("a", new Tagged("", list(bi(1)))));
+    FIXTURES.put("tagged-block-escaped-tag", map("a", new Tagged("x)y", list(bi(1)))));
+    FIXTURES.put("tagged-block-item-array", list(new Tagged("rgb", list(bi(255), bi(136), bi(0)))));
+    FIXTURES.put("tagged-block-nested-outer-first", list(new Tagged("outer", new Tagged("inner", list(bi(1))))));
+    FIXTURES.put("tagged-block-property-object", map("at", new Tagged("point", map("x", bi(1), "y", bi(2))), "next", bi(3)));
+    FIXTURES.put("tagged-block-root-array", new Tagged("rgb", list(bi(255), bi(136), bi(0))));
+    FIXTURES.put("tagged-block-root-colon-in-tag", new Tagged("match:splitRecord", list(map(), new Tagged("a: b", "x"))));
+    FIXTURES.put("tagged-block-root-object", new Tagged("point", map("x", bi(1), "y", bi(2))));
+    FIXTURES.put("tagged-block-string-item-same-line", list(new Tagged("text/markdown", "First line.\nSecond line.\n")));
+    FIXTURES.put("tagged-block-string-property", map("text", new Tagged("markdown", "# Notes\n\nTagged values arrive.\n")));
+    FIXTURES.put("tagged-block-then-comment", map("color", new Tagged("rgb", list(bi(255), bi(0)))));
+    FIXTURES.put("tagged-block-under-item-key", list(map("color", new Tagged("rgb", list(bi(1))), "name", "a")));
+    FIXTURES.put("tagged-inline-on-every-kind", map("a", new Tagged("date", "x"), "b", new Tagged("t", "y"), "c", new Tagged("rgb", bytes(0xff)), "d", new Tagged("rgb", list(bi(255), bi(136), bi(0))), "e", new Tagged("point", map("x", bi(1))), "f", new Tagged("ms", 1.5), "g", new Tagged("h", bi(-3)), "h", new Tagged("us", 1000.0), "i", new Tagged("ms", bi(10000)), "j", new Tagged("x", bi(0))));
+    FIXTURES.put("tagged-inline-root-colon-in-tag", new Tagged("a: b", "x"));
+    FIXTURES.put("tagged-inline-root", new Tagged("com.example/rgb-string", "ffffff"));
+    FIXTURES.put("tagged-inline-then-comment", map("a", new Tagged("t", "x"), "b", new Tagged("s", bi(1)), "c", new Tagged("a)  # b", bi(2))));
+    FIXTURES.put("tagged-inside-inline-containers", map("a", list(new Tagged("s", bi(10)), new Tagged("x", "ff"), new Tagged("a, b", list(bi(1))), new Tagged("t", true)), "b", map("c", new Tagged("rgb", bytes(0xff, 0x88, 0x00)), "d", new Tagged("m", bi(2)), "e", new Tagged("x}y", "v"), "f", new Tagged(")", bi(1)))));
+    FIXTURES.put("tagged-kris-example-blocks", map("color", new Tagged("rgb", list(bi(255), bi(136), bi(0))), "items", list(new Tagged("match:splitRecord", map("name", "x")))));
+    FIXTURES.put("tagged-kris-example", map("color", new Tagged("rgba", bytes(0xff, 0x88, 0x00, 0xff)), "count", new Tagged("s", bi(10)), "odd", new Tagged("a)b", bi(3)), "sku", new Tagged("com.example/sku", "X-1"), "when", new Tagged("utc", new Tagged("datetime", "2026-11-03T05:00:00Z"))));
+    FIXTURES.put("tagged-misindented-sibling-unchanged", map("enabled", true, "retries", bi(3)));
+    FIXTURES.put("tagged-nested-inline-innermost-first", map("a", new Tagged("utc", new Tagged("datetime", "2026-11-01T15:00:00")), "b", new Tagged("outer", new Tagged("inner", list(bi(1), bi(2))))));
+    FIXTURES.put("tagged-paren-on-keywords", map("a", new Tagged("t", true), "b", new Tagged("null", null), "c", new Tagged("ms", Double.NaN), "d", new Tagged("x", Double.NEGATIVE_INFINITY)));
+    FIXTURES.put("tagged-tag-empty-and-spaces", map("a", new Tagged("", bi(1)), "b", new Tagged(" edge ", bi(2)), "c", new Tagged(" ", bi(3))));
+    FIXTURES.put("tagged-tag-escapes", map("a", new Tagged("a)b", bi(1)), "b", new Tagged("back\\slash", bi(2)), "c", new Tagged("tab\there", bi(3)), "d", new Tagged("😀", bi(4)), "e", new Tagged("a/b", bi(5)), "f", new Tagged("\n", bi(6))));
+    FIXTURES.put("tagged-tag-quotes-are-text", map("a", new Tagged("'a'", bi(1)), "b", new Tagged("\"\"", bi(2))));
+    FIXTURES.put("tagged-tag-text", map("a", new Tagged("com.example.sku", bi(1)), "b", new Tagged("match:any", bi(2)), "c", new Tagged("image/png", bi(3)), "d", new Tagged("my tag", bi(4)), "e", new Tagged("a#b", bi(5)), "f", new Tagged("a  # b", bi(6)), "g", new Tagged("it's", bi(7)), "h", new Tagged("a(b", bi(8)), "i", new Tagged("\"q\"", bi(9)), "j", new Tagged("a, b] }", bi(10))));
     FIXTURES.put("whitespace-leading-lines", bi(10));
   }
 }

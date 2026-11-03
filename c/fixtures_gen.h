@@ -838,6 +838,214 @@ static yay_value_t *make_expected_string_multiline_concat(void) {
     return YAY_OBJECT("confession", yay_string("I'm not dead yet. I feel happy!"));
 }
 
+static yay_value_t *make_expected_tagged_block_bytes_item_same_line(void) {
+    return YAY_ARRAY(yay_tagged("sha256", yay_bytes_from_hex("89504e47")));
+}
+
+static yay_value_t *make_expected_tagged_block_bytes_property(void) {
+    return YAY_OBJECT(
+    "sum", yay_tagged("sha256", yay_bytes_from_hex("89504e470d0a"))
+);
+}
+
+static yay_value_t *make_expected_tagged_block_concatenated_string(void) {
+    return YAY_OBJECT("msg", yay_tagged("note", yay_string("Hello, world.")));
+}
+
+static yay_value_t *make_expected_tagged_block_empty_tag(void) {
+    return YAY_OBJECT("a", yay_tagged("", YAY_ARRAY(yay_int(1))));
+}
+
+static yay_value_t *make_expected_tagged_block_escaped_tag(void) {
+    return YAY_OBJECT("a", yay_tagged("x)y", YAY_ARRAY(yay_int(1))));
+}
+
+static yay_value_t *make_expected_tagged_block_item_array(void) {
+    return YAY_ARRAY(
+    yay_tagged("rgb", YAY_ARRAY(yay_int(255), yay_int(136), yay_int(0)))
+);
+}
+
+static yay_value_t *make_expected_tagged_block_nested_outer_first(void) {
+    return YAY_ARRAY(
+    yay_tagged("outer", yay_tagged("inner", YAY_ARRAY(yay_int(1))))
+);
+}
+
+static yay_value_t *make_expected_tagged_block_property_object(void) {
+    return YAY_OBJECT(
+    "at", yay_tagged("point", YAY_OBJECT("x", yay_int(1), "y", yay_int(2))),
+    "next", yay_int(3)
+);
+}
+
+static yay_value_t *make_expected_tagged_block_root_array(void) {
+    return yay_tagged("rgb", YAY_ARRAY(yay_int(255), yay_int(136), yay_int(0)));
+}
+
+static yay_value_t *make_expected_tagged_block_root_colon_in_tag(void) {
+    return yay_tagged("match:splitRecord", YAY_ARRAY(yay_object(), yay_tagged("a: b", yay_string("x"))));
+}
+
+static yay_value_t *make_expected_tagged_block_root_object(void) {
+    return yay_tagged("point", YAY_OBJECT("x", yay_int(1), "y", yay_int(2)));
+}
+
+static yay_value_t *make_expected_tagged_block_string_item_same_line(void) {
+    return YAY_ARRAY(
+    yay_tagged("text/markdown", yay_string("First line.\nSecond line.\n"))
+);
+}
+
+static yay_value_t *make_expected_tagged_block_string_property(void) {
+    return YAY_OBJECT(
+    "text", yay_tagged("markdown", yay_string("# Notes\n\nTagged values arrive.\n"))
+);
+}
+
+static yay_value_t *make_expected_tagged_block_then_comment(void) {
+    return YAY_OBJECT(
+    "color", yay_tagged("rgb", YAY_ARRAY(yay_int(255), yay_int(0)))
+);
+}
+
+static yay_value_t *make_expected_tagged_block_under_item_key(void) {
+    return YAY_ARRAY(
+    YAY_OBJECT(
+        "color", yay_tagged("rgb", YAY_ARRAY(yay_int(1))),
+        "name", yay_string("a")
+    )
+);
+}
+
+static yay_value_t *make_expected_tagged_inline_on_every_kind(void) {
+    return YAY_OBJECT(
+    "a", yay_tagged("date", yay_string("x")),
+    "b", yay_tagged("t", yay_string("y")),
+    "c", yay_tagged("rgb", yay_bytes_from_hex("ff")),
+    "d", yay_tagged("rgb", YAY_ARRAY(yay_int(255), yay_int(136), yay_int(0))),
+    "e", yay_tagged("point", YAY_OBJECT("x", yay_int(1))),
+    "f", yay_tagged("ms", yay_float(1.5)),
+    "g", yay_tagged("h", yay_int(-3)),
+    "h", yay_tagged("us", yay_float(1000.0)),
+    "i", yay_tagged("ms", yay_int(10000)),
+    "j", yay_tagged("x", yay_int(0))
+);
+}
+
+static yay_value_t *make_expected_tagged_inline_root_colon_in_tag(void) {
+    return yay_tagged("a: b", yay_string("x"));
+}
+
+static yay_value_t *make_expected_tagged_inline_root(void) {
+    return yay_tagged("com.example/rgb-string", yay_string("ffffff"));
+}
+
+static yay_value_t *make_expected_tagged_inline_then_comment(void) {
+    return YAY_OBJECT(
+    "a", yay_tagged("t", yay_string("x")),
+    "b", yay_tagged("s", yay_int(1)),
+    "c", yay_tagged("a)  # b", yay_int(2))
+);
+}
+
+static yay_value_t *make_expected_tagged_inside_inline_containers(void) {
+    return YAY_OBJECT(
+    "a", YAY_ARRAY(
+        yay_tagged("s", yay_int(10)),
+        yay_tagged("x", yay_string("ff")),
+        yay_tagged("a, b", YAY_ARRAY(yay_int(1))),
+        yay_tagged("t", yay_bool(true))
+    ),
+    "b", YAY_OBJECT(
+        "c", yay_tagged("rgb", yay_bytes_from_hex("ff8800")),
+        "d", yay_tagged("m", yay_int(2)),
+        "e", yay_tagged("x}y", yay_string("v")),
+        "f", yay_tagged(")", yay_int(1))
+    )
+);
+}
+
+static yay_value_t *make_expected_tagged_kris_example_blocks(void) {
+    return YAY_OBJECT(
+    "color", yay_tagged("rgb", YAY_ARRAY(yay_int(255), yay_int(136), yay_int(0))),
+    "items", YAY_ARRAY(
+        yay_tagged("match:splitRecord", YAY_OBJECT("name", yay_string("x")))
+    )
+);
+}
+
+static yay_value_t *make_expected_tagged_kris_example(void) {
+    return YAY_OBJECT(
+    "color", yay_tagged("rgba", yay_bytes_from_hex("ff8800ff")),
+    "count", yay_tagged("s", yay_int(10)),
+    "odd", yay_tagged("a)b", yay_int(3)),
+    "sku", yay_tagged("com.example/sku", yay_string("X-1")),
+    "when", yay_tagged("utc", yay_tagged("datetime", yay_string("2026-11-03T05:00:00Z")))
+);
+}
+
+static yay_value_t *make_expected_tagged_misindented_sibling_unchanged(void) {
+    return YAY_OBJECT("enabled", yay_bool(true), "retries", yay_int(3));
+}
+
+static yay_value_t *make_expected_tagged_nested_inline_innermost_first(void) {
+    return YAY_OBJECT(
+    "a", yay_tagged("utc", yay_tagged("datetime", yay_string("2026-11-01T15:00:00"))),
+    "b", yay_tagged("outer", yay_tagged("inner", YAY_ARRAY(yay_int(1), yay_int(2))))
+);
+}
+
+static yay_value_t *make_expected_tagged_paren_on_keywords(void) {
+    return YAY_OBJECT(
+    "a", yay_tagged("t", yay_bool(true)),
+    "b", yay_tagged("null", yay_null()),
+    "c", yay_tagged("ms", yay_float(NAN)),
+    "d", yay_tagged("x", yay_float(-INFINITY))
+);
+}
+
+static yay_value_t *make_expected_tagged_tag_empty_and_spaces(void) {
+    return YAY_OBJECT(
+    "a", yay_tagged("", yay_int(1)),
+    "b", yay_tagged(" edge ", yay_int(2)),
+    "c", yay_tagged(" ", yay_int(3))
+);
+}
+
+static yay_value_t *make_expected_tagged_tag_escapes(void) {
+    return YAY_OBJECT(
+    "a", yay_tagged("a)b", yay_int(1)),
+    "b", yay_tagged("back\\slash", yay_int(2)),
+    "c", yay_tagged("tab\there", yay_int(3)),
+    "d", yay_tagged("😀", yay_int(4)),
+    "e", yay_tagged("a/b", yay_int(5)),
+    "f", yay_tagged("\n", yay_int(6))
+);
+}
+
+static yay_value_t *make_expected_tagged_tag_quotes_are_text(void) {
+    return YAY_OBJECT(
+    "a", yay_tagged("'a'", yay_int(1)),
+    "b", yay_tagged("\"\"", yay_int(2))
+);
+}
+
+static yay_value_t *make_expected_tagged_tag_text(void) {
+    return YAY_OBJECT(
+    "a", yay_tagged("com.example.sku", yay_int(1)),
+    "b", yay_tagged("match:any", yay_int(2)),
+    "c", yay_tagged("image/png", yay_int(3)),
+    "d", yay_tagged("my tag", yay_int(4)),
+    "e", yay_tagged("a#b", yay_int(5)),
+    "f", yay_tagged("a  # b", yay_int(6)),
+    "g", yay_tagged("it's", yay_int(7)),
+    "h", yay_tagged("a(b", yay_int(8)),
+    "i", yay_tagged("\"q\"", yay_int(9)),
+    "j", yay_tagged("a, b] }", yay_int(10))
+);
+}
+
 static yay_value_t *make_expected_whitespace_leading_lines(void) {
     return yay_int(10);
 }
@@ -978,11 +1186,40 @@ static test_fixture_t test_fixtures[] = {
     {"string_inline_singlequote_basic", "'Are you suggesting coconuts migrate?'\n", make_expected_string_inline_singlequote_basic},
     {"string_inline_singlequote_doublequote", "'He said \"yay.\" and left.'\n", make_expected_string_inline_singlequote_doublequote},
     {"string_multiline_concat", "confession:\n  \"I'm not dead yet. \"\n  \"I feel happy!\"\n", make_expected_string_multiline_concat},
+    {"tagged_block_bytes_item_same_line", "- (sha256) > 89 50\n  4e 47\n", make_expected_tagged_block_bytes_item_same_line},
+    {"tagged_block_bytes_property", "sum: (sha256) >\n  89 50 4e 47\n  0d 0a\n", make_expected_tagged_block_bytes_property},
+    {"tagged_block_concatenated_string", "msg: (note)\n  \"Hello, \"\n  'world.'\n", make_expected_tagged_block_concatenated_string},
+    {"tagged_block_empty_tag", "a: ()\n  - 1\n", make_expected_tagged_block_empty_tag},
+    {"tagged_block_escaped_tag", "a: (x\\)y)\n  - 1\n", make_expected_tagged_block_escaped_tag},
+    {"tagged_block_item_array", "- (rgb)\n  - 255\n  - 136\n  - 0\n", make_expected_tagged_block_item_array},
+    {"tagged_block_nested_outer_first", "- (outer) (inner)\n  - 1\n", make_expected_tagged_block_nested_outer_first},
+    {"tagged_block_property_object", "at: (point)\n  x: 1\n  y: 2\nnext: 3\n", make_expected_tagged_block_property_object},
+    {"tagged_block_root_array", "(rgb)\n- 255\n- 136\n- 0\n", make_expected_tagged_block_root_array},
+    {"tagged_block_root_colon_in_tag", "(match:splitRecord)\n- {}\n- 'x' (a: b)\n", make_expected_tagged_block_root_colon_in_tag},
+    {"tagged_block_root_object", "(point)\nx: 1\ny: 2\n", make_expected_tagged_block_root_object},
+    {"tagged_block_string_item_same_line", "- (text/markdown) ` First line.\n    Second line.\n", make_expected_tagged_block_string_item_same_line},
+    {"tagged_block_string_property", "text: (markdown) `\n  # Notes\n\n  Tagged values arrive.\n", make_expected_tagged_block_string_property},
+    {"tagged_block_then_comment", "color: (rgb)  # red, green, blue\n  - 255\n  - 0\n", make_expected_tagged_block_then_comment},
+    {"tagged_block_under_item_key", "- color: (rgb)\n    - 1\n  name: 'a'\n", make_expected_tagged_block_under_item_key},
+    {"tagged_inline_on_every_kind", "a: 'x' (date)\nb: \"y\" (t)\nc: <ff> (rgb)\nd: [255, 136, 0] (rgb)\ne: {x: 1} (point)\nf: 1.5 (ms)\ng: -3 (h)\nh: 1e3 (us)\ni: 10 000 (ms)\nj: 0 (x)\n", make_expected_tagged_inline_on_every_kind},
+    {"tagged_inline_root_colon_in_tag", "'x' (a: b)\n", make_expected_tagged_inline_root_colon_in_tag},
+    {"tagged_inline_root", "'ffffff' (com.example/rgb-string)\n", make_expected_tagged_inline_root},
+    {"tagged_inline_then_comment", "a: 'x' (t)  # a note\nb: 1 (s)  # one second\nc: 2 (a\\)  # b)  # c\n", make_expected_tagged_inline_then_comment},
+    {"tagged_inside_inline_containers", "a: [10 (s), 'ff' (x), [1] (a, b), true (t)]\nb: {c: <ff8800> (rgb), d: 2 (m), e: 'v' (x}y), f: 1 (\\))}\n", make_expected_tagged_inside_inline_containers},
+    {"tagged_kris_example_blocks", "color: (rgb)\n  - 255\n  - 136\n  - 0\nitems:\n- (match:splitRecord)\n  name: 'x'\n", make_expected_tagged_kris_example_blocks},
+    {"tagged_kris_example", "count: 10 (s)\ncolor: <ff8800ff> (rgba)\nsku: 'X-1' (com.example/sku)\nodd: 3 (a\\)b)\nwhen: '2026-11-03T05:00:00Z' (datetime) (utc)\n", make_expected_tagged_kris_example},
+    {"tagged_misindented_sibling_unchanged", "enabled: true\nretries: 3\n", make_expected_tagged_misindented_sibling_unchanged},
+    {"tagged_nested_inline_innermost_first", "a: '2026-11-01T15:00:00' (datetime) (utc)\nb: [1, 2] (inner) (outer)\n", make_expected_tagged_nested_inline_innermost_first},
+    {"tagged_paren_on_keywords", "a: true (t)\nb: null (null)\nc: nan (ms)\nd: -infinity (x)\n", make_expected_tagged_paren_on_keywords},
+    {"tagged_tag_empty_and_spaces", "a: 1 ()\nb: 2 ( edge )\nc: 3 ( )\n", make_expected_tagged_tag_empty_and_spaces},
+    {"tagged_tag_escapes", "a: 1 (a\\)b)\nb: 2 (back\\\\slash)\nc: 3 (tab\\there)\nd: 4 (\\u{1F600})\ne: 5 (a\\/b)\nf: 6 (\\n)\n", make_expected_tagged_tag_escapes},
+    {"tagged_tag_quotes_are_text", "a: 1 ('a')\nb: 2 (\"\")\n", make_expected_tagged_tag_quotes_are_text},
+    {"tagged_tag_text", "a: 1 (com.example.sku)\nb: 2 (match:any)\nc: 3 (image/png)\nd: 4 (my tag)\ne: 5 (a#b)\nf: 6 (a  # b)\ng: 7 (it's)\nh: 8 (a(b)\ni: 9 (\"q\")\nj: 10 (a, b] })\n", make_expected_tagged_tag_text},
     {"whitespace_leading_lines", "\n\n# Commentary here\n\n10\n\n\n# Comments there\n\n", make_expected_whitespace_leading_lines},
     {NULL, NULL, NULL}
 };
 
-#define TEST_FIXTURE_COUNT 136
+#define TEST_FIXTURE_COUNT 165
 
 static error_fixture_t error_fixtures[] = {
     {"array_inline_invalid_multiline", "array-inline-invalid-multiline.nay", "[\n  1,\n  2\n]\n", 13, "Unexpected newline in inline array at 1:1 of <array-inline-invalid-multiline.nay>"},
@@ -1053,6 +1290,34 @@ static error_fixture_t error_fixtures[] = {
     {"string_inline_invalid_control_char", "string-inline-invalid-control-char.nay", "\"hello\007world\"\n", 14, "Forbidden code point U+0007 at 1:7 of <string-inline-invalid-control-char.nay>"},
     {"string_inline_invalid_multiline", "string-inline-invalid-multiline.nay", "\"hello\nworld\"\n", 14, "Unterminated string at 1:6 of <string-inline-invalid-multiline.nay>"},
     {"string_inline_property_invalid_next_line", "string-inline-property-invalid-next-line.nay", "i:\n  \"hello\"\n", 13, "Unexpected indent at 2:1 of <string-inline-property-invalid-next-line.nay>"},
+    {"tagged_bang_is_not_a_sigil", "tagged-bang-is-not-a-sigil.nay", "a: 1 !rgb\n", 10, "Unexpected character \"1\" at 1:4 of <tagged-bang-is-not-a-sigil.nay>"},
+    {"tagged_bare_word_over_block", "tagged-bare-word-over-block.nay", "a: rgb\n  - 1\n", 13, "Unexpected character \"r\" at 1:4 of <tagged-bare-word-over-block.nay>"},
+    {"tagged_bare_word_tag", "tagged-bare-word-tag.nay", "a: 1 rgb\n", 9, "Unexpected character \"1\" at 1:4 of <tagged-bare-word-tag.nay>"},
+    {"tagged_fused_after_paren", "tagged-fused-after-paren.nay", "a: 1 (t)s\n", 10, "Unexpected character \"s\" at 1:9 of <tagged-fused-after-paren.nay>"},
+    {"tagged_fused_name_on_bytes", "tagged-fused-name-on-bytes.nay", "a: <ff8800ff>rgba\n", 18, "Unmatched angle bracket at 1:4 of <tagged-fused-name-on-bytes.nay>"},
+    {"tagged_fused_name_on_string", "tagged-fused-name-on-string.nay", "a: 'x'date\n", 11, "Unexpected character \"'\" at 1:4 of <tagged-fused-name-on-string.nay>"},
+    {"tagged_fused_name", "tagged-fused-name.nay", "a: 10s\n", 7, "Unexpected character \"1\" at 1:4 of <tagged-fused-name.nay>"},
+    {"tagged_fused_paren_between_tags_strict", "tagged-fused-paren-between-tags-strict.nay", "a: 1 (a)(b)\n", 12, "Expected one space before a tag at 1:9 of <tagged-fused-paren-between-tags-strict.nay>"},
+    {"tagged_fused_paren_strict", "tagged-fused-paren-strict.nay", "a: 'X-1'(com.example/sku)\n", 26, "Expected one space before a tag at 1:9 of <tagged-fused-paren-strict.nay>"},
+    {"tagged_inline_value_over_block", "tagged-inline-value-over-block.nay", "a: 10 (s)\n  - 1\n", 16, "Unexpected indent at 2:1 of <tagged-inline-value-over-block.nay>"},
+    {"tagged_misindented_sibling", "tagged-misindented-sibling.nay", "enabled: true\n  retries: 3\n", 27, "Unexpected indent at 2:1 of <tagged-misindented-sibling.nay>"},
+    {"tagged_prefix_at_end_of_document", "tagged-prefix-at-end-of-document.nay", "- (rgb)\n", 8, "A tag before a value needs a block below it; write the tag after an inline value at 1:1 of <tagged-prefix-at-end-of-document.nay>"},
+    {"tagged_prefix_nested_bullet_sibling", "tagged-prefix-nested-bullet-sibling.nay", "- - (d)\n  - e\n", 14, "A tag before a value needs a block below it; write the tag after an inline value at 1:3 of <tagged-prefix-nested-bullet-sibling.nay>"},
+    {"tagged_prefix_on_inline_value", "tagged-prefix-on-inline-value.nay", "a: (rgb) [255, 136, 0]\n", 23, "A tag before a value needs a block below it; write the tag after an inline value at 1:4 of <tagged-prefix-on-inline-value.nay>"},
+    {"tagged_prefix_on_item_inline", "tagged-prefix-on-item-inline.nay", "- (t) 'ff'\n", 11, "A tag before a value needs a block below it; write the tag after an inline value at 1:1 of <tagged-prefix-on-item-inline.nay>"},
+    {"tagged_prefix_over_one_quoted_line", "tagged-prefix-over-one-quoted-line.nay", "a: (t)\n  'x'\n", 13, "Unexpected indent at 2:1 of <tagged-prefix-over-one-quoted-line.nay>"},
+    {"tagged_prefix_without_block", "tagged-prefix-without-block.nay", "a: (rgb)\nb: 1\n", 14, "Expected value after property at 1:3 of <tagged-prefix-without-block.nay>"},
+    {"tagged_property_block_string_text_after_backtick", "tagged-property-block-string-text-after-backtick.nay", "a: (markdown) ` text\n  more\n", 28, "Expected newline after block leader in property"},
+    {"tagged_quote_escape_is_not_a_tag_escape", "tagged-quote-escape-is-not-a-tag-escape.nay", "a: 1 (a\\\"b)\n", 12, "Bad escaped character at 1:9 of <tagged-quote-escape-is-not-a-tag-escape.nay>"},
+    {"tagged_root_block_indented", "tagged-root-block-indented.nay", "(point)\n  x: 1\n", 15, "Unexpected indent at 2:1 of <tagged-root-block-indented.nay>"},
+    {"tagged_tab_in_tag", "tagged-tab-in-tag.nay", "a: 1 (a\011b)\n", 11, "Tab not allowed (use spaces) at 1:8 of <tagged-tab-in-tag.nay>"},
+    {"tagged_tag_before_comma_without_space", "tagged-tag-before-comma-without-space.nay", "a: [1 (x),2]\n", 13, "Expected space after \",\" at 1:10 of <tagged-tag-before-comma-without-space.nay>"},
+    {"tagged_two_spaces_before_paren_strict", "tagged-two-spaces-before-paren-strict.nay", "a: 1  (t)\n", 10, "Unexpected space before \"(\" at 1:5 of <tagged-two-spaces-before-paren-strict.nay>"},
+    {"tagged_two_spaces_between_block_tags_strict", "tagged-two-spaces-between-block-tags-strict.nay", "- (a)  (b)\n  - 1\n", 17, "Unexpected space before \"(\" at 1:4 of <tagged-two-spaces-between-block-tags-strict.nay>"},
+    {"tagged_unclosed_paren_escaped", "tagged-unclosed-paren-escaped.nay", "a: 1 (t\\)\n", 10, "Unterminated string at 1:6 of <tagged-unclosed-paren-escaped.nay>"},
+    {"tagged_unclosed_paren", "tagged-unclosed-paren.nay", "a: 1 (t\n", 8, "Unterminated string at 1:6 of <tagged-unclosed-paren.nay>"},
+    {"tagged_unescaped_close_paren", "tagged-unescaped-close-paren.nay", "a: 3 (a)b)\n", 11, "Unexpected character \"b\" at 1:9 of <tagged-unescaped-close-paren.nay>"},
+    {"tagged_unknown_escape", "tagged-unknown-escape.nay", "a: 1 (a\\(b)\n", 12, "Bad escaped character at 1:9 of <tagged-unknown-escape.nay>"},
     {"unicode_invalid_bom", "unicode-invalid-bom.nay", "\357\273\277x\n", 5, "Illegal BOM at 1:1 of <unicode-invalid-bom.nay>"},
     {"unicode_invalid_c0_bel", "unicode-invalid-c0-bel.nay", "\007\n", 2, "Forbidden code point U+0007 at 1:1 of <unicode-invalid-c0-bel.nay>"},
     {"unicode_invalid_c0_bs", "unicode-invalid-c0-bs.nay", "\010\n", 2, "Forbidden code point U+0008 at 1:1 of <unicode-invalid-c0-bs.nay>"},
@@ -1079,6 +1344,6 @@ static error_fixture_t error_fixtures[] = {
     {NULL, NULL, NULL, 0, NULL}
 };
 
-#define ERROR_FIXTURE_COUNT 91
+#define ERROR_FIXTURE_COUNT 119
 
 #endif /* FIXTURES_GEN_H */

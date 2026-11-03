@@ -1,0 +1,1 @@
+Map.of("color", new Tagged("rgba", new byte[] {(byte) 0xff, (byte) 0x88, (byte) 0x00, (byte) 0xff}), "count", new Tagged("s", BigInteger.valueOf(10)), "odd", new Tagged("a)b", BigInteger.valueOf(3)), "sku", new Tagged("com.example/sku", "X-1"), "when", new Tagged("utc", new Tagged("datetime", "2026-11-03T05:00:00Z")))

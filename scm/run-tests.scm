@@ -130,6 +130,9 @@
    ;; Bytevector: (bytevector 1 2 3) -> (bytevector . (1 2 3))
    ((and (pair? v) (eq? (car v) 'bytevector))
     (cons 'bytevector (cdr v)))
+   ;; Tagged: (make-tagged "tag" payload)
+   ((and (pair? v) (eq? (car v) 'make-tagged))
+    (make-tagged (cadr v) (fixture->yay-value (caddr v))))
    ;; Vector (array)
    ((vector? v)
     (list->vector (map fixture->yay-value (vector->list v))))
@@ -379,7 +382,36 @@
            "string-inline-singlequote-basic"
            "string-inline-singlequote-doublequote"
            "string-multiline-concat"
-           "whitespace-leading-lines")))
+           "whitespace-leading-lines"
+           "tagged-block-bytes-item-same-line"
+           "tagged-block-bytes-property"
+           "tagged-block-concatenated-string"
+           "tagged-block-empty-tag"
+           "tagged-block-escaped-tag"
+           "tagged-block-item-array"
+           "tagged-block-nested-outer-first"
+           "tagged-block-property-object"
+           "tagged-block-root-array"
+           "tagged-block-root-colon-in-tag"
+           "tagged-block-root-object"
+           "tagged-block-string-item-same-line"
+           "tagged-block-string-property"
+           "tagged-block-then-comment"
+           "tagged-block-under-item-key"
+           "tagged-inline-on-every-kind"
+           "tagged-inline-root"
+           "tagged-inline-root-colon-in-tag"
+           "tagged-inline-then-comment"
+           "tagged-inside-inline-containers"
+           "tagged-kris-example"
+           "tagged-kris-example-blocks"
+           "tagged-misindented-sibling-unchanged"
+           "tagged-nested-inline-innermost-first"
+           "tagged-paren-on-keywords"
+           "tagged-tag-empty-and-spaces"
+           "tagged-tag-escapes"
+           "tagged-tag-quotes-are-text"
+           "tagged-tag-text")))
     (for-each
      (lambda (name)
        (let ((yay-path (string-append test-dir "/yay/" name ".yay"))
@@ -484,7 +516,35 @@
            "unicode-invalid-nonchar-fffe"
            "unicode-invalid-nonchar-ffff"
            "whitespace-invalid-tab"
-           "whitespace-invalid-trailing-space")))
+           "whitespace-invalid-trailing-space"
+           "tagged-bang-is-not-a-sigil"
+           "tagged-bare-word-over-block"
+           "tagged-bare-word-tag"
+           "tagged-fused-after-paren"
+           "tagged-fused-name"
+           "tagged-fused-name-on-bytes"
+           "tagged-fused-name-on-string"
+           "tagged-fused-paren-between-tags-strict"
+           "tagged-fused-paren-strict"
+           "tagged-inline-value-over-block"
+           "tagged-misindented-sibling"
+           "tagged-prefix-at-end-of-document"
+           "tagged-prefix-nested-bullet-sibling"
+           "tagged-prefix-on-inline-value"
+           "tagged-prefix-on-item-inline"
+           "tagged-prefix-over-one-quoted-line"
+           "tagged-prefix-without-block"
+           "tagged-property-block-string-text-after-backtick"
+           "tagged-quote-escape-is-not-a-tag-escape"
+           "tagged-root-block-indented"
+           "tagged-tab-in-tag"
+           "tagged-tag-before-comma-without-space"
+           "tagged-two-spaces-before-paren-strict"
+           "tagged-two-spaces-between-block-tags-strict"
+           "tagged-unclosed-paren"
+           "tagged-unclosed-paren-escaped"
+           "tagged-unescaped-close-paren"
+           "tagged-unknown-escape")))
     (for-each
      (lambda (name)
        (let ((nay-path (string-append test-dir "/nay/" name ".nay")))

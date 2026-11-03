@@ -794,6 +794,10 @@ run_check_tests() {
   expect_message "message/line" 'line 1: expected "a: 1", found "a:   1"' "$meh" --check -f meh -t yay
   expect_message "message/final-newline" 'line 1: the last line must end with a newline' $'a: 1' --check -t yay
 
+  # A tag takes exactly one space before it, and the report names the line
+  expect_message "message/tag-space" "line 2: expected \"b: 'x' (t)\", found \"b: 'x'(t)\"" $'a: 1 (s)\nb: \'x\'(t)\n' --check -f meh -t yay
+  expect_message "message/tag-spaces" 'line 1: expected "a: 1 (a) (b)", found "a: 1  (a)(b)"' $'a: 1  (a)(b)\n' --check -f meh -t yay
+
   # Refused pairs: output that can never be the same bytes as the input
   local pair f t
   for pair in json:yay yson:yay yaml:yay toml:yay json:json yson:yson yay:json yay:yson yay:md yay:yd md:yay yd:yay meh:md; do

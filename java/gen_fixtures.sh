@@ -87,6 +87,10 @@ for gofile in "$GO_DIR"/*.go; do
         s/big\.NewInt\(([^)]*)\)/bi($1)/g;
         s/\bNewInt\(([^)]*)\)/bi($1)/g;
         
+        # Convert yay.Tagged{Tag: t, Payload: v} to new Tagged(t, v)
+        s/yay\.Tagged\{Tag: /new Tagged(/g;
+        s/, Payload: /, /g;
+
         # Convert Go helper functions List() and Map() to lowercase
         s/\bList\(/list(/g;
         s/\bMap\(/map(/g;

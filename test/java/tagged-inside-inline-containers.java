@@ -1,0 +1,1 @@
+Map.of("a", List.of(new Tagged("s", BigInteger.valueOf(10)), new Tagged("x", "ff"), new Tagged("a, b", List.of(BigInteger.valueOf(1))), new Tagged("t", true)), "b", Map.of("c", new Tagged("rgb", new byte[] {(byte) 0xff, (byte) 0x88, (byte) 0x00}), "d", new Tagged("m", BigInteger.valueOf(2)), "e", new Tagged("x}y", "v"), "f", new Tagged(")", BigInteger.valueOf(1))))

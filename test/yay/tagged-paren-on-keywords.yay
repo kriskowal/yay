@@ -1,0 +1,4 @@
+a: true (t)
+b: null (null)
+c: nan (ms)
+d: -infinity (x)

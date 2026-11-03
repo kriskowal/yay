@@ -1,0 +1,1 @@
+{"a": [Tagged("s", 10), Tagged("x", "ff"), Tagged("a, b", [1]), Tagged("t", True)], "b": {"c": Tagged("rgb", bytes.fromhex("ff8800")), "d": Tagged("m", 2), "e": Tagged("x}y", "v"), "f": Tagged(")", 1)}}

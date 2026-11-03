@@ -1,0 +1,1 @@
+{"a": Tagged("date", "x"), "b": Tagged("t", "y"), "c": Tagged("rgb", bytes.fromhex("ff")), "d": Tagged("rgb", [255, 136, 0]), "e": Tagged("point", {"x": 1}), "f": Tagged("ms", 1.5), "g": Tagged("h", -3), "h": Tagged("us", 1000.0), "i": Tagged("ms", 10000), "j": Tagged("x", 0)}
