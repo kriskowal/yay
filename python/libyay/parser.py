@@ -4,7 +4,7 @@ YAY parser - parses YAY input into Python objects.
 
 import math
 from typing import Any, TextIO
-from .lexer import Lexer, Token
+from .lexer import SCALAR_KINDS, Lexer, Token, trailing_text_error
 from .errors import YaySyntaxError
 from .tagged import Tagged
 
@@ -623,8 +623,8 @@ class Parser:
                 if indent < base_indent:
                     break
                 if indent > base_indent and obj:
-                    # This shouldn't happen at object level
-                    break
+                    # Nothing may stand indented under a property's value
+                    raise YaySyntaxError("Unexpected indent", token.line, 1)
                 current_indent = indent
                 self.advance()
                 token = self.peek()
@@ -669,8 +669,20 @@ class Parser:
                     )
 
             # Parse value
+            value_token = self.peek()
             value = self.parse_object_value(current_indent)
             obj[key] = value
+
+            # Text after an inline value on its line: the value is not one
+            after = self.peek()
+            if (
+                value_token.kind in SCALAR_KINDS
+                and after.line == value_token.line
+                and after.kind not in ("NEWLINE", "EOF", "COMMENT")
+            ):
+                raise trailing_text_error(
+                    self.lexer.source, value_token.line, value_token.col
+                )
 
             # Skip newline
             if self.peek().kind == "NEWLINE":
@@ -793,7 +805,7 @@ class Parser:
 
             # Under a tag, only an array may stand at the key's indent
             if prefix and child_indent == key_indent and next_token.kind != "DASH":
-                raise self.error(PREFIX_WITHOUT_BLOCK)
+                raise self.error("Expected value after property")
 
             self.advance()  # consume INDENT
 
@@ -825,6 +837,8 @@ class Parser:
 
             raise self.error("Unexpected indent")
 
+        if token.kind == "IDENT":
+            raise trailing_text_error(self.lexer.source, token.line, token.col)
         raise self.error(f"Expected value after colon, got {token.kind}")
 
     def parse_concatenated_strings(self, base_indent: int) -> str | None:

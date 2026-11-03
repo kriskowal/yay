@@ -8,6 +8,21 @@ from typing import Iterator
 from .errors import YaySyntaxError
 
 
+SCALAR_KINDS = ("NULL", "BOOL", "INT", "FLOAT", "STRING", "BYTES")
+
+
+def trailing_text_error(source: str, line: int, col: int) -> YaySyntaxError:
+    """The error for a scalar at line and col with text fused after it, as
+    the reference names it: by the scalar's first character."""
+    lines = source.split("\n")
+    text = lines[line - 1] if line <= len(lines) else ""
+    ch = text[col - 1] if 0 < col <= len(text) else ""
+    # An inline bytes token begins after its "<"
+    if ch == "<" or (1 < col <= len(text) + 1 and text[col - 2] == "<"):
+        return YaySyntaxError("Unmatched angle bracket", line, col)
+    return YaySyntaxError(f'Unexpected character "{ch}"', line, col)
+
+
 @dataclass
 class Token:
     """A token from the YAY lexer."""
@@ -728,8 +743,10 @@ class Lexer:
             chars.append(self.advance())
 
         after = self.peek()
+        if after == "(":
+            raise self.error("Expected one space before a tag")
         if after not in ("", "\n", ",", "]", "}", " "):
-            raise self.error('Unexpected character after ")"')
+            raise self.error(f'Unexpected character "{after}"')
         if after == " " and self.peek(1) == " " and self.peek(2) not in ("#", "("):
             raise self.error('Unexpected space after ")"')
         return Token("TAG", "".join(chars), start_line, start_col)
@@ -939,6 +956,11 @@ class Lexer:
             # (after { or , in an inline object)
             if self._last_token and self._last_token.kind in ("LBRACE", "COMMA"):
                 raise self.error("Invalid key")
+
+            # Text after a scalar on its line: the scalar is not one
+            last = self._last_token
+            if last and last.line == self.line and last.kind in SCALAR_KINDS:
+                raise trailing_text_error(self.source, last.line, last.col)
 
             raise self.error(f'Unexpected character "{ch}"')
 
