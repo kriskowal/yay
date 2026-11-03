@@ -411,7 +411,8 @@
            "tagged-tag-empty-and-spaces"
            "tagged-tag-escapes"
            "tagged-tag-quotes-are-text"
-           "tagged-tag-text")))
+           "tagged-tag-text"
+           "string-block-root-parens")))
     (for-each
      (lambda (name)
        (let ((yay-path (string-append test-dir "/yay/" name ".yay"))

@@ -153,10 +153,12 @@ fn parse_text_value(tokens: &[Token], i: usize, ctx: &ParseContext) -> Result<(V
     let t = &tokens[i];
     let s = &t.text;
 
-    // A tagged inline value: tags after it, and no property's colon before
+    // A tagged inline value: tags after it, and no property's colon before;
+    // a block string or block bytes reads its tags itself
     if let (_, Some(p)) = mask_tags(s) {
         let inline = s.starts_with('{') || s.starts_with('[');
-        if p > 0 && (inline || find_colon_outside_quotes(&s[..p]).is_none()) {
+        let block = s.starts_with('`') || s.starts_with('>');
+        if p > 0 && !block && (inline || find_colon_outside_quotes(&s[..p]).is_none()) {
             let scalar = parse_scalar(strip_inline_comment(s), ctx, t.line_num, t.col)?;
             return Ok((scalar, i + 1));
         }

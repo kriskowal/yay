@@ -333,6 +333,7 @@ var fixtures = map[string]any{
 	},
 	"string-block-root-hash":      "# this is not a comment\nit is content\n",
 	"string-block-root-next-line": "\nI've calculated your chance of survival,\nbut I don't think you'll like it.\n",
+	"string-block-root-parens":    "a (b) c\n",
 	"string-block-root-same-line": "I think you ought to know I'm feeling very depressed.\nThis will all end in tears.\n",
 	"string-block-separated-array": map[string]any{
 		"items": []any{

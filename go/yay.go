@@ -535,8 +535,10 @@ func parseTextValue(tokens []token, i int, ctx *parseContext) (any, int, error) 
 	t := tokens[i]
 	s := t.text
 
-	// A tagged inline value: tags after it, and no property's colon before
-	if _, p := maskTags(s); p > 0 {
+	// A tagged inline value: tags after it, and no property's colon before;
+	// a block string or block bytes reads its tags itself
+	block := strings.HasPrefix(s, "`") || strings.HasPrefix(s, ">")
+	if _, p := maskTags(s); p > 0 && !block {
 		inline := strings.HasPrefix(s, "{") || strings.HasPrefix(s, "[")
 		if inline || findColonOutsideQuotes(s[:p]) < 0 {
 			scalar, err := parseScalar(stripComment(s), ctx, t.lineNum, t.col)

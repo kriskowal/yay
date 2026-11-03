@@ -276,6 +276,7 @@ public class FixturesGen {
         "string-block-property",
         map("message", "By Grabthar's hammer, we live to tell the tale.\n"));
     FIXTURES.put("string-block-root-hash", "# this is not a comment\nit is content\n");
+    FIXTURES.put("string-block-root-parens", "a (b) c\n");
     FIXTURES.put(
         "string-block-root-next-line",
         "\nI've calculated your chance of survival,\nbut I don't think you'll like it.\n");
