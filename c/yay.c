@@ -3007,6 +3007,13 @@ static yay_value_t *parse_root_object(parse_ctx_t *ctx, size_t *idx) {
         }
         
         if (t->type != TOKEN_TEXT || t->indent != 0) {
+            /* Nothing may stand indented under a property's inline value */
+            if (t->type == TOKEN_TEXT || t->type == TOKEN_START) {
+                ctx->error = make_error(ctx, t->line_num, t->col,
+                                        "Unexpected indent");
+                yay_free(obj);
+                return NULL;
+            }
             (*idx)++;
             continue;
         }
