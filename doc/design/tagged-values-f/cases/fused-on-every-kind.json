@@ -1,1 +1,0 @@
-{"a": {"#tag": "date", "payload": "x"}, "b": {"#tag": "t", "payload": "y"}, "c": {"#tag": "rgb", "payload": "*ff"}, "d": {"#tag": "rgb", "payload": [255, 136, 0]}, "e": {"#tag": "point", "payload": {"x": 1}}, "f": {"#tag": "ms", "payload": 1.5}, "g": {"#tag": "h", "payload": -3}, "h": {"#tag": "us", "payload": 1000.0}, "i": {"#tag": "ms", "payload": 10000}}

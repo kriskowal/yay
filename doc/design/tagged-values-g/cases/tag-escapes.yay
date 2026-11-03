@@ -1,0 +1,6 @@
+a: 1 (a\)b)
+b: 2 (back\\slash)
+c: 3 (tab\there)
+d: 4 (\u{1F600})
+e: 5 (a\/b)
+f: 6 (\n)

@@ -1,0 +1,1 @@
+{"a": {"#tag": "t", "payload": 1}, "b": {"#tag": "b", "payload": {"#tag": "a", "payload": 2}}, "c": {"#tag": "b", "payload": {"#tag": "a", "payload": 3}}}
