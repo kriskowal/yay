@@ -106,6 +106,14 @@ func deepEqual(a, b any) bool {
 		}
 	}
 
+	// Handle Tagged: equal tags and equal payloads
+	if at, ok := a.(Tagged); ok {
+		if bt, ok := b.(Tagged); ok {
+			return at.Tag == bt.Tag && deepEqual(at.Payload, bt.Payload)
+		}
+		return false
+	}
+
 	// Handle []byte
 	if ab, ok := a.([]byte); ok {
 		if bb, ok := b.([]byte); ok {

@@ -51,6 +51,19 @@ Parses YAY-encoded data and returns the result.
 
 Parses YAY-encoded data with a filename for error messages.
 
+### `Tagged{Tag string; Payload any}`
+
+A tagged value, `'X-1' (com.example/sku)` or a block below `key: (tag)`:
+a struct with the tag, a string, and the payload, any value.
+Tagged values are equal when their tags and payloads are
+(`reflect.DeepEqual`, as for any parsed value); a tagged value never equals
+its payload. YAY gives no tag a meaning.
+
+```go
+v, _ := yay.Unmarshal([]byte("count: 10 (s)\n"))
+// map[count:{s 10}]
+```
+
 ## Type Mapping
 
 | YAY Type | Go Type | Notes |
@@ -63,6 +76,7 @@ Parses YAY-encoded data with a filename for error messages.
 | array | `[]any` | |
 | object | `map[string]any` | |
 | bytes | `[]byte` | |
+| tagged | `yay.Tagged` | `Tagged{Tag: tag, Payload: payload}` |
 
 # YAY Format
 
@@ -948,6 +962,8 @@ go test -v
 The test runner uses fixture files from `../test/`.
 Files with `.yay` extension contain YAY input.
 Files with `.go` extension contain expected Go output.
+`tagged_test.go` reads the tagged-value cases of the design, in
+`../doc/design/tagged-values-g/cases/`, until they join the shared corpus.
 
 ## References
 
