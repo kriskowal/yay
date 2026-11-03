@@ -1,8 +1,49 @@
 # Changelog
 
-## binyay 2.1.0
+## binyay 3.0.0
 
-Two additions; nothing is removed or changed in meaning.
+**Breaking:** a Markdown body ends with a newline. Yaydown (`-f yd`) refuses
+a non-empty body without one, and `-t md` and `-t yd` write a `content`
+without a final newline in the front matter, not as the body. Two additions
+come with it: `-s -` and `-b -` read stdin, and npm installs the native
+`yay` as its bin.
+
+**A body ends with a newline.** Before, a body could end without a newline,
+and an object whose `content` lacked one wrote that body as is, so
+`yay [ --content hi ] -t md` wrote the two bytes `hi`. Such a file is easy to
+make by accident and hard to see. Now:
+
+- `-f yd`, and `-f yd --check`, refuse a non-empty body without a final
+  newline, naming the line and the fix: `the content does not end with a
+  newline; end the file with a newline, or put "content" in the front matter
+  as a string`.
+- `-f md` (Mehdown) reads such a body and adds the newline to `content`.
+- `-t md` and `-t yd` write a `content` that ends with a newline as the body,
+  exactly, as before. A non-empty `content` without one stays in the front
+  matter as a quoted string, with or without other properties.
+
+```bash
+yay [ --content hi ] -t md
+# 2.0: hi (no newline)
+# 3.0:
+# ---
+# content: "hi"
+# ---
+
+yay [ --content $'hi\n' ] -t md
+# 2.0 and 3.0: hi, then a newline
+```
+
+The mapping between objects and documents stays exact both ways, and Mehdown
+and Yaydown still read every document Yaydown accepts as the same object. A
+front matter `content` without a final newline now stays in the front matter
+when `-f md -t md` normalizes a document; one with a final newline still
+moves to the body.
+
+Migration: a document that 2.0 read under `-f yd` and 3.0 refuses is fixed
+by adding the final newline (`yay -f md -t yd F` writes it), and that adds
+`\n` to its `content`. A program that writes `content` meant as a body
+should end it with a newline.
 
 **`-s -` and `-b -` read stdin.** In a SHON expression, the path `-` after
 `-s` reads stdin as a UTF-8 string, and after `-b` as raw bytes, so a pipe
@@ -28,10 +69,12 @@ stays, with one warning, and installation still succeeds. `npx binyay` on
 macOS still cannot pass `<(…)`, since npm's own launcher drops the
 descriptor: use `-s -`.
 
-libyay (Rust) is 1.2.0: SHON reading treats `-` as stdin, and gains
-`parse_shon`, which takes any SHON trigger, and `scan_shon`, which counts an
-expression's reads of stdin without reading anything. The other ports have
-no SHON reader, do not change, and stay at 1.1.1.
+libyay (Rust) is 1.2.0, a minor version, since its public interface only
+grows: SHON reading treats `-` as stdin, and gains `parse_shon`, which takes
+any SHON trigger, and `scan_shon`, which counts an expression's reads of
+stdin without reading anything. The final newline is binyay's alone (its
+Markdown reader and writer), so it does not touch libyay. The other ports
+have no SHON reader, do not change, and stay at 1.1.1.
 
 ## binyay 2.0.0
 
