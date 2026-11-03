@@ -2425,9 +2425,14 @@ func parseRootObject(tokens []token, i int, ctx *parseContext) (any, int, error)
 			continue
 		}
 
-		if t.typ != tokenText || t.indent != 0 {
+		if t.typ != tokenText {
 			i++
 			continue
+		}
+
+		// Reject unexpected indented content at root level
+		if t.indent != 0 {
+			return nil, 0, fmt.Errorf("Unexpected indent%s", locSuffix(ctx, t.lineNum, 0))
 		}
 
 		colonIdx := findColonOutsideQuotes(t.text)

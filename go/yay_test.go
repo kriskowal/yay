@@ -73,6 +73,21 @@ func TestErrorCases(t *testing.T) {
 	}
 }
 
+// A line indented under a root property that has an inline value belongs
+// to nothing, and is refused rather than dropped.
+func TestRootIndentUnderInlineValue(t *testing.T) {
+	for _, in := range []string{
+		"enabled: true\n  retries: 3\n",
+		"a: 10\n  - 1\n",
+		"a: 1\nb: \"x\"\n  c: 2\n",
+	} {
+		_, err := Unmarshal([]byte(in))
+		if err == nil || !strings.Contains(err.Error(), "Unexpected indent") {
+			t.Errorf("%q: got %v, want Unexpected indent", in, err)
+		}
+	}
+}
+
 // deepEqual compares two values, handling special cases like NaN and *big.Int
 func deepEqual(a, b any) bool {
 	// Handle NaN
