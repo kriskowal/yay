@@ -336,6 +336,9 @@ public class Yay {
         pos++;
         skipBreaksAndStops();
         Token b = pos < tokens.size() ? tokens.get(pos) : null;
+        if (rest[0].isEmpty() && b != null && b.indent > 0) {
+          throw new YayException("Unexpected indent", filename, b.lineNum + 1, 1);
+        }
         if (rest[0].isEmpty() && b != null && b.indent == 0) {
           if (b.type == TokenType.START) {
             return ensureAtEnd(wrapPrefix(parseMultilineArray(), tags));
@@ -381,6 +384,10 @@ public class Yay {
         Token t = tokens.get(pos);
 
         if (t.type != TokenType.TEXT || t.indent != 0) {
+          // Nothing may stand indented under a root property's value
+          if (t.indent != 0 && (t.type == TokenType.TEXT || t.type == TokenType.START)) {
+            throw new YayException("Unexpected indent", filename, t.lineNum + 1, 1);
+          }
           break;
         }
 
@@ -622,9 +629,16 @@ public class Yay {
       // After a tag: the end, an inline container going on, or one space before another tag, a
       // block or a comment
       char after = i < s.length() ? s.charAt(i) : '\0';
+      if (after == '(') {
+        throw new YayException(
+            "Expected one space before a tag", filename, lineNum + 1, col + i + 1);
+      }
       if (after != '\0' && after != ',' && after != ']' && after != '}' && after != ' ') {
         throw new YayException(
-            "Unexpected character after \")\"", filename, lineNum + 1, col + i + 1);
+            "Unexpected character \"" + Character.toString(s.codePointAt(i)) + "\"",
+            filename,
+            lineNum + 1,
+            col + i + 1);
       }
       if (after == ' '
           && i + 1 < s.length()
@@ -667,6 +681,10 @@ public class Yay {
         int[] end = new int[1];
         tags.add(readTag(s, i, end, lineNum, col));
         i = end[0];
+        if (s.startsWith("  (", i)) {
+          throw new YayException(
+              "Unexpected space before \"(\"", filename, lineNum + 1, col + i + 1);
+        }
         if (i < s.length() && s.charAt(i) == ' ') i++;
       }
       // A comment may follow after more than one space
@@ -739,7 +757,10 @@ public class Yay {
             "Expected one space before a tag", filename, lineNum + 1, col + tagAt + 1);
       }
       if (tagAt > 1 && s.charAt(tagAt - 2) == ' ') {
-        throw new YayException("Unexpected space before \"(\"", filename, lineNum + 1, col + tagAt);
+        // At the first space after the value
+        int at = tagAt - 2;
+        while (at > 0 && s.charAt(at - 1) == ' ') at--;
+        throw new YayException("Unexpected space before \"(\"", filename, lineNum + 1, col + at + 1);
       }
       Object value = parseScalar(s.substring(0, tagAt - 1), lineNum, col);
       int[] end = new int[1];
@@ -1563,8 +1584,9 @@ public class Yay {
         String[] rest = new String[1];
         List<String> tags =
             parsePrefix(valuePart, 0, rest, t.lineNum, t.col + colonIdx + 2);
+        // A block leader, or text after one that the block refuses
         boolean blockLeader =
-            rest[0].equals("`") || (rest[0].startsWith(">") && !rest[0].contains("<"));
+            rest[0].startsWith("`") || (rest[0].startsWith(">") && !rest[0].contains("<"));
         if (!rest[0].isEmpty() && !blockLeader) {
           throw new YayException(
               PREFIX_WITHOUT_BLOCK, filename, t.lineNum + 1, t.col + colonIdx + 3);
