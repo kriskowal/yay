@@ -897,6 +897,9 @@ Files with `.yay` extension contain YAY input.
 Files with `.js` extension contain expected JavaScript output.
 `tagged.test.js` reads the tagged-value cases of the design, in
 `../../doc/design/tagged-values-g/cases/`, until they join the shared corpus.
+`smallcaps.test.js` checks a round trip through Endo's smallcaps encoding
+(`@endo/marshal`), and skips when the dev dependencies are not installed
+(`npm install`).
 
 ## References
 
