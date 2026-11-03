@@ -547,7 +547,9 @@
            "tagged-unclosed-paren"
            "tagged-unclosed-paren-escaped"
            "tagged-unescaped-close-paren"
-           "tagged-unknown-escape")))
+           "tagged-unknown-escape"
+           "tagged-item-property-sibling-item"
+           "tagged-item-property-sibling-property")))
     (for-each
      (lambda (name)
        (let ((nay-path (string-append test-dir "/nay/" name ".nay")))

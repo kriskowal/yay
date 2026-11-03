@@ -1591,6 +1591,21 @@ public class Yay {
           throw new YayException(
               PREFIX_WITHOUT_BLOCK, filename, t.lineNum + 1, t.col + colonIdx + 3);
         }
+        // Below the root, the block must be indented under the key, or be a list at its
+        // column: a sibling item or property after `- a: (t)` is not its block
+        if (rest[0].isEmpty() && t.indent > 0) {
+          int j = pos + 1;
+          while (j < tokens.size()
+              && (tokens.get(j).type == TokenType.BREAK || tokens.get(j).type == TokenType.STOP)) {
+            j++;
+          }
+          if (j >= tokens.size()
+              || tokens.get(j).indent < t.indent
+              || (tokens.get(j).indent == t.indent && tokens.get(j).type != TokenType.START)) {
+            throw new YayException(
+                PREFIX_WITHOUT_BLOCK, filename, t.lineNum + 1, t.col + colonIdx + 3);
+          }
+        }
         value = wrapPrefix(parsePropertyValue(t, colonIdx, rest[0]), tags);
       } else {
         value = parsePropertyValue(t, colonIdx, valuePart);

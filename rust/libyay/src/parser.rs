@@ -2161,6 +2161,18 @@ fn parse_key_value_pair(
         if !prefix_takes(rest) {
             return Err(prefix_without_block(ctx, t.line_num, value_col));
         }
+        // The block must be indented under the key, or be a list at its
+        // column: a sibling item or property after `- a: (t)` is not its block
+        if rest.is_empty() {
+            let j = skip_breaks_and_stops(tokens, i + 1);
+            let key_col = key_column(tokens, i);
+            if j >= tokens.len()
+                || tokens[j].indent < key_col
+                || (tokens[j].indent == key_col && tokens[j].typ != TokenType::Start)
+            {
+                return Err(prefix_without_block(ctx, t.line_num, value_col));
+            }
+        }
         let mut retokened = tokens.to_vec();
         retokened[i].text = if rest.is_empty() {
             format!("{}:", &s[..colon_idx])

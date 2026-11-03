@@ -2859,6 +2859,20 @@ static yay_value_t *parse_object_property_value(parse_ctx_t *ctx, size_t *idx,
             ctx->error = make_error(ctx, t->line_num, v_col, PREFIX_WITHOUT_BLOCK);
             return NULL;
         }
+        /* Below the root, the block must be indented under the key, or be a
+         * list at its column: a sibling item or property after `- a: (t)` is
+         * not its block */
+        int key_col = key_column(ctx, *idx);
+        if (rest[0] == '\0' && key_col > 0) {
+            size_t j = skip_breaks_and_stops(ctx, *idx + 1);
+            if (j >= ctx->token_count || ctx->tokens[j].indent < key_col ||
+                (ctx->tokens[j].indent == key_col &&
+                 ctx->tokens[j].type != TOKEN_START)) {
+                free_tags(tags, count);
+                ctx->error = make_error(ctx, t->line_num, v_col, PREFIX_WITHOUT_BLOCK);
+                return NULL;
+            }
+        }
         yay_value_t *value = parse_object_property_value(ctx, idx, t, rest,
                                                          v_col + (int)(rest - v_part));
         if (!value) {

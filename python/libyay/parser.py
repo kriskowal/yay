@@ -796,12 +796,24 @@ class Parser:
             indent_token = self.peek()
             child_indent = indent_token.value
 
+            next_token = self.peek(1)
+
+            # Under a tag below the root, a sibling item or property is no
+            # block: "- a: (t)" over "- 1" or "  b: 1"
+            if (
+                prefix
+                and key_indent > 0
+                and (
+                    child_indent < key_indent
+                    or (child_indent == key_indent and next_token.kind != "DASH")
+                )
+            ):
+                raise self.error(PREFIX_WITHOUT_BLOCK)
+
             # For named arrays, the array can be at same indent as key
             # e.g., "arrayName:\n- item1\n- item2"
             if child_indent < key_indent:
                 raise self.error("Expected indentation for nested value")
-
-            next_token = self.peek(1)
 
             # Under a tag, only an array may stand at the key's indent
             if prefix and child_indent == key_indent and next_token.kind != "DASH":

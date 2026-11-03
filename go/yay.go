@@ -2185,6 +2185,16 @@ func parseKeyValuePair(tokens []token, i, colonIdx int, ctx *parseContext) (any,
 		if !prefixTakes(rest) {
 			return nil, 0, prefixWithoutBlock(ctx, t.lineNum, valueCol)
 		}
+		// The block must be indented under the key, or be a list at its
+		// column: a sibling item or property after `- a: (t)` is not its block
+		if rest == "" {
+			j := skipBreaksAndStops(tokens, i+1)
+			keyCol := keyColumn(tokens, i)
+			if j >= len(tokens) || tokens[j].indent < keyCol ||
+				(tokens[j].indent == keyCol && tokens[j].typ != tokenStart) {
+				return nil, 0, prefixWithoutBlock(ctx, t.lineNum, valueCol)
+			}
+		}
 		retokened := append([]token(nil), tokens...)
 		if rest == "" {
 			retokened[i].text = s[:colonIdx] + ":"

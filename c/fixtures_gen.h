@@ -1318,6 +1318,8 @@ static error_fixture_t error_fixtures[] = {
     {"tagged_fused_paren_between_tags_strict", "tagged-fused-paren-between-tags-strict.nay", "a: 1 (a)(b)\n", 12, "Expected one space before a tag at 1:9 of <tagged-fused-paren-between-tags-strict.nay>"},
     {"tagged_fused_paren_strict", "tagged-fused-paren-strict.nay", "a: 'X-1'(com.example/sku)\n", 26, "Expected one space before a tag at 1:9 of <tagged-fused-paren-strict.nay>"},
     {"tagged_inline_value_over_block", "tagged-inline-value-over-block.nay", "a: 10 (s)\n  - 1\n", 16, "Unexpected indent at 2:1 of <tagged-inline-value-over-block.nay>"},
+    {"tagged_item_property_sibling_item", "tagged-item-property-sibling-item.nay", "- a: (t)\n- 1\n", 13, "A tag before a value needs a block below it; write the tag after an inline value at 1:4 of <tagged-item-property-sibling-item.nay>"},
+    {"tagged_item_property_sibling_property", "tagged-item-property-sibling-property.nay", "- a: (t)\n  b: 1\n", 16, "A tag before a value needs a block below it; write the tag after an inline value at 1:4 of <tagged-item-property-sibling-property.nay>"},
     {"tagged_misindented_sibling", "tagged-misindented-sibling.nay", "enabled: true\n  retries: 3\n", 27, "Unexpected indent at 2:1 of <tagged-misindented-sibling.nay>"},
     {"tagged_prefix_at_end_of_document", "tagged-prefix-at-end-of-document.nay", "- (rgb)\n", 8, "A tag before a value needs a block below it; write the tag after an inline value at 1:1 of <tagged-prefix-at-end-of-document.nay>"},
     {"tagged_prefix_nested_bullet_sibling", "tagged-prefix-nested-bullet-sibling.nay", "- - (d)\n  - e\n", 14, "A tag before a value needs a block below it; write the tag after an inline value at 1:3 of <tagged-prefix-nested-bullet-sibling.nay>"},
@@ -1362,6 +1364,6 @@ static error_fixture_t error_fixtures[] = {
     {NULL, NULL, NULL, 0, NULL}
 };
 
-#define ERROR_FIXTURE_COUNT 119
+#define ERROR_FIXTURE_COUNT 121
 
 #endif /* FIXTURES_GEN_H */

@@ -1735,17 +1735,26 @@
                    ((string=? value-part "")
                     (parser-advance! p)
                     (parser-skip-breaks! p)
-                    (let ((next (parser-peek p)))
+                    ;; Under tags, the block must be indented under the
+                    ;; key, or be a list at its column: a sibling item or
+                    ;; property after "- a: (t)" is not its block
+                    (let ((next (parser-peek p))
+                          (tagged (pair? pending)))
                       (cond
                        ((and next (eq? (token-type next) 'start)
-                             (string=? (token-text next) "-"))
+                             (string=? (token-text next) "-")
+                             (or (not tagged)
+                                 (>= (token-indent next) sibling-indent)))
                         (let ((arr (parse-list-array-impl p (token-indent next))))
                           (loop (cons (cons key arr) pairs))))
                        ((and next (eq? (token-type next) 'text)
-                             (> (token-indent next) current-indent))
+                             (> (token-indent next)
+                                (if tagged sibling-indent current-indent)))
                         (let ((obj (parse-object-block p (token-indent next))))
                           (loop (cons (cons key obj) pairs))))
                        ;; Empty value is always an error
+                       (tagged
+                        (yay-error prefix-without-block))
                        (else
                         (yay-error "Expected value after property")))))
                    ;; Empty object
