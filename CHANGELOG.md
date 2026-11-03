@@ -14,8 +14,15 @@ payload is innermost. YAY has exactly one space before each tag; MEH accepts
 any number, or none, so `yay -f meh -t yay` normalizes tags and
 `yay --check -t yay` flags them. YAY gives no tag a meaning and names no
 tags. SHON gains `-T tag value`. `-t json` writes a tagged value as the
-smallcaps object; YAML, TOML and CBOR refuse one. On this branch the Rust
-`libyay` and binyay carry tags; the other ports follow.
+smallcaps object; YAML, TOML and CBOR refuse one.
+
+Every port reads tagged values, as the model its language suits: `Value::Tagged`
+in Rust, a frozen `tagged(tag, payload)` in JavaScript, `yay.Tagged` in Go, a
+frozen dataclass `Tagged` in Python, a record `Tagged` in Java, `YAY_TAGGED`
+in C and a record `tagged` in Scheme, and `yay -t js`, `-t go`, `-t python`,
+`-t java`, `-t c` and `-t scheme` write code that builds it. All seven read
+the same shared cases and refuse the same malformed tags. The Rust and Python
+ports also write tags; only Rust has a SHON reader and a YSON codec.
 
 **Breaking: YSON follows smallcaps.** A tagged value is
 `{"#tag": tag, "payload": value}`. An integer is `"+42"` or `"-7"`, not
@@ -96,12 +103,31 @@ stays, with one warning, and installation still succeeds. `npx binyay` on
 macOS still cannot pass `<(…)`, since npm's own launcher drops the
 descriptor: use `-s -`.
 
-libyay (Rust) is 1.2.0, a minor version, since its public interface only
-grows: SHON reading treats `-` as stdin, and gains `parse_shon`, which takes
-any SHON trigger, and `scan_shon`, which counts an expression's reads of
-stdin without reading anything. The final newline is binyay's alone (its
-Markdown reader and writer), so it does not touch libyay. The other ports
-have no SHON reader, do not change, and stay at 1.1.1.
+**Versions.** Each library that gains tagged values gains a new kind of
+value, which breaks code that handles every kind (an exhaustive `match` over
+Rust's `Value`, which is not `#[non_exhaustive]`), so each is a major
+version:
+
+| Package | 2.0.0 release | 3.0.0 release |
+|---------|---------------|---------------|
+| binyay (crate, npm and its platform packages) | 2.0.0 | 3.0.0 |
+| libyay (Rust crate) | 1.1.1 | 2.0.0 |
+| libyay (npm) | 1.1.1 | 2.0.0 |
+| libyay (Python) | 1.1.1 | 2.0.0 |
+| yay (Java, `com.kriskowal:yay`) | 1.1.1 | 2.0.0 |
+
+The Go, C and Scheme ports carry no version of their own: they are released
+with the repository's tag.
+
+The Rust `libyay` also gains, for SHON: `-` as stdin, `-T`, `parse_shon`,
+which takes any SHON trigger, and `scan_shon`, which counts an expression's
+reads of stdin without reading anything. The final newline is binyay's alone
+(its Markdown reader and writer), so it does not touch libyay.
+
+**Not yet proved.** The native `bin/yay` install was tested on Linux only,
+with packages packed from this release and installed into a scratch prefix.
+The case it exists for, a global install on macOS, waits on a check on a Mac.
+Windows keeps the Node wrapper and is not tested.
 
 ## binyay 2.0.0
 
