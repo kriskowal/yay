@@ -15,7 +15,7 @@ value do not cascade changes into the next or prior line.
 YAY has fewer surprising misfeatures than YAML.
 
 The root document may be any of the value types (null, big integer, float,
-boolean, string, array, object, or bytes).
+boolean, string, array, object, bytes, or tagged).
 The root may use the multi-line form for values that support it: string,
 object, array and byte array.
 
@@ -913,6 +913,36 @@ data: <b0b5c0ffeefacade>
   "data": Uint8Array.from([0xb0, 0xb5, 0xc0, 0xff, 0xee, 0xfa, 0xca, 0xde]),
 })
 ```
+
+## Tagged Values
+
+A tagged value is a tag, which is any string, and one payload, which is any
+value.
+The tag is written in parentheses: after an inline value with one space, or
+before a block where the block is introduced.
+Inside the parentheses the tag reads as a double-quoted string does, with
+`\)` for a `)` in the tag.
+With several tags, the one nearest the payload is innermost.
+YAY gives no tag a meaning: what a tag means is up to the document and its
+schema.
+
+```yay
+count: 10 (s)
+color: <ff8800ff> (rgba)
+sku: 'X-1' (com.example/sku)
+odd: 3 (a\)b)
+when: '2026-11-03T05:00:00Z' (datetime) (utc)
+point: (point)
+  x: 1
+  y: 2
+- (outer) (inner)
+  name: 'x'
+```
+
+YAY writes exactly one space before each tag.
+MEH accepts any number of spaces, or none, so `yay -f meh -t yay`
+normalizes `'X-1'(sku)` to `'X-1' (sku)`.
+See [GRAMMAR.md](GRAMMAR.md#tagged-values) for the details.
 
 # Encoding And Text
 

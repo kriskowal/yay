@@ -92,12 +92,16 @@ comment-line = "#" { char - LF } LF ;
 blank-line   = LF ;
 
 root-value   = root-object⟨0⟩
-             | value⟨0⟩ ;
+             | value⟨0⟩
+             | prefix [ inline-comment ] LF root-object⟨0⟩
+             | prefix [ inline-comment ] LF value⟨0⟩ ;
 ```
 
 The parser tries `root-object` first: if the first non-blank, non-comment
-line at indent 0 contains a colon (outside quotes) and does not start with
-`{`, the document is a root object.
+line at indent 0 contains a colon (outside quotes and outside a tag's
+parentheses) and does not start with `{`, the document is a root object.
+A tag alone on the first content line, `(tag)`, tags the root block below it,
+which begins at column 0 on the next line.
 Otherwise it is parsed as a single value.
 No content may follow the root value (after skipping trailing blank lines).
 
@@ -117,6 +121,10 @@ value⟨n⟩ = null
          | inline-object
          | block-array⟨n⟩ ;
 ```
+
+Each single-line alternative (the scalars, `inline-string`, `inline-bytes`,
+`inline-array` and `inline-object`) may be followed by a `suffix` of tags,
+before any inline comment (see [Tagged Values](#tagged-values)).
 
 Note: block objects do not appear here because they are only valid as
 the value of a property or as the root document.
@@ -417,7 +425,13 @@ item-value⟨n⟩ = inline-value
               | block-bytes-open⟨n+2⟩
               | nested-bullet⟨n+2⟩
               | key-value-then-object⟨n+2⟩
+              | prefix SP block-string-open⟨n+2⟩
+              | prefix SP block-bytes-open⟨n+2⟩
+              | prefix [ inline-comment ] LF item-content⟨n⟩
               | /* empty: nested content on subsequent lines at indent > n */ ;
+
+item-content⟨n⟩ = /* nested content on subsequent lines at indent > n,
+                     as an empty item takes */ ;
 ```
 
 When the value is empty after `"- "`, the item's value comes from subsequent
@@ -488,7 +502,10 @@ property-value⟨n⟩ = SP inline-value [ inline-comment ]
                    | SP block-string-prop⟨n⟩
                    | SP block-bytes-prop⟨n⟩
                    | SP "{}" [ inline-comment ]
-                   | [ inline-comment ] LF nested-content⟨n⟩ ;
+                   | [ inline-comment ] LF nested-content⟨n⟩
+                   | SP prefix SP block-string-prop⟨n⟩
+                   | SP prefix SP block-bytes-prop⟨n⟩
+                   | SP prefix [ inline-comment ] LF nested-content⟨n⟩ ;
 ```
 
 When the value is absent after the colon, the property's value is determined
@@ -525,7 +542,9 @@ No space is permitted before the colon in a property.
 Inline values are the subset of values permitted inside `[...]` and `{...}`:
 
 ```
-inline-value = null
+inline-value = inline-atom suffix ;
+
+inline-atom  = null
              | boolean
              | inline-integer
              | inline-float
@@ -550,6 +569,83 @@ inline-exponent = "e" [ "+" | "-" ] digit { digit } ;
 
 Digit-grouping spaces are not allowed in inline numbers because the space
 would be ambiguous with the comma separator.
+
+## Tagged Values
+
+A tagged value is a tag, which is a string, and one payload, which is any
+value. A tag is always written in parentheses: after an inline value, one
+space and then the tag; before a block, the tag where the block is
+introduced, with the block below.
+
+```
+tag         = "(" { tag-char } ")" ;
+tag-char    = tag-literal | tag-escape ;
+tag-literal = char - LF - TAB - ")" - "\" ;
+tag-escape  = "\)" | "\\" | "\/" | "\b" | "\f"
+            | "\n" | "\r" | "\t"
+            | unicode-escape ;
+
+suffix      = { tag-space tag } ;            /* innermost first */
+prefix      = tag { tag-space tag } ;        /* outermost first */
+tag-space   = SP ;                           /* YAY; MEH: { SP } */
+```
+
+Inside the parentheses a tag reads as a double-quoted string does, with `(`
+and `)` for its quotes and `\)` in the place of `\"`. `()` is the empty
+tag, and spaces are literal anywhere, at the edges included. A tab, a line
+break and an unknown escape are refused; `\(` and `\"` are unknown escapes,
+since `(` and `"` need none. `unicode-escape` refuses surrogates and code
+points above U+10FFFF as it does in a string.
+
+**Inline.** Every inline value takes a suffix, inside inline arrays and
+objects too:
+
+```yay
+count: 10 (s)
+color: <ff8800ff> (rgba)
+sku: 'X-1' (com.example/sku)
+odd: 3 (a\)b)
+pair: [1 (x), 'y' (z)]
+```
+
+After a suffix, the next character is the end of the line, `,`, `]`, `}`,
+or the two spaces of an inline comment, so `1 (t)s` and `3 (a)b)` are
+refused.
+
+**Before a block.** `key: (tag)`, `- (tag)` and, at the root, `(tag)` alone
+on the first content line introduce a tagged block: an object, an array, a
+concatenated string of two or more quoted lines, a block string or block
+bytes. A comment may follow the tags.
+
+```yay
+color: (rgb)
+  - 255
+  - 136
+  - 0
+doc: (markdown) `
+  Some *text*.
+- (outer) (inner)
+  name: 'x'
+```
+
+An inline value never takes a prefix (`a: (rgb) [255, 136, 0]` is
+refused), a prefix with no block below is refused, and a prefix over a
+single quoted line is refused, as `key:` over one quoted line is.
+
+**Several tags.** The tag nearest the payload is innermost, both ways:
+`'x' (a) (b)` is `b` around `a` around `'x'`, and `- (outer) (inner)` is
+`outer` around `inner` around the block.
+
+**Spacing.** In YAY there is exactly one space between a value and its tag
+and between two tags. MEH accepts any run of spaces, or none, in those
+places: `'X-1'(sku)`, `1(a)(b)`, `1   (t)`.
+
+**Normal form.** The writer puts one space before each tag, writes a tag's
+characters as they are but `)` as `\)`, `\` as `\\` and the control
+characters as the double-quoted writer escapes them, and uses the block
+form exactly when it would write the payload as a block in that position.
+
+YAY gives no tag a meaning. Tag names in these examples are examples.
 
 ## Comments
 
@@ -580,12 +676,13 @@ Comments are never recognized inside block strings.
 | After `:` (with value) | Exactly one space |
 | After `:` (no value) | Nothing before LF |
 | After `-` in list marker | Always `"- "` (dash + space) |
+| Before a tag | Exactly one space (MEH: any, or none) |
 | Digit grouping | Space between digits only |
 | BOM (U+FEFF) | Forbidden |
 
 ## Data Model
 
-YAY defines eight value types:
+YAY defines nine value types:
 
 | Type | Description |
 |------|-------------|
@@ -597,6 +694,7 @@ YAY defines eight value types:
 | Bytes | Arbitrary byte sequence |
 | Array | Ordered sequence of values |
 | Object | Unordered map from string keys to values |
+| Tagged | A tag (a string) and one payload (any value) |
 
 Object keys are always strings.
 Object key order is not significant; implementations may enumerate keys in
