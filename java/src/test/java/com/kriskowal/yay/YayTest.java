@@ -74,6 +74,16 @@ public class YayTest {
     assertArrayEquals(new byte[] {(byte) 0xca, (byte) 0xfe}, bytes);
   }
 
+  @Test
+  void testBlockBytesBelowListItem() {
+    Object v = Yay.parse("- > 89 50\n  4e 47\n- 1\n");
+    assertTrue(v instanceof List);
+    List<?> list = (List<?>) v;
+    assertEquals(2, list.size());
+    assertArrayEquals(new byte[] {(byte) 0x89, 0x50, 0x4e, 0x47}, (byte[]) list.get(0));
+    assertEquals(BigInteger.ONE, list.get(1));
+  }
+
   @TestFactory
   Stream<DynamicTest> testAllYayFixtures() throws IOException {
     if (!Files.exists(YAY_DIR)) {

@@ -714,6 +714,14 @@ public class Yay {
     }
 
     private byte[] parseBlockBytes(String firstLine, int baseIndent) {
+      return parseBlockBytes(firstLine, baseIndent, -1);
+    }
+
+    /**
+     * Parse block bytes. On a list item's line, itemIndent is the item's indent, and the block
+     * goes on below at any deeper indent.
+     */
+    private byte[] parseBlockBytes(String firstLine, int baseIndent, int itemIndent) {
       Token first = tokens.get(pos);
       int firstLineNum = first.lineNum;
       int firstCol = first.col;
@@ -746,6 +754,12 @@ public class Yay {
             line = line.substring(0, h);
           }
           hex.append(line.replaceAll("\\s", "").toLowerCase());
+          pos++;
+        } else if (itemIndent >= 0
+            && t.type == TokenType.STOP
+            && pos + 1 < tokens.size()
+            && tokens.get(pos + 1).type == TokenType.TEXT
+            && tokens.get(pos + 1).indent > itemIndent) {
           pos++;
         } else {
           break;
@@ -850,6 +864,11 @@ public class Yay {
             } else if (next.type == TokenType.TEXT && findColonOutsideQuotes(next.text) > 0) {
               // Object inside array item - parse all key-value pairs at this indent level
               items.add(parseObjectInArrayItem(listItemIndent));
+            } else if (next.type == TokenType.TEXT
+                && next.text.startsWith(">")
+                && !next.text.contains("<")) {
+              // Block bytes on the item's line, going on below it
+              items.add(parseBlockBytes(next.text, -1, listItemIndent));
             } else {
               items.add(parseValue());
             }
