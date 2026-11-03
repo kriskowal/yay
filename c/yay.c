@@ -904,6 +904,14 @@ static yay_value_t *parse_double_quoted_string(parse_ctx_t *ctx, const char *s,
 #define PREFIX_WITHOUT_BLOCK \
     "A tag before a value needs a block below it; write the tag after an inline value"
 
+/* The length of the UTF-8 sequence a lead byte begins */
+static int utf8_len(unsigned char c) {
+    if (c >= 0xF0) return 4;
+    if (c >= 0xE0) return 3;
+    if (c >= 0xC0) return 2;
+    return 1;
+}
+
 static void append_utf8(char *buf, size_t *n, uint32_t cp) {
     if (cp < 0x80) {
         buf[(*n)++] = (char)cp;
@@ -1006,10 +1014,17 @@ static char *read_tag(parse_ctx_t *ctx, const char *s, size_t *consumed,
     /* After a tag: the end, an inline container going on, or one space
      * before another tag, a block or a comment */
     char after = s[i];
+    if (after == '(') {
+        ctx->error = make_error(ctx, line_num, col + (int)i,
+                                "Expected one space before a tag");
+        free(buf);
+        return NULL;
+    }
     if (after != '\0' && after != ',' && after != ']' && after != '}' &&
         after != ' ') {
         ctx->error = make_error(ctx, line_num, col + (int)i,
-                                "Unexpected character after \")\"");
+                                "Unexpected character \"%.*s\"",
+                                utf8_len((unsigned char)after), s + i);
         free(buf);
         return NULL;
     }
@@ -1055,6 +1070,8 @@ static yay_value_t *parse_suffix(parse_ctx_t *ctx, yay_value_t *value,
 /* Read the tags before a block, outermost first, at s, which begins with
  * "(". Returns the count, the tags in *tags_out, and *rest after them and
  * the one space that follows; -1 with ctx->error set on a bad tag. */
+static void free_tags(char **tags, int count);
+
 static int parse_prefix(parse_ctx_t *ctx, const char *s, char ***tags_out,
                         const char **rest, int line_num, int col) {
     char **tags = NULL;
@@ -1071,6 +1088,12 @@ static int parse_prefix(parse_ctx_t *ctx, const char *s, char ***tags_out,
         tags = realloc(tags, sizeof(char *) * (size_t)(count + 1));
         tags[count++] = tag;
         i += n;
+        if (s[i] == ' ' && s[i + 1] == ' ' && s[i + 2] == '(') {
+            ctx->error = make_error(ctx, line_num, col + (int)i,
+                                    "Unexpected space before \"(\"");
+            free_tags(tags, count);
+            return -1;
+        }
         if (s[i] == ' ') i++;
     }
     /* A comment may follow after more than one space */
@@ -2697,7 +2720,10 @@ static yay_value_t *parse_scalar(parse_ctx_t *ctx, const char *s,
         return NULL;
     }
     if (tag_at > 1 && s_copy[tag_at - 2] == ' ') {
-        ctx->error = make_error(ctx, line_num, col + tag_at - 1,
+        /* At the first space after the value */
+        int at = tag_at - 2;
+        while (at > 0 && s_copy[at - 1] == ' ') at--;
+        ctx->error = make_error(ctx, line_num, col + at,
                                 "Unexpected space before \"(\"");
         free(s_copy);
         return NULL;
@@ -2745,9 +2771,9 @@ static yay_value_t *parse_scalar_impl(parse_ctx_t *ctx, const char *s,
     if (s[0] == '"') {
         size_t slen = strlen(s);
         if (slen < 2 || s[slen-1] != '"') {
-            /* Unterminated string - report at end of string */
-            ctx->error = make_error(ctx, line_num, col + (int)(slen > 0 ? slen - 1 : 0),
-                                   "Unterminated string");
+            /* Text after the string, or no closing quote */
+            ctx->error = make_error(ctx, line_num, col,
+                                    "Unexpected character \"%c\"", s[0]);
             return NULL;
         }
         return parse_double_quoted_string(ctx, s, line_num, col);
@@ -2757,9 +2783,9 @@ static yay_value_t *parse_scalar_impl(parse_ctx_t *ctx, const char *s,
     if (s[0] == '\'') {
         size_t slen = strlen(s);
         if (slen < 2 || s[slen-1] != '\'') {
-            /* Unterminated string - report at end of string */
-            ctx->error = make_error(ctx, line_num, col + (int)(slen > 0 ? slen - 1 : 0),
-                                   "Unterminated string");
+            /* Text after the string, or no closing quote */
+            ctx->error = make_error(ctx, line_num, col,
+                                    "Unexpected character \"%c\"", s[0]);
             return NULL;
         }
         return parse_single_quoted_string(s);
@@ -2825,7 +2851,8 @@ static yay_value_t *parse_object_property_value(parse_ctx_t *ctx, size_t *idx,
         int count = parse_prefix(ctx, v_part, &tags, &rest, t->line_num, v_col);
         if (count < 0) return NULL;
         if (rest[0] == '#') rest = "";
-        bool block_leader = strcmp(rest, "`") == 0 ||
+        /* A block leader, or text after one that the block refuses */
+        bool block_leader = rest[0] == '`' ||
                             (rest[0] == '>' && !strchr(rest, '<'));
         if (rest[0] != '\0' && !block_leader) {
             free_tags(tags, count);
@@ -3506,7 +3533,7 @@ static yay_value_t *parse_root_object(parse_ctx_t *ctx, size_t *idx) {
         if (t->type != TOKEN_TEXT || t->indent != 0) {
             /* Nothing may stand indented under a property's inline value */
             if (t->type == TOKEN_TEXT || t->type == TOKEN_START) {
-                ctx->error = make_error(ctx, t->line_num, t->col,
+                ctx->error = make_error(ctx, t->line_num, 0,
                                         "Unexpected indent");
                 yay_free(obj);
                 return NULL;
@@ -3586,6 +3613,11 @@ static yay_value_t *parse_root(parse_ctx_t *ctx) {
         int col = t->col;
         i = skip_breaks_and_stops(ctx, i + 1);
         t = i < ctx->token_count ? &ctx->tokens[i] : NULL;
+        if (rest[0] == '\0' && t && t->indent > 0) {
+            free_tags(tags, tag_count);
+            ctx->error = make_error(ctx, t->line_num, 0, "Unexpected indent");
+            return NULL;
+        }
         if (rest[0] != '\0' || !t || t->indent != 0 ||
             !((t->type == TOKEN_START && strcmp(t->text, "- ") == 0) ||
               (t->type == TOKEN_TEXT && t->text[0] != '{' &&
