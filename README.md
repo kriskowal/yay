@@ -991,7 +991,13 @@ A document containing only comments (no value) is invalid.
 
 YSON is a strict superset of JSON that preserves all YAY value types through a
 simple prefix convention.
-YSON is itself a subset of the [Endo SmallCaps](https://endojs.org) encoding.
+YSON is [Endo's smallcaps](https://endojs.org) encoding: `@endo/marshal`
+decodes YAY's YSON and writes it back as the same text.
+Bytes are written `"*<hex>"`, the form
+[endojs/endo#2871](https://github.com/endojs/endo/pull/2871) gives
+byteArrays, which `@endo/marshal` 1.10.0 does not yet decode.
+A reference names its slot by URI, not by index, so it decodes through the
+JavaScript port's CapData bridge (`ysonToCapData`).
 Standard JSON cannot represent big integers (only IEEE 754 doubles), byte
 arrays, or the special float values `infinity`, `-infinity`, and `nan`.
 YSON fills the gap by encoding these types as prefixed strings:

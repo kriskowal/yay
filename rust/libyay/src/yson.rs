@@ -4,7 +4,10 @@
 //! byte arrays in strings using a prefix to multiplex the string behavior,
 //! without altering strings unless they have a symbol prefix.
 //!
-//! YSON is itself a subset of the Endo SmallCaps encoding (<https://endojs.org>).
+//! YSON is Endo's smallcaps encoding (<https://endojs.org>). Bytes are written
+//! `"*<hex>"`, the form endojs/endo#2871
+//! (<https://github.com/endojs/endo/pull/2871>) gives byteArrays, which
+//! `@endo/marshal` 1.10.0 does not yet decode.
 //!
 //! Encoding:
 //! - BigInt: `"+12345678901234567890"`, `"-7"` (sign + decimal)

@@ -76,6 +76,14 @@ echo 42 | yay -t yson
 # 3.0: "+42"
 ```
 
+**YSON is smallcaps.** `@endo/marshal`'s smallcaps decodes the YSON
+`yay -t yson` writes, tagged values and the `!` escapes included, and
+writes it back as the same text; the JavaScript port's tests run live
+binyay output through it, in CI. Bytes are written `"*<hex>"`, the form
+[endojs/endo#2871](https://github.com/endojs/endo/pull/2871) gives
+byteArrays, which `@endo/marshal` 1.10.0 does not yet decode. A reference
+decodes through the CapData bridge, which gives its URI a slot.
+
 **Breaking:** a Markdown body ends with a newline. Yaydown (`-f yd`) refuses
 a non-empty body without one, and `-t md` and `-t yd` write a `content`
 without a final newline in the front matter, not as the body. Two additions

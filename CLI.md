@@ -127,7 +127,9 @@ echo '"ff8800" (rgb)' | yay -t yson | yay -f yson -t yay
 
 YSON is JSON extended with YAY features (big integers, byte arrays, special
 float values).
-YSON is itself a subset of the [Endo SmallCaps](https://endojs.org) encoding.
+YSON is [Endo's smallcaps](https://endojs.org) encoding. Bytes are written
+`"*<hex>"`, the form [endojs/endo#2871](https://github.com/endojs/endo/pull/2871)
+gives byteArrays, which `@endo/marshal` 1.10.0 does not yet decode.
 
 ```bash
 yay -t yson input.yay

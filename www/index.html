@@ -1076,7 +1076,10 @@ YSON fills the gap by encoding these as prefixed strings:</p>
 
 <p>A YSON document is always valid JSON, so any JSON parser can read it.
 A YSON-aware reader recovers the original YAY types.
-YSON is itself a subset of the <a href="https://endojs.org">Endo SmallCaps</a> encoding.</p>
+YSON is <a href="https://endojs.org">Endo's smallcaps</a> encoding.
+Bytes are written <code>"*&lt;hex&gt;"</code>, the form
+<a href="https://github.com/endojs/endo/pull/2871">endojs/endo#2871</a> gives
+byteArrays, which <code>@endo/marshal</code> 1.10.0 does not yet decode.</p>
 
 <pre><code>yay -t yson config.yay        <span class="c"># YAY → YSON</span>
 yay -f yson config.yson       <span class="c"># YSON → YAY</span></code></pre>
