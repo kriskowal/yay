@@ -195,7 +195,7 @@
      ("a: <https://x\n" "Unmatched angle bracket")
      ("a: <https://x>(t)\n" "Expected one space before a tag")
      ("a: <https://x>rgb\n" "Unexpected character \"r\"")
-     ("<https://x>: 1\n" "Invalid key"))))
+     ("<https://x>: 1\n" "Unexpected character \":\""))))
 
 (define (test-parse)
   (check (yay-equal? (parse-yay "<ocapn://a.tcp> (Counter)\n")

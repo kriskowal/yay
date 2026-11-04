@@ -1001,7 +1001,8 @@ static yay_value_t *parse_whole_reference(parse_ctx_t *ctx, const char *s,
     if (!ref) return NULL;
     if (s[n] != '\0') {
         if (s[n] == ':') {
-            ctx->error = make_error(ctx, line_num, col, "Invalid key");
+            ctx->error = make_error(ctx, line_num, col + (int)n,
+                                   "Unexpected character \":\"");
         } else {
             ctx->error = make_error(ctx, line_num, col + (int)n,
                                     "Unexpected character \"%c\"", s[n]);
@@ -2795,6 +2796,7 @@ static yay_value_t *parse_angle_bytes(parse_ctx_t *ctx, const char *s,
     /* Extract hex, removing spaces, and validate hex digits */
     char *hex = malloc(len);
     size_t hex_len = 0;
+    bool bad = false;
     
     for (size_t i = 1; i < len - 1; i++) {
         if (s[i] != ' ') {
@@ -2806,11 +2808,9 @@ static yay_value_t *parse_angle_bytes(parse_ctx_t *ctx, const char *s,
                 free(hex);
                 return NULL;
             }
-            /* Validate hex digit */
+            /* Count a non-hex digit; refuse it after the length, as Rust does */
             if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) {
-                ctx->error = make_error(ctx, line_num, col, "Invalid hex digit");
-                free(hex);
-                return NULL;
+                bad = true;
             }
             hex[hex_len++] = c;
         }
@@ -2820,6 +2820,11 @@ static yay_value_t *parse_angle_bytes(parse_ctx_t *ctx, const char *s,
     if (hex_len % 2 != 0) {
         ctx->error = make_error(ctx, line_num, col,
                                "Odd number of hex digits in byte literal");
+        free(hex);
+        return NULL;
+    }
+    if (bad) {
+        ctx->error = make_error(ctx, line_num, col, "Invalid hex digit");
         free(hex);
         return NULL;
     }
@@ -3229,9 +3234,10 @@ static bool validate_object_property(parse_ctx_t *ctx, const char *text,
         return false;
     }
     
-    /* A reference is never a key */
+    /* A reference is never a key: the colon after it is stray */
     if (is_reference_start(text)) {
-        ctx->error = make_error(ctx, line_num, col, "Invalid key");
+        ctx->error = make_error(ctx, line_num, col + colon_idx,
+                               "Unexpected character \":\"");
         return false;
     }
     

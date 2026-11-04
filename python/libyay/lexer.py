@@ -327,6 +327,7 @@ class Lexer:
             self.current_line_indent if hasattr(self, "current_line_indent") else 0
         )
         hex_chars = []
+        bad = False
 
         # Read first line (after > or > )
         while self.peek() and self.peek() not in "\n":
@@ -344,7 +345,9 @@ class Lexer:
                     "Uppercase hex digit (use lowercase)", self.line, self.col
                 )
             else:
-                raise self.error(f"Invalid character in byte array: {ch!r}")
+                # Counted, then refused after the odd-length check, as Rust does
+                bad = True
+                hex_chars.append(self.advance())
 
         if self.peek() == "\n":
             self.advance()
@@ -395,7 +398,8 @@ class Lexer:
                         "Uppercase hex digit (use lowercase)", self.line, self.col
                     )
                 else:
-                    raise self.error(f"Invalid character in byte array: {ch!r}")
+                    bad = True
+                    hex_chars.append(self.advance())
 
             if self.peek() == "\n":
                 self.advance()
@@ -404,6 +408,8 @@ class Lexer:
         hex_str = "".join(hex_chars)
         if len(hex_str) % 2 != 0:
             raise self.error("Odd number of hex digits in byte literal")
+        if bad:
+            raise YaySyntaxError("Invalid hex digit", start_line, start_col)
 
         try:
             value = bytes.fromhex(hex_str)
@@ -910,7 +916,22 @@ class Lexer:
                     )
                     continue
                 else:
-                    raise self.error(f"Invalid character after '<': {next_ch!r}")
+                    # Neither a reference nor bytes: refused as the Rust port
+                    # refuses it, reading the rest of the line as bytes
+                    end = self.source.find("\n", self.pos)
+                    text = self.source[self.pos : end if end >= 0 else None]
+                    text = text.split("#", 1)[0].rstrip(" ")
+                    if not text.endswith(">"):
+                        raise YaySyntaxError(
+                            "Unmatched angle bracket", self.line, start_col
+                        )
+                    if len("".join(text[:-1].split())) % 2 != 0:
+                        raise YaySyntaxError(
+                            "Odd number of hex digits in byte literal",
+                            self.line,
+                            start_col,
+                        )
+                    raise YaySyntaxError("Invalid hex digit", self.line, start_col)
 
             # Number (starts with digit, dot, or minus followed by digit/dot)
             if ch.isdigit() or ch == ".":

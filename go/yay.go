@@ -1799,6 +1799,11 @@ func parseAngleBytes(s string, ctx *parseContext, lineNum, col int) ([]byte, err
 		return nil, fmt.Errorf("Unmatched angle bracket%s", locSuffix(ctx, lineNum, col))
 	}
 
+	// Check for space after <
+	if s[1] == ' ' {
+		return nil, fmt.Errorf("Unexpected space after \"<\"%s", locSuffix(ctx, lineNum, col+1))
+	}
+
 	inner := s[1 : len(s)-1]
 
 	// Check for uppercase hex digits before lowercasing
@@ -2375,6 +2380,11 @@ func validateUnquotedKey(s string, ctx *parseContext, lineNum, col int) error {
 	if (strings.HasPrefix(s, "\"") && strings.HasSuffix(s, "\"")) ||
 		(strings.HasPrefix(s, "'") && strings.HasSuffix(s, "'")) {
 		return nil
+	}
+
+	// A reference or bytes is a value, never a key: the colon is stray
+	if strings.HasPrefix(s, "<") && strings.HasSuffix(s, ">") {
+		return fmt.Errorf("Unexpected character \":\"%s", locSuffix(ctx, lineNum, col+len(s)))
 	}
 
 	// Unquoted key: validate each character
@@ -3282,9 +3292,6 @@ func parseWholeReference(s string, ctx *parseContext, lineNum, col int) (Referen
 		return "", err
 	}
 	if rest := s[n:]; rest != "" {
-		if rest[0] == ':' {
-			return "", fmt.Errorf("Invalid key%s", locSuffix(ctx, lineNum, col))
-		}
 		return "", fmt.Errorf("Unexpected character \"%c\"%s", rest[0], locSuffix(ctx, lineNum, col+n))
 	}
 	return ref, nil

@@ -541,6 +541,12 @@ function splitKeyValue(s, sCol, ctx, lineNum, inlineCol) {
     if (keyRaw.length === 0) {
       throw new Error("Missing key" + locSuffix(ctx, lineNum, sCol + colonIdx));
     }
+    if (keyRaw.startsWith("<") && keyRaw.endsWith(">")) {
+      // A reference or bytes is a value, never a key: the colon is stray.
+      throw new Error(
+        'Unexpected character ":"' + locSuffix(ctx, lineNum, sCol + colonIdx),
+      );
+    }
     for (let i = 0; i < keyRaw.length; i++) {
       const c = keyRaw[i];
       const isAlpha = (c >= "a" && c <= "z") || (c >= "A" && c <= "Z");

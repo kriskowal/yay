@@ -978,6 +978,11 @@ public class Yay {
 
       int end = s.indexOf('>');
 
+      // Check for space after <
+      if (s.length() > 1 && s.charAt(1) == ' ') {
+        throw new YayException("Unexpected space after \"<\"", filename, lineNum + 1, col + 2);
+      }
+
       // Check for space before >
       if (end > 1 && s.charAt(end - 1) == ' ') {
         throw new YayException("Unexpected space before \">\"", filename, lineNum + 1, col + end);
@@ -1060,7 +1065,7 @@ public class Yay {
       String hexStr = hex.toString();
       if (hexStr.length() % 2 != 0) {
         throw new YayException(
-            "Odd number of hex digits", filename, firstLineNum + 1, firstCol + 1);
+            "Odd number of hex digits in byte literal", filename, firstLineNum + 1, firstCol + 1);
       }
 
       return hexToBytes(hexStr, firstLineNum, firstCol);
@@ -1097,7 +1102,7 @@ public class Yay {
       String hexStr = hex.toString();
       if (hexStr.length() % 2 != 0) {
         throw new YayException(
-            "Odd number of hex digits", filename, first.lineNum + 1, first.col + 1);
+            "Odd number of hex digits in byte literal", filename, first.lineNum + 1, first.col + 1);
       }
 
       return hexToBytes(hexStr, first.lineNum, first.col);
@@ -1578,8 +1583,9 @@ public class Yay {
       } else if (key.startsWith("'") && key.endsWith("'")) {
         key = parseSingleQuotedString(key);
       } else if (isReferenceStart(key, 0)) {
-        // A reference is never a key
-        throw new YayException("Invalid key", filename, t.lineNum + 1, t.col + 1);
+        // A reference is never a key: the colon after it is stray
+        throw new YayException(
+            "Unexpected character \":\"", filename, t.lineNum + 1, t.col + key.length() + 1);
       } else {
         // Validate unquoted key characters (alphanumeric, underscore, hyphen)
         for (int i = 0; i < key.length(); i++) {
@@ -1849,7 +1855,7 @@ public class Yay {
       }
       if (hexStr.length() % 2 != 0) {
         throw new YayException(
-            "Odd number of hex digits", filename, firstLineNum + 1, firstCol + 1);
+            "Odd number of hex digits in byte literal", filename, firstLineNum + 1, firstCol + 1);
       }
 
       return hexToBytes(hexStr, firstLineNum, firstCol);
@@ -2395,9 +2401,6 @@ public class Yay {
       Reference ref = parseReference(s, 0, lineNum, col, consumed);
       int n = consumed[0];
       if (n < s.length()) {
-        if (s.charAt(n) == ':') {
-          throw new YayException("Invalid key", filename, lineNum + 1, col + 1);
-        }
         throw new YayException(
             "Unexpected character \"" + s.charAt(n) + "\"", filename, lineNum + 1, col + n + 1);
       }

@@ -96,7 +96,7 @@ describe("references: errors", () => {
     ["a: <https://x\n", /Unmatched angle bracket/],
     ["a: <https://x>(t)\n", /Expected one space before a tag/],
     ["a: <https://x>rgb\n", /Unexpected character "r"/],
-    ["<https://x>: 1\n", /Invalid key/],
+    ["<https://x>: 1\n", /Unexpected character ":" at 1:12/],
     ["a: <./x>\n", /hex/],
   ];
   for (const [yay, message] of refused) {

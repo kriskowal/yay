@@ -231,7 +231,7 @@
   (receive (ref end) (parse-reference s 0)
     (cond
      ((= end (string-length s)) ref)
-     ((char=? (string-ref s end) #\:) (yay-error "Invalid key"))
+     ((char=? (string-ref s end) #\:) (yay-error "Unexpected character \":\""))
      (else
       (yay-error (string-append "Unexpected character \""
                                 (string (string-ref s end)) "\""))))))
@@ -749,7 +749,8 @@
 
 ;; Parse hex bytes - returns a tagged bytevector
 (define (parse-hex-bytes hex-str)
-  (let* ((hex (let loop ((i 0) (acc '()))
+  (let* ((bad #f)
+         (hex (let loop ((i 0) (acc '()))
                 (if (>= i (string-length hex-str))
                     (list->string (reverse acc))
                     (let ((c (string-ref hex-str i)))
@@ -759,13 +760,16 @@
                             ;; Check for uppercase hex digit
                             (when (uppercase-hex? c)
                               (yay-error "Uppercase hex digit (use lowercase)"))
-                            ;; Validate hex digit
+                            ;; Count a non-hex digit; refuse it after the
+                            ;; length, as the Rust port does
                             (when (not (hex-digit? c))
-                              (yay-error "Invalid hex digit"))
+                              (set! bad #t))
                             (loop (+ i 1) (cons c acc))))))))
          (len (string-length hex)))
     (when (odd? len)
       (yay-error "Odd number of hex digits in byte literal"))
+    (when bad
+      (yay-error "Invalid hex digit"))
     (let loop ((i 0) (bytes '()))
       (if (>= i len)
           ;; Tag as bytevector
@@ -783,6 +787,9 @@
     ;; Validate: no space before >
     (when (and (> len 1) (char=? (string-ref s (- len 2)) #\space))
       (yay-error "Unexpected space before \">\""))
+    ;; A "#" inside comments out the ">", as the Rust port reads it
+    (when (string-index s #\#)
+      (yay-error "Unmatched angle bracket"))
     (if (string=? s "<>")
         (cons 'bytevector '())  ;; Empty bytevector
         (let* ((inner (substring s 1 (- len 1))))
@@ -1156,9 +1163,9 @@
            (else (loop (+ i 1) in-double in-single #f)))))))
 
 (define (split-key-value s)
-  ;; A reference is never a key
+  ;; A reference is never a key: the colon after it is stray
   (when (reference-start? s 0)
-    (yay-error "Invalid key"))
+    (yay-error "Unexpected character \":\""))
   (let ((colon-idx (string-index s #\:)))
     (if (not colon-idx)
         #f

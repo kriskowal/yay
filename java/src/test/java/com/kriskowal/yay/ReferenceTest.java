@@ -94,7 +94,7 @@ class ReferenceTest {
       {"a: <https://x\n", "Unmatched angle bracket at 1:4 of <t>"},
       {"a: <https://x>(t)\n", "Expected one space before a tag at 1:15 of <t>"},
       {"a: <https://x>rgb\n", "Unexpected character \"r\" at 1:15 of <t>"},
-      {"<https://x>: 1\n", "Invalid key at 1:1 of <t>"},
+      {"<https://x>: 1\n", "Unexpected character \":\" at 1:12 of <t>"},
     };
     for (String[] c : cases) {
       Yay.YayException e = assertThrows(Yay.YayException.class, () -> Yay.parse(c[0], "t"), c[0]);

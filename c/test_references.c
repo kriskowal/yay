@@ -244,7 +244,7 @@ static void test_refused(void) {
         {"a: <https://x\n", "Unmatched angle bracket at 1:4 of <t>"},
         {"a: <https://x>(t)\n", "Expected one space before a tag at 1:15 of <t>"},
         {"a: <https://x>rgb\n", "Unexpected character \"r\" at 1:15 of <t>"},
-        {"<https://x>: 1\n", "Invalid key at 1:1 of <t>"},
+        {"<https://x>: 1\n", "Unexpected character \":\" at 1:12 of <t>"},
     };
     for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
         yay_result_t result = yay_parse(cases[i][0], 0, "t");

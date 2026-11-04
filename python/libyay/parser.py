@@ -314,9 +314,10 @@ class Parser:
         if token.kind == "STRING" and self.peek(1).kind == "COLON":
             return self.parse_block_object(min_indent)
 
-        # A reference is never a key
+        # A reference is never a key: the colon after it is stray
         if token.kind == "REFERENCE" and self.peek(1).kind == "COLON":
-            raise self.error("Invalid key")
+            colon = self.peek(1)
+            raise YaySyntaxError('Unexpected character ":"', colon.line, colon.col)
 
         # Inline values, inline arrays and inline objects
         if token.kind in (

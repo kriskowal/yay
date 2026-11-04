@@ -99,8 +99,8 @@ class Errors(unittest.TestCase):
             ("a: <https://x\n", "Unmatched angle bracket", 1, 4),
             ("a: <https://x>(t)\n", "Expected one space before a tag", 1, 15),
             ("a: <https://x>rgb\n", 'Unexpected character "r"', 1, 15),
-            ("<https://x>: 1\n", "Invalid key", 1, 1),
-            ("a: <./x>\n", "Invalid character after '<'", 1, 5),
+            ("<https://x>: 1\n", 'Unexpected character ":"', 1, 12),
+            ("a: <./x>\n", "Odd number of hex digits in byte literal", 1, 4),
         ]
         for source, message, line, col in refused:
             with self.subTest(source):
