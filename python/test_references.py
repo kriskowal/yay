@@ -141,6 +141,33 @@ class Model(unittest.TestCase):
         )
 
 
+class Writer(unittest.TestCase):
+    def test_written_as_held(self):
+        self.assertEqual(yay.dumps(Reference("https://x/a,b]c")), "<https://x/a,b]c>")
+        self.assertEqual(
+            yay.dumps({"a": [Reference("a:b"), Tagged("t", Reference("c:d"))]}),
+            "a:\n  - <a:b>\n  - <c:d> (t)",
+        )
+        self.assertEqual(
+            yay.dumps({"a": Reference("a:b")}, indent=False), "{a: <a:b>}"
+        )
+
+    def test_refused(self):
+        for uri in ("", "./x", "HTTPS://x", "https://x>", "https://x y", "a:%zz"):
+            with self.subTest(uri):
+                with self.assertRaises(ValueError):
+                    yay.dumps(Reference(uri))
+
+    def test_round_trip(self):
+        for name in cases("yay"):
+            value = yay.loads(read(name))
+            with self.subTest(name):
+                self.assertEqual(yay.loads(yay.dumps(value) + "\n"), value)
+                self.assertEqual(
+                    yay.loads(yay.dumps(value, indent=False) + "\n"), value
+                )
+
+
 class InlineBytes(unittest.TestCase):
     def assertRefused(self, source, message, line, col):
         with self.assertRaises(yay.YaySyntaxError) as cm:

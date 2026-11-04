@@ -6,6 +6,7 @@ import math
 import re
 from typing import Any, TextIO
 
+from .reference import Reference, check_uri
 from .tagged import Tagged
 
 
@@ -149,6 +150,13 @@ def _format_value(value: Any, indent: int = 0, inline: bool = False) -> str:
 
     if isinstance(value, bytes):
         return f"<{value.hex()}>"
+
+    if isinstance(value, Reference):
+        # Written as held: a text YAY cannot read back is refused
+        fault = check_uri(value.uri)
+        if fault is not None:
+            raise ValueError(f"Cannot write reference {value.uri!r}: {fault[0]}")
+        return f"<{value.uri}>"
 
     if isinstance(value, list):
         if inline or not value:

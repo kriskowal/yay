@@ -49,8 +49,8 @@ The Rust port reads and writes references (`Value::Reference`), YAY, MEH
 and YSON. The JavaScript port reads them as a frozen `reference(uri)`, and
 its CapData bridge, `ysonToCapData` and `capDataToYson`, moves each distinct
 URI of a YSON document into a slot, `$0`, `$1`, ..., for `@endo/marshal`'s
-`makeMarshal`, and back. The Python port reads them as a frozen dataclass
-`Reference(uri)`.
+`makeMarshal`, and back. The Python port reads and writes them as a frozen
+dataclass `Reference(uri)`.
 
 **Breaking: YSON follows smallcaps.** A tagged value is
 `{"#tag": tag, "payload": value}`. An integer is `"+42"` or `"-7"`, not

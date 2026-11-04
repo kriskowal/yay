@@ -73,7 +73,9 @@ IRI as written. After `<`, a scheme and a colon make a reference, read to
 the next `>`; anything else is bytes. References are equal when their texts
 are, and a reference never equals a string. A tag follows a reference as it
 follows any inline value, so `<ocapn://a.tcp> (Counter)` is a `Tagged` over
-a `Reference`.
+a `Reference`. `dumps` writes a reference as held, and refuses one whose
+text YAY could not read back (no scheme, an uppercase scheme, a space, `>`
+or a bad percent-encoding) with `ValueError`.
 
 ```python
 yay.loads("home: <https://kriskowal.com/>\n")
