@@ -55,6 +55,14 @@ string type of its own, the C port as `YAY_REFERENCE`, its text in
 `data.reference`, the Java port as `record Reference(String uri)`, and
 the Scheme port as a record `reference`, `(make-reference uri)`, read with
 `reference-uri`.
+All seven read the shared cases, `reference-*` in `test/`, and refuse the
+malformed ones with the Rust port's messages.
+
+**Fixed: a space after `<` in bytes.** GRAMMAR.md forbids a space after
+the opening `<` of inline bytes, as it forbids one before `>`, but the
+Rust, Python, Go and Java ports read `a: < ff>` as one byte. YAY now
+refuses it in every port, as `Unexpected space after "<"`. MEH still reads
+it, and `yay -f meh -t yay` writes `a: <ff>`.
 
 **Breaking: YSON follows smallcaps.** A tagged value is
 `{"#tag": tag, "payload": value}`. An integer is `"+42"` or `"-7"`, not
