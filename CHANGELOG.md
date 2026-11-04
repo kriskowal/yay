@@ -52,7 +52,9 @@ URI of a YSON document into a slot, `$0`, `$1`, ..., for `@endo/marshal`'s
 `makeMarshal`, and back. The Python port reads and writes them as a frozen
 dataclass `Reference(uri)`. The Go port reads them as `yay.Reference`, a
 string type of its own, the C port as `YAY_REFERENCE`, its text in
-`data.reference`, and the Java port as `record Reference(String uri)`.
+`data.reference`, the Java port as `record Reference(String uri)`, and
+the Scheme port as a record `reference`, `(make-reference uri)`, read with
+`reference-uri`.
 
 **Breaking: YSON follows smallcaps.** A tagged value is
 `{"#tag": tag, "payload": value}`. An integer is `"+42"` or `"-7"`, not

@@ -40,3 +40,4 @@ jobs:
         run: |
           guile --no-auto-compile run-tests.scm
           guile --no-auto-compile test-tagged.scm
+          guile --no-auto-compile test-references.scm

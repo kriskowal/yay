@@ -49,6 +49,19 @@ equals its payload. YAY gives no tag a meaning.
 ;; (("count" . #<tagged tag: "s" payload: 10>))
 ```
 
+### `(make-reference uri)`
+
+A reference, `<https://example.com/>`: a record `reference` with the URI
+or IRI, held as written, without its angle brackets, read with
+`reference-uri` and recognized by `reference?`. YAY never dereferences it.
+`yay-equal?` holds for references with the same text; a reference never
+equals a string.
+
+```scheme
+(parse-yay "<ocapn://a.tcp> (Counter)\n")
+;; #<tagged tag: "Counter" payload: #<reference uri: "ocapn://a.tcp">>
+```
+
 ## Type Mapping
 
 | YAY Type | Scheme Type | Notes |
@@ -62,6 +75,7 @@ equals its payload. YAY gives no tag a meaning.
 | object | alist | `((key . value) ...)` |
 | bytes | tagged list | `(bytevector b1 b2 ...)` |
 | tagged | record `tagged` | `(make-tagged tag payload)` |
+| reference | record `reference` | `(make-reference uri)` |
 
 # YAY Format
 

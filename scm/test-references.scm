@@ -1,0 +1,227 @@
+;;; Reference tests for Scheme (Guile)
+;;; Usage: guile --no-auto-compile test-references.scm
+;;;
+;;; Reads the design's cases in ../doc/design/references/cases/: each .yay
+;;; parses to its .yson, with a reference spelled "$uri", and each .nay and
+;;; .meh is refused, MEH's leniency not being YAY's.
+
+(use-modules (ice-9 ftw) (ice-9 textual-ports))
+
+(load "yay-parser.scm")
+
+(define cases-dir "../doc/design/references/cases")
+(define passed 0)
+(define failed 0)
+
+(define (check ok what)
+  (if ok
+      (set! passed (+ passed 1))
+      (begin
+        (set! failed (+ failed 1))
+        (display "FAIL: ")
+        (display what)
+        (newline))))
+
+(define (read-file path)
+  (call-with-input-file path get-string-all #:encoding "UTF-8"))
+
+(define (refused? source)
+  (catch #t
+    (lambda () (parse-yay source) #f)
+    (lambda args #t)))
+
+;; The message a source is refused with, or #f
+(define (refusal source)
+  (catch #t
+    (lambda () (parse-yay source) #f)
+    (lambda (key . args)
+      (if (and (pair? args) (pair? (cdr args)) (pair? (cddr args))
+               (pair? (caddr args)))
+          (car (caddr args))
+          (format #f "~a" args)))))
+
+;; A YSON string's value: "$uri" a reference, "*hex" bytes, "+n" and "-n"
+;; integers, "#nan" and the infinities floats, and "!" before text that
+;; would read as one of those
+(define (yson-string str)
+  (cond
+   ((string-null? str) str)
+   ((string-prefix? "$" str) (make-reference (substring str 1)))
+   ((string-prefix? "*" str) (parse-hex-bytes (substring str 1)))
+   ((string-prefix? "+" str) (string->number (substring str 1)))
+   ((string-prefix? "-" str) (string->number str))
+   ((string-prefix? "!" str) (substring str 1))
+   ((string=? str "#nan") +nan.0)
+   ((string=? str "#+inf") +inf.0)
+   ((string=? str "#-inf") -inf.0)
+   (else str)))
+
+(define (unescape-key key)
+  (if (string-prefix? "!" key) (substring key 1) key))
+
+;; A small JSON reader for the expected values, desugaring YSON's strings
+(define (json->value s)
+  (define i 0)
+  (define (peek) (string-ref s i))
+  (define (space!)
+    (when (and (< i (string-length s)) (char-whitespace? (peek)))
+      (set! i (+ i 1))
+      (space!)))
+  (define (json-string)
+    (set! i (+ i 1))
+    (let loop ((acc '()))
+      (let ((c (peek)))
+        (set! i (+ i 1))
+        (cond
+         ((char=? c #\") (list->string (reverse acc)))
+         ((char=? c #\\)
+          (let ((e (peek)))
+            (set! i (+ i 1))
+            (case e
+              ((#\n) (loop (cons #\newline acc)))
+              ((#\t) (loop (cons #\tab acc)))
+              ((#\u)
+               (let ((cp (string->number (substring s i (+ i 4)) 16)))
+                 (set! i (+ i 4))
+                 (loop (cons (integer->char cp) acc))))
+              (else (loop (cons e acc))))))
+         (else (loop (cons c acc)))))))
+  (define (value)
+    (space!)
+    (let ((c (peek)))
+      (cond
+       ((char=? c #\{)
+        (set! i (+ i 1))
+        (let loop ((pairs '()))
+          (space!)
+          (if (char=? (peek) #\})
+              (begin
+                (set! i (+ i 1))
+                (let ((pairs (reverse pairs)))
+                  (if (and (= (length pairs) 2)
+                           (assoc "#tag" pairs)
+                           (assoc "payload" pairs))
+                      (make-tagged (unescape-key (cdr (assoc "#tag" pairs)))
+                                   (cdr (assoc "payload" pairs)))
+                      pairs)))
+              (let ((key (json-string)))
+                (space!)
+                (set! i (+ i 1))
+                (let ((v (value)))
+                  (space!)
+                  (when (char=? (peek) #\,) (set! i (+ i 1)))
+                  (loop (cons (cons (unescape-key key) v) pairs)))))))
+       ((char=? c #\[)
+        (set! i (+ i 1))
+        (let loop ((items '()))
+          (space!)
+          (if (char=? (peek) #\])
+              (begin (set! i (+ i 1)) (list->vector (reverse items)))
+              (let ((v (value)))
+                (space!)
+                (when (char=? (peek) #\,) (set! i (+ i 1)))
+                (loop (cons v items))))))
+       ((char=? c #\")
+        (yson-string (json-string)))
+       (else
+        (let loop ((words '(("null" . null) ("true" . #t) ("false" . #f)
+                            ("-Infinity" . -inf.0) ("Infinity" . +inf.0))))
+          (cond
+           ((null? words)
+            (let num ((j i))
+              (if (and (< j (string-length s))
+                       (string-index "+-0123456789.eE" (string-ref s j)))
+                  (num (+ j 1))
+                  (let ((text (substring s i j)))
+                    (set! i j)
+                    (if (or (string-index text #\.) (string-index text #\e))
+                        (exact->inexact (string->number text))
+                        (string->number text))))))
+           ((string-prefix? (caar words) (substring s i))
+            (set! i (+ i (string-length (caar words))))
+            (cdar words))
+           (else (loop (cdr words)))))))))
+  (value))
+
+(define (has-ext? name ext) (string-suffix? ext name))
+
+(define (test-cases)
+  (let ((names (scandir cases-dir)))
+    (for-each
+     (lambda (name)
+       (let ((path (string-append cases-dir "/" name)))
+         (cond
+          ((has-ext? name ".yay")
+           (let* ((yson-path (string-append (substring path 0 (- (string-length path) 4)) ".yson"))
+                  (expected (json->value (read-file yson-path)))
+                  (actual (catch #t
+                            (lambda () (parse-yay (read-file path)))
+                            (lambda args (format #f "error: ~a" args)))))
+             (check (yay-equal? actual expected)
+                    (string-append name ": " (yay->scheme-string actual)
+                                   " want " (yay->scheme-string expected)))))
+          ((or (has-ext? name ".nay") (has-ext? name ".meh"))
+           (check (refused? (read-file path))
+                  (string-append name ": accepted, should be refused"))))))
+     names)))
+
+(define (test-model)
+  (let ((a (make-reference "https://x")))
+    (check (reference? a) "reference?")
+    (check (string=? (reference-uri a) "https://x") "reference-uri")
+    (check (yay-equal? a (make-reference "https://x")) "equal by text")
+    (check (not (yay-equal? a (make-reference "https://x/"))) "texts differ")
+    (check (not (yay-equal? (make-reference "a:%2f") (make-reference "a:%2F")))
+           "percent-encodings are not normalized")
+    (check (and (not (yay-equal? a "https://x")) (not (yay-equal? "https://x" a)))
+           "never a string")
+    (check (not (yay-equal? a (make-tagged "https://x" 'null))) "never a tagged value")
+    (check (string=? (yay->scheme-string a) "(make-reference \"https://x\")") "printed")))
+
+;; The Rust, JavaScript, Python and Go ports' messages (this port reports no
+;; columns)
+(define (test-refused)
+  (for-each
+   (lambda (c)
+     (let ((got (refusal (car c))))
+       (check (equal? got (cadr c))
+              (string-append (car c) ": got " (if got got "a value")
+                             ", want " (cadr c)))))
+   '(("a: <HTTPS://x>\n" "Uppercase scheme \"HTTPS\" in reference (use lowercase)")
+     ("a: <https://x y>\n" "Unexpected space in reference")
+     ("a: <https://x\"y>\n" "Unexpected character \"\"\" in reference")
+     ("a: <https://x/%2g>\n" "Bad percent-encoding in reference (use % and two hex digits)")
+     ("a: <https://x/%2>\n" "Bad percent-encoding in reference (use % and two hex digits)")
+     ("a: <https://x\n" "Unmatched angle bracket")
+     ("a: <https://x>(t)\n" "Expected one space before a tag")
+     ("a: <https://x>rgb\n" "Unexpected character \"r\"")
+     ("<https://x>: 1\n" "Invalid key"))))
+
+(define (test-parse)
+  (check (yay-equal? (parse-yay "<ocapn://a.tcp> (Counter)\n")
+                     (make-tagged "Counter" (make-reference "ocapn://a.tcp")))
+         "a tagged reference at the root")
+  ;; Unchanged in strings and tags, and bytes without a scheme
+  (check (yay-equal? (parse-yay "a: '<https://x>' (<b:c>)\nb: <ff>\n")
+                     (list (cons "a" (make-tagged "<b:c>" "<https://x>"))
+                           (cons "b" (parse-hex-bytes "ff"))))
+         "strings, tags and bytes")
+  ;; A reference's punctuation is its own
+  (check (yay-equal? (parse-yay "a: [<x:a,b]c#d>, 1]  # c\n")
+                     (list (cons "a" (vector (make-reference "x:a,b]c#d") 1))))
+         "punctuation in an inline array")
+  (check (yay-equal? (parse-yay "a: {b: <x:(t)>} (u)\n")
+                     (list (cons "a" (make-tagged "u" (list (cons "b" (make-reference "x:(t)")))))))
+         "punctuation in an inline object"))
+
+(test-model)
+(test-refused)
+(test-parse)
+(test-cases)
+(display "references: ")
+(display passed)
+(display " passed, ")
+(display failed)
+(display " failed")
+(newline)
+(exit (if (= failed 0) 0 1))

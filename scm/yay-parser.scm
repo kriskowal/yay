@@ -135,6 +135,107 @@
 (define prefix-without-block
   "A tag before a value needs a block below it; write the tag after an inline value")
 
+;; References: a URI or IRI, held as written, without its angle brackets.
+;; YAY never dereferences one. Two references are equal when their texts are;
+;; a reference never equals a string.
+(define-record-type reference
+  (make-reference uri)
+  reference?
+  (uri reference-uri))
+
+;; The length of the scheme, colon included, if s at start (the text after
+;; "<") begins [A-Za-z][A-Za-z0-9+.-]*":", or 0. Uppercase letters are
+;; matched so that the reader can name an uppercase scheme rather than call
+;; it bad hex.
+(define (scheme-length s start)
+  (let ((len (string-length s)))
+    (if (or (>= start len) (not (alpha? (string-ref s start))))
+        0
+        (let loop ((i (+ start 1)))
+          (cond
+           ((>= i len) 0)
+           ((char=? (string-ref s i) #\:) (- (+ i 1) start))
+           ((let ((c (string-ref s i)))
+              (or (alpha? c) (digit? c) (memv c '(#\+ #\- #\.))))
+            (loop (+ i 1)))
+           (else 0))))))
+
+;; Whether s at start begins with "<" and a scheme, so is a reference rather
+;; than bytes
+(define (reference-start? s start)
+  (and (< start (string-length s))
+       (char=? (string-ref s start) #\<)
+       (> (scheme-length s (+ start 1)) 0)))
+
+;; The index past the ">" that closes a reference at s[start], or #f if
+;; there is no reference there or it does not close. The scanners for
+;; quotes, brackets, colons, tags and comments skip a reference's text with
+;; it, since its punctuation is not syntax.
+(define (skip-reference s start)
+  (and (reference-start? s start)
+       (let loop ((i (+ start 1)))
+         (cond
+          ((>= i (string-length s)) #f)
+          ((char=? (string-ref s i) #\>) (+ i 1))
+          (else (loop (+ i 1)))))))
+
+;; Whether a character may appear in a reference (RFC 3986 and RFC 3987),
+;; "%" aside, which must begin a percent-encoding
+(define (uri-char? c)
+  (let ((cp (char->integer c)))
+    (if (< cp #x80)
+        (or (alpha? c) (digit? c)
+            (and (memv c (string->list "-._~:/?#[]@!$&'()*+,;=")) #t))
+        (and (>= cp #xA0)
+             (not (char-whitespace? c))
+             (not (memv cp '(#xA0 #x1680 #x2028 #x2029 #x202F #x205F #x3000
+                             #xFFFE #xFFFF)))
+             (not (and (>= cp #x2000) (<= cp #x200A)))))))
+
+;; Read a reference at s[start], which reference-start? accepted, to the
+;; first ">", which always closes it. Returns the reference and the index
+;; past the ">".
+(define (parse-reference s start)
+  (let* ((len (string-length s))
+         (n (- (scheme-length s (+ start 1)) 1))
+         (scheme (substring s (+ start 1) (+ start 1 n))))
+    (unless (string=? scheme (string-downcase scheme))
+      (yay-error (string-append "Uppercase scheme \"" scheme
+                                "\" in reference (use lowercase)")))
+    (let loop ((i (+ start 1 n)))
+      (when (>= i len)
+        (yay-error "Unmatched angle bracket"))
+      (let ((c (string-ref s i)))
+        (cond
+         ((char=? c #\>)
+          (values (make-reference (substring s (+ start 1) i)) (+ i 1)))
+         ((char=? c #\%)
+          (unless (and (< (+ i 2) len)
+                       (hex-digit? (string-ref s (+ i 1)))
+                       (hex-digit? (string-ref s (+ i 2))))
+            (yay-error "Bad percent-encoding in reference (use % and two hex digits)"))
+          (loop (+ i 1)))
+         ((memv c '(#\newline #\return))
+          (yay-error "Unmatched angle bracket"))
+         ((char=? c #\space)
+          (yay-error "Unexpected space in reference"))
+         ((char=? c #\tab)
+          (yay-error "Tab not allowed in reference"))
+         ((not (uri-char? c))
+          (yay-error (string-append "Unexpected character \"" (string c)
+                                    "\" in reference")))
+         (else (loop (+ i 1))))))))
+
+;; Read a reference that must be all of s
+(define (parse-whole-reference s)
+  (receive (ref end) (parse-reference s 0)
+    (cond
+     ((= end (string-length s)) ref)
+     ((char=? (string-ref s end) #\:) (yay-error "Invalid key"))
+     (else
+      (yay-error (string-append "Unexpected character \""
+                                (string (string-ref s end)) "\""))))))
+
 ;; The index past the tag at s[start], "(", or s's length if it does not close
 (define (skip-tag s start)
   (let loop ((i (+ start 1)))
@@ -221,6 +322,7 @@
                ((char=? c quote-char) (loop (+ i 1) #f depth))
                (else (loop (+ i 1) quote-char depth))))
              ((or (char=? c #\") (char=? c #\')) (loop (+ i 1) c depth))
+             ((skip-reference s i) => (lambda (end) (loop end #f depth)))
              ((or (char=? c #\[) (char=? c #\{)) (loop (+ i 1) #f (+ depth 1)))
              ((or (char=? c #\]) (char=? c #\})) (loop (+ i 1) #f (- depth 1)))
              ((char=? c #\()
@@ -318,6 +420,7 @@
              (else (loop (+ i 1) quote-char))))
            ((or (char=? c #\") (char=? c #\')) (loop (+ i 1) c))
            ((char=? c #\() (loop (skip-tag s i) #f))
+           ((skip-reference s i) => (lambda (end) (loop end #f)))
            ((char=? c #\:) i)
            (else (loop (+ i 1) #f)))))))
 
@@ -718,6 +821,8 @@
         (let ((ch (string-ref s i)))
           (cond
            ;; Track string state
+           ((and (not in-string) (skip-reference s i))
+            => (lambda (end) (loop end #f #f)))
            ((and (not in-string) (char=? ch #\())
             (loop (+ i 1) #t #\)))
            ((and (not in-string) (or (char=? ch #\") (char=? ch #\')))
@@ -785,6 +890,10 @@
              ((or (char=? ch #\") (char=? ch #\'))
               (receive (str end-i) (parse-inline-string s i ch)
                 (loop end-i items (string-append current str))))
+             ;; A reference, read whole
+             ((skip-reference s i)
+              => (lambda (end-i)
+                   (loop end-i items (string-append current (substring s i end-i)))))
              ;; Start of bytes
              ((char=? ch #\<)
               (receive (bytes end-i) (parse-inline-bytes s i)
@@ -813,6 +922,9 @@
            ((char=? ch #\()
             (let ((end-i (skip-tag s i)))
               (loop end-i depth (string-append content (substring s i end-i)))))
+           ((skip-reference s i)
+            => (lambda (end-i)
+                 (loop end-i depth (string-append content (substring s i end-i)))))
            ((or (char=? ch #\") (char=? ch #\'))
             (receive (str end-i) (parse-inline-string s i ch)
               (loop end-i depth (string-append content str))))
@@ -911,6 +1023,10 @@
              ((char=? ch #\()
               (let ((end-i (skip-tag s i)))
                 (loop end-i pairs current-key (string-append current (substring s i end-i)))))
+             ;; A reference, read whole
+             ((skip-reference s i)
+              => (lambda (end-i)
+                   (loop end-i pairs current-key (string-append current (substring s i end-i)))))
              ;; Start of string
              ((or (char=? ch #\") (char=? ch #\'))
               (receive (str end-i) (parse-inline-string s i ch)
@@ -935,6 +1051,9 @@
            ((char=? ch #\()
             (let ((end-i (skip-tag s i)))
               (loop end-i depth (string-append content (substring s i end-i)))))
+           ((skip-reference s i)
+            => (lambda (end-i)
+                 (loop end-i depth (string-append content (substring s i end-i)))))
            ((or (char=? ch #\") (char=? ch #\'))
             (receive (str end-i) (parse-inline-string s i ch)
               (loop end-i depth (string-append content str))))
@@ -957,6 +1076,7 @@
      ((string=? s "-infinity") -inf.0)
      ((string-starts-with? s "\"") (parse-json-string s))
      ((string-starts-with? s "'") (parse-single-quoted-string s))
+     ((reference-start? s 0) (parse-whole-reference s))
      ((string-starts-with? s "<")
       (if (string-contains? s ">")
           (parse-angle-bytes s)
@@ -1028,12 +1148,17 @@
            ((and in-double (char=? c #\\)) (loop (+ i 1) in-double in-single #t))
            ((and (char=? c #\() (not in-double) (not in-single))
             (loop (skip-tag s i) in-double in-single #f))
+           ((and (not in-double) (not in-single) (skip-reference s i))
+            => (lambda (end) (loop end in-double in-single #f)))
            ((and (char=? c #\") (not in-single)) (loop (+ i 1) (not in-double) in-single #f))
            ((and (char=? c #\') (not in-double)) (loop (+ i 1) in-double (not in-single) #f))
            ((and (char=? c #\:) (not in-double) (not in-single)) i)
            (else (loop (+ i 1) in-double in-single #f)))))))
 
 (define (split-key-value s)
+  ;; A reference is never a key
+  (when (reference-start? s 0)
+    (yay-error "Invalid key"))
   (let ((colon-idx (string-index s #\:)))
     (if (not colon-idx)
         #f
@@ -1082,6 +1207,8 @@
            ((or (char=? c #\") (char=? c #\')) (loop (+ i 1) c))
            ;; A tag's text is not a comment
            ((char=? c #\() (loop (skip-tag s i) #f))
+           ;; Nor is a reference's
+           ((skip-reference s i) => (lambda (end) (loop end #f)))
            ((and (char=? c #\#) (> i 0) (char=? (string-ref s (- i 1)) #\space))
             (let trim ((j (- i 1)))
               (if (and (> j 0) (char=? (string-ref s (- j 1)) #\space))
@@ -1103,6 +1230,7 @@
    ((string=? s "-infinity") -inf.0)
    ((string-starts-with? s "\"") (parse-json-string s))
    ((string-starts-with? s "'") (parse-single-quoted-string s))
+   ((reference-start? s 0) (parse-whole-reference s))
    ((string-starts-with? s "<")
     (if (string-contains? s ">")
         (parse-angle-bytes s)
@@ -1556,6 +1684,10 @@
               ((string-starts-with? s "[")
                (parser-advance! p)
                (parse-inline-array s))
+              ;; A reference
+              ((reference-start? s 0)
+               (parser-advance! p)
+               (parse-whole-reference (strip-inline-comment s)))
               ;; Angle bytes (must be complete with closing >)
               ((string-starts-with? s "<")
                (if (string-contains? s ">")
@@ -1611,7 +1743,8 @@
                          (parser-advance! p)
                          (list (cons key '())))
                         ;; Angle bytes (< must have closing >)
-                        ((string-starts-with? value-part "<")
+                        ((and (string-starts-with? value-part "<")
+                       (not (reference-start? value-part 0)))
                          (if (string-contains? value-part ">")
                              (begin
                                (parser-advance! p)
@@ -1762,7 +1895,8 @@
                     (parser-advance! p)
                     (loop (cons (cons key '()) pairs)))
                    ;; Angle bytes (< must have closing >)
-                   ((string-starts-with? value-part "<")
+                   ((and (string-starts-with? value-part "<")
+                       (not (reference-start? value-part 0)))
                     (if (string-contains? value-part ">")
                         (begin
                           (parser-advance! p)
@@ -1889,7 +2023,8 @@
                   (parser-advance! p)
                   (loop (cons (cons key '()) pairs)))
                  ;; Angle bytes (< must have closing >)
-                 ((string-starts-with? value-part "<")
+                 ((and (string-starts-with? value-part "<")
+                       (not (reference-start? value-part 0)))
                   (if (string-contains? value-part ">")
                       (begin
                         (parser-advance! p)
@@ -2059,6 +2194,8 @@
    ((string? value) (format-scheme-string value))
    ((bytevector? value)
     (format-bytevector (bytevector-bytes value)))
+   ((reference? value)
+    (string-append "(make-reference " (format-scheme-string (reference-uri value)) ")"))
    ((tagged? value)
     (string-append "(make-tagged " (format-scheme-string (tagged-tag value))
                    " " (yay->scheme-string (tagged-payload value)) ")"))
@@ -2156,6 +2293,9 @@
    ;; Both vectors (arrays) - order matters
    ((and (vector? a) (vector? b))
     (vector-equal? a b))
+   ;; Both references: equal by text; never equal to a string
+   ((and (reference? a) (reference? b))
+    (string=? (reference-uri a) (reference-uri b)))
    ;; Both tagged: equal tags and payloads; never equal to a payload
    ((and (tagged? a) (tagged? b))
     (and (string=? (tagged-tag a) (tagged-tag b))
