@@ -66,6 +66,20 @@ yay.loads("count: 10 (s)\n")
 # {'count': Tagged(tag='s', payload=10)}
 ```
 
+### `Reference(uri)`
+
+A reference, `<https://example.com/>`: a frozen dataclass holding a URI or
+IRI as written. After `<`, a scheme and a colon make a reference, read to
+the next `>`; anything else is bytes. References are equal when their texts
+are, and a reference never equals a string. A tag follows a reference as it
+follows any inline value, so `<ocapn://a.tcp> (Counter)` is a `Tagged` over
+a `Reference`.
+
+```python
+yay.loads("home: <https://kriskowal.com/>\n")
+# {'home': Reference(uri='https://kriskowal.com/')}
+```
+
 ## Type Mapping
 
 | YAY Type | Python Type | Notes |
@@ -79,6 +93,7 @@ yay.loads("count: 10 (s)\n")
 | object | `dict` | |
 | bytes | `bytes` | |
 | tagged | `Tagged` | `Tagged(tag, payload)`, a frozen dataclass |
+| reference | `Reference` | `Reference(uri)`, a frozen dataclass |
 
 # YAY Format
 
@@ -894,6 +909,8 @@ Files with `.yay` extension contain YAY input.
 Files with `.py` extension contain expected Python output.
 `test_tagged.py` reads the tagged-value cases of the design, in
 `../doc/design/tagged-values-g/cases/`, until they join the shared corpus.
+`test_references.py` reads the reference cases, in
+`../doc/design/references/cases/`, the same way.
 
 ## References
 

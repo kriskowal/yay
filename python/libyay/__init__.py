@@ -7,6 +7,7 @@ A Python parser and serializer for the YAY data format.
 from .parser import load, loads
 from .dumper import dump, dumps
 from .errors import YayError, YaySyntaxError
+from .reference import Reference
 from .tagged import Tagged
 
 __all__ = [
@@ -14,6 +15,7 @@ __all__ = [
     "loads",
     "dump",
     "dumps",
+    "Reference",
     "Tagged",
     "YayError",
     "YaySyntaxError",

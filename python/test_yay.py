@@ -21,7 +21,8 @@ def parse_py_value(py_content: str):
     Evaluate an expected-value fixture from test/py/.
 
     The fixtures are Python literals, plus calls to bytes.fromhex("..."),
-    float("inf"), float("-inf") or float("nan"), and Tagged("tag", payload).
+    float("inf"), float("-inf") or float("nan"), Tagged("tag", payload) and
+    Reference("uri").
     Nothing else is evaluated.
     """
 
@@ -35,6 +36,15 @@ def parse_py_value(py_content: str):
             tag = ast.literal_eval(node.args[0])
             if isinstance(tag, str):
                 return yay.Tagged(tag, evaluate(node.args[1]))
+        if (
+            isinstance(node, ast.Call)
+            and ast.unparse(node.func) == "Reference"
+            and len(node.args) == 1
+            and not node.keywords
+        ):
+            uri = ast.literal_eval(node.args[0])
+            if isinstance(uri, str):
+                return yay.Reference(uri)
         if isinstance(node, ast.Call) and len(node.args) == 1 and not node.keywords:
             func = ast.unparse(node.func)
             arg = ast.literal_eval(node.args[0])

@@ -6,9 +6,10 @@ import re
 from dataclasses import dataclass
 from typing import Iterator
 from .errors import YaySyntaxError
+from .reference import Reference, check_uri, scheme_len
 
 
-SCALAR_KINDS = ("NULL", "BOOL", "INT", "FLOAT", "STRING", "BYTES")
+SCALAR_KINDS = ("NULL", "BOOL", "INT", "FLOAT", "STRING", "BYTES", "REFERENCE")
 
 
 def trailing_text_error(source: str, line: int, col: int) -> YaySyntaxError:
@@ -17,6 +18,12 @@ def trailing_text_error(source: str, line: int, col: int) -> YaySyntaxError:
     lines = source.split("\n")
     text = lines[line - 1] if line <= len(lines) else ""
     ch = text[col - 1] if 0 < col <= len(text) else ""
+    # A reference: the character after its ">"
+    if ch == "<" and scheme_len(text, col) is not None:
+        end = text.find(">", col)
+        if end >= 0:
+            after = text[end + 1 : end + 2]
+            return YaySyntaxError(f'Unexpected character "{after}"', line, end + 2)
     # An inline bytes token begins after its "<"
     if ch == "<" or (1 < col <= len(text) + 1 and text[col - 2] == "<"):
         return YaySyntaxError("Unmatched angle bracket", line, col)
@@ -671,6 +678,24 @@ class Lexer:
 
         return Token("BYTES", value, start_line, start_col)
 
+    def read_reference(self) -> Token:
+        """Read a reference, "<" and a scheme to the next ">" on the line,
+        which always closes it. Its text is the URI, verbatim."""
+        start_line = self.line
+        start_col = self.col
+        end = self.source.find(">", self.pos)
+        newline = self.source.find("\n", self.pos)
+        if end < 0 or 0 <= newline < end:
+            raise YaySyntaxError("Unmatched angle bracket", start_line, start_col)
+        uri = self.source[self.pos + 1 : end]
+        fault = check_uri(uri)
+        if fault is not None:
+            message, offset = fault
+            col = start_col if offset == 0 else start_col + 1 + offset
+            raise YaySyntaxError(message, start_line, col)
+        self.advance(end + 1 - self.pos)
+        return Token("REFERENCE", Reference(uri), start_line, start_col)
+
     def read_tag(self) -> Token:
         """Read a tag, "(" to ")", escaped as a double-quoted string is but
         with \\) in the place of \\". One space comes before a tag unless it
@@ -850,6 +875,9 @@ class Lexer:
 
             # Bytes - inline byte array <hex>
             if ch == "<":
+                if scheme_len(self.source, self.pos + 1) is not None:
+                    yield emit(self.read_reference())
+                    continue
                 start_col = self.col
                 self.advance()  # consume '<'
                 next_ch = self.peek()

@@ -6,6 +6,7 @@ import math
 from typing import Any, TextIO
 from .lexer import SCALAR_KINDS, Lexer, Token, trailing_text_error
 from .errors import YaySyntaxError
+from .reference import mask_references
 from .tagged import Tagged
 
 PREFIX_WITHOUT_BLOCK = (
@@ -74,6 +75,8 @@ class Parser:
             self.source_lines[line - 1] if line <= len(self.source_lines) else ""
         )
         s = line_content[start_col - 1 :] if start_col <= len(line_content) else ""
+        # A reference's text is no syntax
+        s = mask_references(s)
 
         in_single = False
         in_double = False
@@ -311,6 +314,10 @@ class Parser:
         if token.kind == "STRING" and self.peek(1).kind == "COLON":
             return self.parse_block_object(min_indent)
 
+        # A reference is never a key
+        if token.kind == "REFERENCE" and self.peek(1).kind == "COLON":
+            raise self.error("Invalid key")
+
         # Inline values, inline arrays and inline objects
         if token.kind in (
             "NULL",
@@ -319,6 +326,7 @@ class Parser:
             "FLOAT",
             "STRING",
             "BYTES",
+            "REFERENCE",
             "LBRACKET",
             "LBRACE",
         ):
@@ -470,7 +478,7 @@ class Parser:
             self.advance()
             return token.value
 
-        if token.kind == "BYTES":
+        if token.kind in ("BYTES", "REFERENCE"):
             self.advance()
             return token.value
 
@@ -595,6 +603,7 @@ class Parser:
             "FLOAT",
             "STRING",
             "BYTES",
+            "REFERENCE",
             "LBRACKET",
             "LBRACE",
         ):
@@ -722,7 +731,7 @@ class Parser:
             return self.parse_inline_value()
 
         # Inline values on same line
-        if token.kind in ("NULL", "BOOL", "INT", "FLOAT"):
+        if token.kind in ("NULL", "BOOL", "INT", "FLOAT", "REFERENCE"):
             return self.parse_inline_value()
 
         if token.kind == "STRING":
