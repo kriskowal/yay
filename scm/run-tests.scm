@@ -419,7 +419,22 @@
            "tagged-tag-text"
            "string-block-root-parens"
            "tagged-block-string-property-dash-line"
-           "tagged-block-string-item-dash-line")))
+           "tagged-block-string-item-dash-line"
+           "reference-block-array"
+           "reference-delimiters-inside"
+           "reference-inline-array"
+           "reference-inline-object"
+           "reference-iri"
+           "reference-percent"
+           "reference-percent-case-kept"
+           "reference-root"
+           "reference-same-text"
+           "reference-schemes"
+           "reference-tagged"
+           "reference-tagged-in-array"
+           "reference-then-comment"
+           "reference-unchanged-in-strings"
+           "reference-under-block-tag")))
     (for-each
      (lambda (name)
        (let ((yay-path (string-append test-dir "/yay/" name ".yay"))
@@ -554,7 +569,36 @@
            "tagged-unescaped-close-paren"
            "tagged-unknown-escape"
            "tagged-item-property-sibling-item"
-           "tagged-item-property-sibling-property")))
+           "tagged-item-property-sibling-property"
+           "reference-as-key"
+           "reference-as-key.e"
+           "reference-bad-percent"
+           "reference-bad-percent.e"
+           "reference-block-form"
+           "reference-block-form.e"
+           "reference-excluded-brace"
+           "reference-excluded-brace.e"
+           "reference-excluded-char"
+           "reference-excluded-char.e"
+           "reference-glued-tag"
+           "reference-glued-tag.e"
+           "reference-no-scheme"
+           "reference-no-scheme-fragment"
+           "reference-no-scheme-fragment.e"
+           "reference-no-scheme.e"
+           "reference-prefix-on-inline"
+           "reference-prefix-on-inline.e"
+           "reference-scheme-digit-first"
+           "reference-scheme-digit-first.e"
+           "reference-space-after-open"
+           "reference-space-after-open.e"
+           "reference-space-inside"
+           "reference-space-inside.e"
+           "reference-tab-inside"
+           "reference-tab-inside.e"
+           "reference-unclosed"
+           "reference-unclosed.e"
+           "bytearray-inline-invalid-space-after-open")))
     (for-each
      (lambda (name)
        (let ((nay-path (string-append test-dir "/nay/" name ".nay")))

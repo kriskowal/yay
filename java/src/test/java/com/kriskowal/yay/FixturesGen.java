@@ -243,6 +243,21 @@ public class FixturesGen {
         list(
             map("body", "- x\n", "title", "a"),
             map("body", "# Heading\n\n\n* y\n", "title", "b")));
+    FIXTURES.put("reference-block-array", list(new Reference("https://a.example/x"), new Reference("urn:isbn:0451450523")));
+    FIXTURES.put("reference-delimiters-inside", map("q", list(new Reference("https://x.example/a,b]c?e=(f)&g='h'"), bi(1))));
+    FIXTURES.put("reference-inline-array", map("mirrors", list(new Reference("https://a.example/x"), new Reference("https://b.example/x"), bytes(0xff), bytes())));
+    FIXTURES.put("reference-inline-object", map("links", map("home", new Reference("https://kriskowal.com/"), "seed", bytes(0xff, 0x88, 0x00))));
+    FIXTURES.put("reference-iri", map("page", new Reference("https://例え.jp/パス?q=é")));
+    FIXTURES.put("reference-percent", map("space", new Reference("https://example.com/a%20b%2Fc")));
+    FIXTURES.put("reference-percent-case-kept", map("a", new Reference("https://x/a%2fb%2F")));
+    FIXTURES.put("reference-root", new Reference("https://example.com/"));
+    FIXTURES.put("reference-same-text", map("r", new Reference("https://x"), "s", "https://x"));
+    FIXTURES.put("reference-schemes", map("icon", new Reference("https://example.com/cat.png"), "mail", new Reference("mailto:kris@example.com"), "peer", new Reference("ocapn://a2ef69ddd5f8.tcp-testing-only?host=127.0.0.1&port=22046"), "spec", new Reference("urn:ietf:rfc:3986")));
+    FIXTURES.put("reference-tagged", map("home", new Tagged("outer", new Tagged("com.example.homepage", new Reference("https://kriskowal.com/"))), "thumb", new Tagged("image/png", new Reference("https://example.com/cat.png"))));
+    FIXTURES.put("reference-tagged-in-array", map("peers", list(new Tagged("Counter", new Reference("ocapn://a.tcp")), new Reference("ocapn://b.tcp"))));
+    FIXTURES.put("reference-then-comment", map("a", new Reference("https://example.com/#frag")));
+    FIXTURES.put("reference-unchanged-in-strings", map("a", "<https://x>", "b", "<urn:x>", "c", new Tagged("<https://x>", bi(1)), "d", "<https://in-a-block-string>\n"));
+    FIXTURES.put("reference-under-block-tag", map("links", new Tagged("mirrors", list(new Reference("https://a.example/x"), new Reference("https://b.example/x")))));
     FIXTURES.put("string-block-blank-run-array", list("\nx\n\n\ny\n", "p\n\n\nq\n"));
     FIXTURES.put("string-block-blank-run-property", map("a", "x\n\n\ny\n", "b", bi(1)));
     FIXTURES.put("string-block-blank-run-root", "\na\n\n\nb\n");

@@ -1,0 +1,5 @@
+a: '<https://x>'
+b: "<urn:x>"
+c: 1 (<https://x>)
+d: `
+  <https://in-a-block-string>

@@ -91,6 +91,9 @@ for gofile in "$GO_DIR"/*.go; do
         s/yay\.Tagged\{Tag: /new Tagged(/g;
         s/, Payload: /, /g;
 
+        # Convert yay.Reference(uri) to new Reference(uri)
+        s/yay\.Reference\(/new Reference(/g;
+
         # Convert Go helper functions List() and Map() to lowercase
         s/\bList\(/list(/g;
         s/\bMap\(/map(/g;

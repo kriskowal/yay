@@ -290,6 +290,64 @@ var fixtures = map[string]any{
 		"a\\b":        "an escaped backslash",
 		"line\nbreak": "an escaped newline",
 	},
+	"reference-block-array": []any{
+		Reference("https://a.example/x"),
+		Reference("urn:isbn:0451450523"),
+	},
+	"reference-delimiters-inside": map[string]any{
+		"q": []any{
+			Reference("https://x.example/a,b]c?e=(f)&g='h'"),
+			big.NewInt(1),
+		},
+	},
+	"reference-inline-array": map[string]any{
+		"mirrors": []any{
+			Reference("https://a.example/x"),
+			Reference("https://b.example/x"),
+			[]byte{0xff},
+			[]byte{},
+		},
+	},
+	"reference-inline-object": map[string]any{
+		"links": map[string]any{
+			"home": Reference("https://kriskowal.com/"),
+			"seed": []byte{0xff, 0x88, 0x00},
+		},
+	},
+	"reference-iri":               map[string]any{"page": Reference("https://例え.jp/パス?q=é")},
+	"reference-percent":           map[string]any{"space": Reference("https://example.com/a%20b%2Fc")},
+	"reference-percent-case-kept": map[string]any{"a": Reference("https://x/a%2fb%2F")},
+	"reference-root":              Reference("https://example.com/"),
+	"reference-same-text":         map[string]any{"r": Reference("https://x"), "s": "https://x"},
+	"reference-schemes": map[string]any{
+		"icon": Reference("https://example.com/cat.png"),
+		"mail": Reference("mailto:kris@example.com"),
+		"peer": Reference("ocapn://a2ef69ddd5f8.tcp-testing-only?host=127.0.0.1&port=22046"),
+		"spec": Reference("urn:ietf:rfc:3986"),
+	},
+	"reference-tagged": map[string]any{
+		"home":  Tagged{Tag: "outer", Payload: Tagged{Tag: "com.example.homepage", Payload: Reference("https://kriskowal.com/")}},
+		"thumb": Tagged{Tag: "image/png", Payload: Reference("https://example.com/cat.png")},
+	},
+	"reference-tagged-in-array": map[string]any{
+		"peers": []any{
+			Tagged{Tag: "Counter", Payload: Reference("ocapn://a.tcp")},
+			Reference("ocapn://b.tcp"),
+		},
+	},
+	"reference-then-comment": map[string]any{"a": Reference("https://example.com/#frag")},
+	"reference-unchanged-in-strings": map[string]any{
+		"a": "<https://x>",
+		"b": "<urn:x>",
+		"c": Tagged{Tag: "<https://x>", Payload: big.NewInt(1)},
+		"d": "<https://in-a-block-string>\n",
+	},
+	"reference-under-block-tag": map[string]any{
+		"links": Tagged{Tag: "mirrors", Payload: []any{
+			Reference("https://a.example/x"),
+			Reference("https://b.example/x"),
+		}},
+	},
 	"string-block-array-in-property": map[string]any{
 		"items": []any{"a\n- b\n", "\n* c\n\n\n---\n"},
 		"next":  big.NewInt(1),

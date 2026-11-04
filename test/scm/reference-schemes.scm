@@ -1,0 +1,1 @@
+(("icon" . (make-reference "https://example.com/cat.png")) ("mail" . (make-reference "mailto:kris@example.com")) ("peer" . (make-reference "ocapn://a2ef69ddd5f8.tcp-testing-only?host=127.0.0.1&port=22046")) ("spec" . (make-reference "urn:ietf:rfc:3986")))

@@ -645,6 +645,112 @@ static yay_value_t *make_expected_object_quoted_key_escapes(void) {
 );
 }
 
+static yay_value_t *make_expected_reference_block_array(void) {
+    return YAY_ARRAY(
+    yay_reference("https://a.example/x"),
+    yay_reference("urn:isbn:0451450523")
+);
+}
+
+static yay_value_t *make_expected_reference_delimiters_inside(void) {
+    return YAY_OBJECT(
+    "q", YAY_ARRAY(
+        yay_reference("https://x.example/a,b]c?e=(f)&g='h'"),
+        yay_int(1)
+    )
+);
+}
+
+static yay_value_t *make_expected_reference_inline_array(void) {
+    return YAY_OBJECT(
+    "mirrors", YAY_ARRAY(
+        yay_reference("https://a.example/x"),
+        yay_reference("https://b.example/x"),
+        yay_bytes_from_hex("ff"),
+        yay_bytes_from_hex("")
+    )
+);
+}
+
+static yay_value_t *make_expected_reference_inline_object(void) {
+    return YAY_OBJECT(
+    "links", YAY_OBJECT(
+        "home", yay_reference("https://kriskowal.com/"),
+        "seed", yay_bytes_from_hex("ff8800")
+    )
+);
+}
+
+static yay_value_t *make_expected_reference_iri(void) {
+    return YAY_OBJECT("page", yay_reference("https://例え.jp/パス?q=é"));
+}
+
+static yay_value_t *make_expected_reference_percent_case_kept(void) {
+    return YAY_OBJECT("a", yay_reference("https://x/a%2fb%2F"));
+}
+
+static yay_value_t *make_expected_reference_percent(void) {
+    return YAY_OBJECT("space", yay_reference("https://example.com/a%20b%2Fc"));
+}
+
+static yay_value_t *make_expected_reference_root(void) {
+    return yay_reference("https://example.com/");
+}
+
+static yay_value_t *make_expected_reference_same_text(void) {
+    return YAY_OBJECT(
+    "r", yay_reference("https://x"),
+    "s", yay_string("https://x")
+);
+}
+
+static yay_value_t *make_expected_reference_schemes(void) {
+    return YAY_OBJECT(
+    "icon", yay_reference("https://example.com/cat.png"),
+    "mail", yay_reference("mailto:kris@example.com"),
+    "peer", yay_reference("ocapn://a2ef69ddd5f8.tcp-testing-only?host=127.0.0.1&port=22046"),
+    "spec", yay_reference("urn:ietf:rfc:3986")
+);
+}
+
+static yay_value_t *make_expected_reference_tagged_in_array(void) {
+    return YAY_OBJECT(
+    "peers", YAY_ARRAY(
+        yay_tagged("Counter", yay_reference("ocapn://a.tcp")),
+        yay_reference("ocapn://b.tcp")
+    )
+);
+}
+
+static yay_value_t *make_expected_reference_tagged(void) {
+    return YAY_OBJECT(
+    "home", yay_tagged("outer", yay_tagged("com.example.homepage", yay_reference("https://kriskowal.com/"))),
+    "thumb", yay_tagged("image/png", yay_reference("https://example.com/cat.png"))
+);
+}
+
+static yay_value_t *make_expected_reference_then_comment(void) {
+    return YAY_OBJECT("a", yay_reference("https://example.com/#frag"));
+}
+
+static yay_value_t *make_expected_reference_unchanged_in_strings(void) {
+    return YAY_OBJECT(
+    "a", yay_string("<https://x>"),
+    "b", yay_string("<urn:x>"),
+    "c", yay_tagged("<https://x>", yay_int(1)),
+    "d", yay_string("<https://in-a-block-string>\n")
+);
+}
+
+static yay_value_t *make_expected_reference_under_block_tag(void) {
+    return YAY_OBJECT(
+    "links", yay_tagged("mirrors", YAY_ARRAY(
+        yay_reference("https://a.example/x"),
+        yay_reference("https://b.example/x")
+    ))
+);
+}
+
 static yay_value_t *make_expected_string_block_array_in_property(void) {
     return YAY_OBJECT(
     "items", YAY_ARRAY(yay_string("a\n- b\n"), yay_string("\n* c\n\n\n---\n")),
@@ -1185,6 +1291,21 @@ static test_fixture_t test_fixtures[] = {
     {"object_nested_empty_property", "outer:\n  inner: {}\n", make_expected_object_nested_empty_property},
     {"object_nested_quoted_key_first", "meta:\n  \"A quoted key\": \"first in its object\"\n  b: 2\n", make_expected_object_nested_quoted_key_first},
     {"object_quoted_key_escapes", "\"\": \"the empty key\"\n\"a\\\"b\": \"an escaped quote\"\n\"a\\\\b\": \"an escaped backslash\"\n\"a/b\": \"a slash\"\n\"line\\nbreak\": \"an escaped newline\"\n", make_expected_object_quoted_key_escapes},
+    {"reference_block_array", "- <https://a.example/x>\n- <urn:isbn:0451450523>\n", make_expected_reference_block_array},
+    {"reference_delimiters_inside", "q: [<https://x.example/a,b]c?e=(f)&g='h'>, 1]\n", make_expected_reference_delimiters_inside},
+    {"reference_inline_array", "mirrors: [<https://a.example/x>, <https://b.example/x>, <ff>, <>]\n", make_expected_reference_inline_array},
+    {"reference_inline_object", "links: {home: <https://kriskowal.com/>, seed: <ff8800>}\n", make_expected_reference_inline_object},
+    {"reference_iri", "page: <https://例え.jp/パス?q=é>\n", make_expected_reference_iri},
+    {"reference_percent_case_kept", "a: <https://x/a%2fb%2F>\n", make_expected_reference_percent_case_kept},
+    {"reference_percent", "space: <https://example.com/a%20b%2Fc>\n", make_expected_reference_percent},
+    {"reference_root", "<https://example.com/>\n", make_expected_reference_root},
+    {"reference_same_text", "s: 'https://x'\nr: <https://x>\n", make_expected_reference_same_text},
+    {"reference_schemes", "icon: <https://example.com/cat.png>\npeer: <ocapn://a2ef69ddd5f8.tcp-testing-only?host=127.0.0.1&port=22046>\nspec: <urn:ietf:rfc:3986>\nmail: <mailto:kris@example.com>\n", make_expected_reference_schemes},
+    {"reference_tagged_in_array", "peers: [<ocapn://a.tcp> (Counter), <ocapn://b.tcp>]\n", make_expected_reference_tagged_in_array},
+    {"reference_tagged", "thumb: <https://example.com/cat.png> (image/png)\nhome: <https://kriskowal.com/> (com.example.homepage) (outer)\n", make_expected_reference_tagged},
+    {"reference_then_comment", "a: <https://example.com/#frag>  # the fragment is not a comment\n", make_expected_reference_then_comment},
+    {"reference_unchanged_in_strings", "a: '<https://x>'\nb: \"<urn:x>\"\nc: 1 (<https://x>)\nd: `\n  <https://in-a-block-string>\n", make_expected_reference_unchanged_in_strings},
+    {"reference_under_block_tag", "links: (mirrors)\n  - <https://a.example/x>\n  - <https://b.example/x>\n", make_expected_reference_under_block_tag},
     {"string_block_array_in_property", "items:\n- ` a\n  - b\n- `\n  * c\n\n\n  ---\nnext: 1\n", make_expected_string_block_array_in_property},
     {"string_block_array_item_property", "- title: \"a\"\n  body: `\n    - x\n- body: `\n    # Heading\n\n\n    * y\n  title: \"b\"\n", make_expected_string_block_array_item_property},
     {"string_block_blank_run_array", "- `\n  x\n\n\n  y\n\n\n- ` p\n\n\n  q\n", make_expected_string_block_blank_run_array},
@@ -1256,7 +1377,7 @@ static test_fixture_t test_fixtures[] = {
     {NULL, NULL, NULL}
 };
 
-#define TEST_FIXTURE_COUNT 170
+#define TEST_FIXTURE_COUNT 185
 
 static error_fixture_t error_fixtures[] = {
     {"array_inline_invalid_multiline", "array-inline-invalid-multiline.nay", "[\n  1,\n  2\n]\n", 13, "Unexpected newline in inline array at 1:1 of <array-inline-invalid-multiline.nay>"},
@@ -1276,6 +1397,7 @@ static error_fixture_t error_fixtures[] = {
     {"bytearray_block_property_invalid_leader_next_line", "bytearray-block-property-invalid-leader-next-line.nay", "i:\n  >\n    cafe\n    babe\n", 25, "Unexpected indent at 2:1 of <bytearray-block-property-invalid-leader-next-line.nay>"},
     {"bytearray_block_property_invalid_same_line", "bytearray-block-property-invalid-same-line.nay", "data: > b0b5\n  c0ff\n", 20, "Expected newline after block leader in property"},
     {"bytearray_inline_invalid_hex_digit", "bytearray-inline-invalid-hex-digit.nay", "<deadbeefXX>\n", 13, "Invalid hex digit at 1:1 of <bytearray-inline-invalid-hex-digit.nay>"},
+    {"bytearray_inline_invalid_space_after_open", "bytearray-inline-invalid-space-after-open.nay", "a: < ff>\n", 9, "Unexpected space after \"<\" at 1:5 of <bytearray-inline-invalid-space-after-open.nay>"},
     {"bytearray_inline_invalid_unclosed_root", "bytearray-inline-invalid-unclosed-root.nay", "<\n  b0b5\n", 9, "Unmatched angle bracket at 1:1 of <bytearray-inline-invalid-unclosed-root.nay>"},
     {"bytearray_inline_invalid_unclosed", "bytearray-inline-invalid-unclosed.nay", "a: <\n  b0b5\n", 12, "Unmatched angle bracket at 1:4 of <bytearray-inline-invalid-unclosed.nay>"},
     {"bytearray_inline_odd", "bytearray-inline-odd.nay", "<a>\n", 4, "Odd number of hex digits in byte literal at 1:1 of <bytearray-inline-odd.nay>"},
@@ -1312,6 +1434,20 @@ static error_fixture_t error_fixtures[] = {
     {"object_multiline_invalid_quoted_key_space_before_colon_single", "object-multiline-invalid-quoted-key-space-before-colon-single.nay", "'key' : 1\n", 10, "Unexpected space before \":\" at 1:6 of <object-multiline-invalid-quoted-key-space-before-colon-single.nay>"},
     {"object_multiline_invalid_quoted_key_space_before_colon", "object-multiline-invalid-quoted-key-space-before-colon.nay", "\"key\" : 1\n", 10, "Unexpected space before \":\" at 1:6 of <object-multiline-invalid-quoted-key-space-before-colon.nay>"},
     {"object_multiline_invalid_value_space", "object-multiline-invalid-value-space.nay", "key:  1\n", 8, "Unexpected space after \":\" at 1:6 of <object-multiline-invalid-value-space.nay>"},
+    {"reference_as_key", "reference-as-key.nay", "<https://x>: 1\n", 15, "Unexpected character \":\" at 1:12 of <reference-as-key.nay>"},
+    {"reference_bad_percent", "reference-bad-percent.nay", "a: <https://x/%zz>\n", 19, "Bad percent-encoding in reference (use % and two hex digits) at 1:15 of <reference-bad-percent.nay>"},
+    {"reference_block_form", "reference-block-form.nay", "a: >\n  https://x\n", 17, "Odd number of hex digits in byte literal at 1:1 of <reference-block-form.nay>"},
+    {"reference_excluded_brace", "reference-excluded-brace.nay", "a: <https://x/a}b>\n", 19, "Unexpected character \"}\" in reference at 1:16 of <reference-excluded-brace.nay>"},
+    {"reference_excluded_char", "reference-excluded-char.nay", "a: <https://x/a\"b>\n", 19, "Unexpected character \"\"\" in reference at 1:16 of <reference-excluded-char.nay>"},
+    {"reference_glued_tag", "reference-glued-tag.nay", "a: <https://x>rgb\n", 18, "Unexpected character \"r\" at 1:15 of <reference-glued-tag.nay>"},
+    {"reference_no_scheme_fragment", "reference-no-scheme-fragment.nay", "a: <#frag>\n", 11, "Unmatched angle bracket at 1:4 of <reference-no-scheme-fragment.nay>"},
+    {"reference_no_scheme", "reference-no-scheme.nay", "a: <./a.yay>\n", 13, "Odd number of hex digits in byte literal at 1:4 of <reference-no-scheme.nay>"},
+    {"reference_prefix_on_inline", "reference-prefix-on-inline.nay", "a: (t) <https://x>\n", 19, "A tag before a value needs a block below it; write the tag after an inline value at 1:4 of <reference-prefix-on-inline.nay>"},
+    {"reference_scheme_digit_first", "reference-scheme-digit-first.nay", "a: <1a:b>\n", 10, "Invalid hex digit at 1:4 of <reference-scheme-digit-first.nay>"},
+    {"reference_space_after_open", "reference-space-after-open.nay", "a: < https://x>\n", 16, "Unexpected space after \"<\" at 1:5 of <reference-space-after-open.nay>"},
+    {"reference_space_inside", "reference-space-inside.nay", "a: <https://example.com/a b>\n", 29, "Unexpected space in reference at 1:26 of <reference-space-inside.nay>"},
+    {"reference_tab_inside", "reference-tab-inside.nay", "a: <https://x/a\011b>", 18, "Tab not allowed (use spaces) at 1:16 of <reference-tab-inside.nay>"},
+    {"reference_unclosed", "reference-unclosed.nay", "a: <https://x\n", 14, "Unmatched angle bracket at 1:4 of <reference-unclosed.nay>"},
     {"string_block_invalid_empty", "string-block-invalid-empty.nay", "name: `\n`\n", 10, "Empty block string not allowed (use \"\" or \"\\n\" explicitly)"},
     {"string_block_invalid_tab", "string-block-invalid-tab.nay", "message: `\n  hello\011world\n", 25, "Tab not allowed (use spaces) at 2:8 of <string-block-invalid-tab.nay>"},
     {"string_block_invalid_trailing_space", "string-block-invalid-trailing-space.nay", "message: `\n  hello world \n", 26, "Unexpected trailing space at 2:14 of <string-block-invalid-trailing-space.nay>"},
@@ -1383,6 +1519,6 @@ static error_fixture_t error_fixtures[] = {
     {NULL, NULL, NULL, 0, NULL}
 };
 
-#define ERROR_FIXTURE_COUNT 121
+#define ERROR_FIXTURE_COUNT 136
 
 #endif /* FIXTURES_GEN_H */

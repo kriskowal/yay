@@ -1,0 +1,1 @@
+Map.of("icon", new Reference("https://example.com/cat.png"), "mail", new Reference("mailto:kris@example.com"), "peer", new Reference("ocapn://a2ef69ddd5f8.tcp-testing-only?host=127.0.0.1&port=22046"), "spec", new Reference("urn:ietf:rfc:3986"))
