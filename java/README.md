@@ -60,6 +60,18 @@ Yay.parse("count: 10 (s)\n");
 // {count=Tagged[tag=s, payload=10]}
 ```
 
+### `Reference(String uri)`
+
+A reference, `<https://example.com/>`: a record with the URI or IRI, held
+as written, without its angle brackets. YAY never dereferences it.
+References are equal when their texts are; a reference never equals a
+string.
+
+```java
+Yay.parse("<ocapn://a.tcp> (Counter)\n");
+// Tagged[tag=Counter, payload=<ocapn://a.tcp>]
+```
+
 ## Type Mapping
 
 | YAY Type | Java Type | Notes |
@@ -73,6 +85,7 @@ Yay.parse("count: 10 (s)\n");
 | object | `Map<String, Object>` | `LinkedHashMap` preserves insertion order |
 | bytes | `byte[]` | |
 | tagged | `Tagged` | `record Tagged(String tag, Object payload)` |
+| reference | `Reference` | `record Reference(String uri)` |
 
 # YAY Format
 

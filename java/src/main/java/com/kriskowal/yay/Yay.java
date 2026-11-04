@@ -9,7 +9,7 @@ import java.util.regex.Pattern;
  *
  * <p>Type mapping: - null -> null - boolean -> Boolean - big integer -> BigInteger - float64 ->
  * Double - string -> String - array -> List<Object> - object -> LinkedHashMap<String, Object> -
- * bytes -> byte[]
+ * bytes -> byte[] - reference -> Reference
  */
 public class Yay {
 
@@ -530,6 +530,12 @@ public class Yay {
         return parseInlineObject(s, t.lineNum, t.col);
       }
 
+      // A reference
+      if (isReferenceStart(s, 0)) {
+        pos++;
+        return parseWholeReference(stripInlineComment(s), t.lineNum, t.col);
+      }
+
       // Inline bytes
       if (s.startsWith("<") && s.contains(">")) {
         pos++;
@@ -727,6 +733,7 @@ public class Yay {
         }
         if (c == '"') inDouble = true;
         else if (c == '\'') inSingle = true;
+        else if (referenceEnd(s, i) >= 0) i = referenceEnd(s, i);
         else if (c == '[' || c == '{') depth++;
         else if (c == ']' || c == '}') depth--;
         else if (c == '(') {
@@ -1439,6 +1446,12 @@ public class Yay {
           continue;
         }
 
+        if (referenceEnd(s, i) >= 0) {
+          // So is a reference
+          i = referenceEnd(s, i);
+          continue;
+        }
+
         if (ch == '\'') {
           inSingle = true;
           continue;
@@ -1564,6 +1577,9 @@ public class Yay {
         key = parseDoubleQuotedString(key, t.lineNum, t.col);
       } else if (key.startsWith("'") && key.endsWith("'")) {
         key = parseSingleQuotedString(key);
+      } else if (isReferenceStart(key, 0)) {
+        // A reference is never a key
+        throw new YayException("Invalid key", filename, t.lineNum + 1, t.col + 1);
       } else {
         // Validate unquoted key characters (alphanumeric, underscore, hyphen)
         for (int i = 0; i < key.length(); i++) {
@@ -1963,6 +1979,12 @@ public class Yay {
           continue;
         }
 
+        if (referenceEnd(s, i) >= 0) {
+          // So is a reference
+          i = referenceEnd(s, i);
+          continue;
+        }
+
         if (ch == '\'') {
           inSingle = true;
           continue;
@@ -2054,6 +2076,14 @@ public class Yay {
         return parseInlineObject(inner, lineNum, col + start);
       }
 
+      // A reference
+      if (isReferenceStart(s, start)) {
+        int[] n = new int[1];
+        Reference ref = parseReference(s, start, lineNum, col + start, n);
+        consumed[0] = start + n[0];
+        return ref;
+      }
+
       // Bytes
       if (c == '<') {
         int end = s.indexOf('>', start);
@@ -2069,7 +2099,10 @@ public class Yay {
           && s.charAt(end) != ','
           && s.charAt(end) != ']'
           && s.charAt(end) != '}') {
-        end = s.charAt(end) == '(' ? skipTag(s, end) : end + 1;
+        end =
+            s.charAt(end) == '('
+                ? skipTag(s, end)
+                : referenceEnd(s, end) >= 0 ? referenceEnd(s, end) + 1 : end + 1;
       }
 
       String valueStr = s.substring(start, end).trim();
@@ -2096,6 +2129,9 @@ public class Yay {
         if (c == '(' && !inDouble && !inSingle) {
           // A tag's text is not a comment
           i = skipTag(s, i) - 1;
+        } else if (!inDouble && !inSingle && referenceEnd(s, i) >= 0) {
+          // Nor is a reference's
+          i = referenceEnd(s, i);
         } else if (c == '"' && !inSingle) {
           inDouble = !inDouble;
         } else if (c == '\'' && !inDouble) {
@@ -2129,6 +2165,11 @@ public class Yay {
       }
       if (s.startsWith("'") && s.endsWith("'")) {
         return parseSingleQuotedString(s);
+      }
+
+      // A reference
+      if (isReferenceStart(s, 0)) {
+        return parseWholeReference(s, lineNum, col);
       }
 
       // Bytes
@@ -2241,6 +2282,129 @@ public class Yay {
     }
 
     // ====================================================================
+    // References
+    // ====================================================================
+
+    /**
+     * The length of the scheme, colon included, if s at start (the text after "<") begins
+     * [A-Za-z][A-Za-z0-9+.-]*":", or 0. Uppercase letters are matched so that the reader can name
+     * an uppercase scheme rather than call it bad hex.
+     */
+    private static int schemeLen(String s, int start) {
+      if (start >= s.length() || !isAsciiLetter(s.charAt(start))) return 0;
+      for (int i = start + 1; i < s.length(); i++) {
+        char c = s.charAt(i);
+        if (c == ':') return i + 1 - start;
+        if (!isAsciiLetter(c) && !(c >= '0' && c <= '9') && c != '+' && c != '-' && c != '.') {
+          return 0;
+        }
+      }
+      return 0;
+    }
+
+    private static boolean isAsciiLetter(char c) {
+      return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+    }
+
+    /** Whether s at start begins with "<" and a scheme, so is a reference rather than bytes. */
+    private static boolean isReferenceStart(String s, int start) {
+      return start < s.length() && s.charAt(start) == '<' && schemeLen(s, start + 1) > 0;
+    }
+
+    /**
+     * The index of the ">" that closes a reference at s[start], or -1 if there is no reference
+     * there or it does not close. The scanners for quotes, brackets, colons, tags and comments
+     * skip a reference's text with it, since its punctuation is not syntax.
+     */
+    private static int referenceEnd(String s, int start) {
+      return isReferenceStart(s, start) ? s.indexOf('>', start) : -1;
+    }
+
+    /**
+     * Whether a code point may appear in a reference (RFC 3986 and RFC 3987), "%" aside, which
+     * must begin a percent-encoding.
+     */
+    private static boolean isUriCodePoint(int cp) {
+      if (cp < 0x80) {
+        return (cp >= 'a' && cp <= 'z')
+            || (cp >= 'A' && cp <= 'Z')
+            || (cp >= '0' && cp <= '9')
+            || "-._~:/?#[]@!$&'()*+,;=".indexOf(cp) >= 0;
+      }
+      return cp >= 0xA0
+          && !Character.isISOControl(cp)
+          && !Character.isWhitespace(cp)
+          && !Character.isSpaceChar(cp)
+          && cp != 0xFFFE
+          && cp != 0xFFFF;
+    }
+
+    private static boolean isHexDigit(char c) {
+      return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+    }
+
+    /**
+     * Read a reference at s[start], which isReferenceStart accepted, to the first ">", which
+     * always closes it. Sets consumed[0] to the characters read, the ">" included.
+     */
+    private Reference parseReference(String s, int start, int lineNum, int col, int[] consumed) {
+      int n = schemeLen(s, start + 1) - 1;
+      String scheme = s.substring(start + 1, start + 1 + n);
+      if (!scheme.toLowerCase(Locale.ROOT).equals(scheme)) {
+        throw new YayException(
+            "Uppercase scheme \"" + scheme + "\" in reference (use lowercase)",
+            filename,
+            lineNum + 1,
+            col + 1);
+      }
+      for (int at = start + 1 + n; at < s.length(); ) {
+        int cp = s.codePointAt(at);
+        int column = col + (at - start) + 1;
+        if (cp == '>') {
+          consumed[0] = at + 1 - start;
+          return new Reference(s.substring(start + 1, at));
+        } else if (cp == '%') {
+          if (!(at + 2 < s.length() && isHexDigit(s.charAt(at + 1)) && isHexDigit(s.charAt(at + 2)))) {
+            throw new YayException(
+                "Bad percent-encoding in reference (use % and two hex digits)",
+                filename,
+                lineNum + 1,
+                column);
+          }
+        } else if (cp == '\n' || cp == '\r') {
+          break;
+        } else if (cp == ' ') {
+          throw new YayException("Unexpected space in reference", filename, lineNum + 1, column);
+        } else if (cp == '\t') {
+          throw new YayException("Tab not allowed in reference", filename, lineNum + 1, column);
+        } else if (!isUriCodePoint(cp)) {
+          throw new YayException(
+              "Unexpected character \"" + Character.toString(cp) + "\" in reference",
+              filename,
+              lineNum + 1,
+              column);
+        }
+        at += Character.charCount(cp);
+      }
+      throw new YayException("Unmatched angle bracket", filename, lineNum + 1, col + 1);
+    }
+
+    /** Read a reference that must be all of s. */
+    private Reference parseWholeReference(String s, int lineNum, int col) {
+      int[] consumed = new int[1];
+      Reference ref = parseReference(s, 0, lineNum, col, consumed);
+      int n = consumed[0];
+      if (n < s.length()) {
+        if (s.charAt(n) == ':') {
+          throw new YayException("Invalid key", filename, lineNum + 1, col + 1);
+        }
+        throw new YayException(
+            "Unexpected character \"" + s.charAt(n) + "\"", filename, lineNum + 1, col + n + 1);
+      }
+      return ref;
+    }
+
+    // ====================================================================
     // Utility Methods
     // ====================================================================
 
@@ -2265,6 +2429,9 @@ public class Yay {
         if (c == '(' && !inDouble && !inSingle) {
           // A tag's text is not a property's colon
           i = skipTag(s, i) - 1;
+        } else if (!inDouble && !inSingle && referenceEnd(s, i) >= 0) {
+          // Nor is a reference's
+          i = referenceEnd(s, i);
         } else if (c == '"' && !inSingle) {
           inDouble = !inDouble;
         } else if (c == '\'' && !inDouble) {
@@ -2334,6 +2501,12 @@ public class Yay {
         if (!inString && c == '(') {
           // A tag is opaque
           i = skipTag(s, i) - 1;
+          continue;
+        }
+
+        if (!inString && referenceEnd(s, i) >= 0) {
+          // So is a reference
+          i = referenceEnd(s, i);
           continue;
         }
 
