@@ -101,8 +101,7 @@ pub(crate) fn scan_reference(
     } else {
         uri.push_str(scheme_text);
     }
-    let mut chars = s[1 + scheme..].char_indices().peekable();
-    while let Some((j, c)) = chars.next() {
+    for (j, c) in s[1 + scheme..].char_indices() {
         let at = 1 + scheme + j;
         if c == '>' {
             return Ok((uri, at + 1));
