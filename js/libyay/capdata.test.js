@@ -1,7 +1,8 @@
 // References through Endo: the bridge turns binyay's YSON into CapData,
 // each distinct URI a slot, and @endo/marshal's makeMarshal decodes it with
 // a convertSlotToVal that makes a remotable for each URI. Skipped when the
-// dev dependencies (@endo/init, @endo/marshal) are not installed.
+// dev dependencies (@endo/init, @endo/marshal) are not installed, and
+// failed instead with YAY_REQUIRE_SMALLCAPS=1, as CI sets it.
 
 import { describe, it } from "node:test";
 import assert from "node:assert";
@@ -20,7 +21,8 @@ try {
   const { makeMarshal, makeTagged, passStyleOf, Far } =
     await import("@endo/marshal");
   endo = { makeMarshal, makeTagged, passStyleOf, Far };
-} catch {
+} catch (error) {
+  if (process.env.YAY_REQUIRE_SMALLCAPS === "1") throw error;
   endo = undefined;
 }
 

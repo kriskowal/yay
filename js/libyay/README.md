@@ -937,9 +937,12 @@ Files with `.yay` extension contain YAY input.
 Files with `.js` extension contain expected JavaScript output.
 `tagged.test.js` reads the tagged-value cases of the design, in
 `../../doc/design/tagged-values-g/cases/`, until they join the shared corpus.
-`smallcaps.test.js` checks a round trip through Endo's smallcaps encoding
-(`@endo/marshal`), and skips when the dev dependencies are not installed
-(`npm install`). `references.test.js` reads the design's reference cases, in
+`smallcaps.test.js` runs YAY documents through a built binyay
+(`yay -f yay -t yson`; `YAY_BIN`, or `rust/target/release` or `debug`) and
+decodes the YSON with Endo's smallcaps encoding (`@endo/marshal`), then
+encodes it back. It skips, and says why, when the dev dependencies
+(`npm install`) or binyay are missing; with `YAY_REQUIRE_SMALLCAPS=1`, as
+CI sets it, it fails instead. `references.test.js` reads the design's reference cases, in
 `../../doc/design/references/cases/`, and checks the CapData bridge;
 `capdata.test.js` takes the bridge through `@endo/marshal` and skips as
 `smallcaps.test.js` does.

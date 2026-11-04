@@ -17,6 +17,12 @@ if ! command -v node >/dev/null 2>&1; then
   exit 2
 fi
 
+# smallcaps.test.js runs live binyay output; build it when cargo is here
+if [[ -z "${YAY_BIN:-}" ]] && command -v cargo >/dev/null 2>&1; then
+  echo "Building binyay..."
+  (cd "$ROOT/rust" && cargo build --quiet -p binyay)
+fi
+
 cd "$DIR"
 
 echo "Running tests..."
