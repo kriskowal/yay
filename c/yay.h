@@ -29,7 +29,8 @@ typedef enum {
     YAY_BYTES,      /* byte array */
     YAY_ARRAY,      /* array of values */
     YAY_OBJECT,     /* key-value object */
-    YAY_TAGGED      /* tagged value: a tag and a payload */
+    YAY_TAGGED,     /* tagged value: a tag and a payload */
+    YAY_REFERENCE   /* reference: a URI or IRI, held as written */
 } yay_type_t;
 
 /* Forward declaration */
@@ -55,6 +56,7 @@ struct yay_value {
         yay_bigint_t bigint;
         double number;
         char *string;
+        char *reference;    /* the URI or IRI, without its angle brackets */
         struct {
             uint8_t *data;
             size_t length;
@@ -147,6 +149,11 @@ yay_value_t *yay_array(void);
 yay_value_t *yay_object(void);
 /* A tagged value; takes ownership of the payload and copies the tag */
 yay_value_t *yay_tagged(const char *tag, yay_value_t *payload);
+
+/* A reference; copies the URI or IRI, which equals another reference's by
+ * its text and never equals a string */
+yay_value_t *yay_reference(const char *uri);
+yay_value_t *yay_reference_len(const char *uri, size_t len);
 
 /* Array operations - returns array for chaining */
 yay_value_t *yay_array_push(yay_value_t *array, yay_value_t *item);

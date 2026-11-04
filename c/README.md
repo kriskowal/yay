@@ -78,6 +78,7 @@ case YAY_BYTES:   printf("bytes: %zu bytes\n", v->data.bytes.length); break;
 case YAY_ARRAY:   printf("array: %zu items\n", v->data.array.length); break;
 case YAY_OBJECT:  printf("object: %zu pairs\n", v->data.object.length); break;
 case YAY_TAGGED:  printf("tagged: (%s)\n", v->data.tagged.tag); break;
+case YAY_REFERENCE: printf("reference: <%s>\n", v->data.reference); break;
 }
 ```
 
@@ -150,6 +151,19 @@ yay_value_t *count = r.value->data.object.pairs[0].value;
 /* count->type == YAY_TAGGED, tag "s", payload the integer 10 */
 ```
 
+### References
+
+A reference, `<https://example.com/>`, a URI or IRI held as written, has
+type `YAY_REFERENCE`, its text, without the angle brackets, in
+`data.reference`. YAY never dereferences it. `yay_reference(uri)` makes one,
+copying the text. References are equal when their texts are; a reference
+never equals a string.
+
+```c
+yay_result_t r = yay_parse("<ocapn://a.tcp> (Counter)\n", 0, NULL);
+/* r.value->type == YAY_TAGGED, its payload a YAY_REFERENCE */
+```
+
 ## Code Generation
 
 The [`yay` CLI](../CLI.md) can generate C expressions from YAY documents:
@@ -190,6 +204,7 @@ YAY_OBJECT(
 | object | `yay_pair_t *` | Array of key-value pairs |
 | bytes | `uint8_t *` | With length field |
 | tagged | `YAY_TAGGED` | `data.tagged.tag` and `data.tagged.payload` |
+| reference | `YAY_REFERENCE` | `data.reference`, from `yay_reference(uri)` |
 
 # YAY Format
 

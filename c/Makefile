@@ -16,10 +16,11 @@ TEST_OBJS = $(TEST_SRCS:.c=.o)
 LIB = libyay.a
 TEST = test_yay
 TAGGED = test_tagged
+REFERENCES = test_references
 
 .PHONY: all clean test fixtures
 
-all: $(LIB) $(TEST) $(TAGGED)
+all: $(LIB) $(TEST) $(TAGGED) $(REFERENCES)
 
 # Generate fixtures from Go test files
 fixtures: fixtures_gen.h
@@ -39,6 +40,10 @@ $(TEST): $(TEST_OBJS) $(LIB) fixtures_gen.h
 $(TAGGED): test_tagged.c $(LIB)
 	$(CC) $(CFLAGS) -o $@ test_tagged.c -L. -lyay $(LDFLAGS)
 
+# Build the reference tests
+$(REFERENCES): test_references.c $(LIB)
+	$(CC) $(CFLAGS) -o $@ test_references.c -L. -lyay $(LDFLAGS)
+
 # Compile source files
 %.o: %.c yay.h
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -48,9 +53,10 @@ test_yay.o: test_yay.c yay.h fixtures_gen.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 # Run tests
-test: $(TEST) $(TAGGED)
+test: $(TEST) $(TAGGED) $(REFERENCES)
 	./$(TEST)
 	./$(TAGGED)
+	./$(REFERENCES)
 
 # Run a specific test
 test-%: $(TEST)
@@ -58,7 +64,7 @@ test-%: $(TEST)
 
 # Clean build artifacts
 clean:
-	rm -f $(OBJS) $(TEST_OBJS) $(LIB) $(TEST) $(TAGGED)
+	rm -f $(OBJS) $(TEST_OBJS) $(LIB) $(TEST) $(TAGGED) $(REFERENCES)
 
 # Clean everything including generated files
 distclean: clean

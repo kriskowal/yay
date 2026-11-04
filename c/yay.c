@@ -148,6 +148,19 @@ yay_value_t *yay_string_len(const char *str, size_t len) {
     return v;
 }
 
+yay_value_t *yay_reference(const char *uri) {
+    return yay_reference_len(uri, strlen(uri));
+}
+
+yay_value_t *yay_reference_len(const char *uri, size_t len) {
+    yay_value_t *v = calloc(1, sizeof(yay_value_t));
+    if (v) {
+        v->type = YAY_REFERENCE;
+        v->data.reference = str_dup_len(uri, len);
+    }
+    return v;
+}
+
 yay_value_t *yay_bytes(const uint8_t *data, size_t length) {
     yay_value_t *v = calloc(1, sizeof(yay_value_t));
     if (v) {
@@ -294,6 +307,9 @@ void yay_free(yay_value_t *value) {
         case YAY_STRING:
             free(value->data.string);
             break;
+        case YAY_REFERENCE:
+            free(value->data.reference);
+            break;
         case YAY_BYTES:
             free(value->data.bytes.data);
             break;
@@ -355,6 +371,9 @@ bool yay_equal(const yay_value_t *a, const yay_value_t *b) {
             return a->data.number == b->data.number;
         case YAY_STRING:
             return strcmp(a->data.string, b->data.string) == 0;
+        case YAY_REFERENCE:
+            /* By text, never equal to a string */
+            return strcmp(a->data.reference, b->data.reference) == 0;
         case YAY_BYTES:
             if (a->data.bytes.length != b->data.bytes.length) return false;
             return memcmp(a->data.bytes.data, b->data.bytes.data, 
@@ -477,6 +496,11 @@ static void value_to_string_impl(const yay_value_t *v, char **buf,
             append_str(buf, len, cap, " (");
             append_str(buf, len, cap, v->data.tagged.tag);
             append_str(buf, len, cap, ")");
+            break;
+        case YAY_REFERENCE:
+            append_str(buf, len, cap, "<");
+            append_str(buf, len, cap, v->data.reference);
+            append_str(buf, len, cap, ">");
             break;
     }
 }
@@ -857,6 +881,137 @@ static size_t skip_stops(parse_ctx_t *ctx, size_t i) {
 }
 
 /* Find colon outside quotes */
+
+static int utf8_len(unsigned char c);
+/* ============================================================================
+ * References
+ * ============================================================================ */
+
+/* The length of the scheme, colon included, if s (the text after "<")
+ * begins [A-Za-z][A-Za-z0-9+.-]*":", or 0. Uppercase letters are matched so
+ * that the reader can name an uppercase scheme rather than call it bad hex. */
+static size_t scheme_len(const char *s) {
+    if (!isalpha((unsigned char)s[0])) return 0;
+    for (size_t i = 1; s[i]; i++) {
+        char c = s[i];
+        if (c == ':') return i + 1;
+        if (!isalnum((unsigned char)c) && c != '+' && c != '-' && c != '.') {
+            return 0;
+        }
+    }
+    return 0;
+}
+
+/* Whether s begins with "<" and a scheme, so is a reference rather than
+ * bytes */
+static bool is_reference_start(const char *s) {
+    return s[0] == '<' && scheme_len(s + 1) > 0;
+}
+
+/* The offset of the ">" that closes a reference at the start of s, or 0 if
+ * s is no reference or the reference is not closed. The scanners for
+ * quotes, brackets, colons, tags and comments skip a reference's text with
+ * it, since its punctuation is not syntax. */
+static int reference_end(const char *s) {
+    if (!is_reference_start(s)) return 0;
+    const char *end = strchr(s, '>');
+    return end ? (int)(end - s) : 0;
+}
+
+/* Whether a non-ASCII code point may appear in a reference (RFC 3987),
+ * as the other ports have it: from U+00A0, but no white space, nor U+FFFE
+ * or U+FFFF */
+static bool is_iri_code_point(uint32_t cp) {
+    return cp > 0xA0 && cp != 0x1680 && !(cp >= 0x2000 && cp <= 0x200A) &&
+           cp != 0x2028 && cp != 0x2029 && cp != 0x202F && cp != 0x205F &&
+           cp != 0x3000 && cp != 0xFFFE && cp != 0xFFFF;
+}
+
+/* Read a reference at the start of s, which is_reference_start accepted, to
+ * the first ">", which always closes it. Sets *consumed to the bytes read,
+ * the ">" included. */
+static yay_value_t *parse_reference(parse_ctx_t *ctx, const char *s,
+                                    size_t *consumed, int line_num, int col) {
+    size_t n = scheme_len(s + 1) - 1;
+    for (size_t k = 1; k <= n; k++) {
+        if (isupper((unsigned char)s[k])) {
+            ctx->error = make_error(ctx, line_num, col,
+                "Uppercase scheme \"%.*s\" in reference (use lowercase)",
+                (int)n, s + 1);
+            return NULL;
+        }
+    }
+    for (size_t at = 1 + n; s[at]; at++) {
+        unsigned char c = (unsigned char)s[at];
+        if (c == '>') {
+            *consumed = at + 1;
+            return yay_reference_len(s + 1, at - 1);
+        }
+        if (c == '%') {
+            if (!isxdigit((unsigned char)s[at + 1]) ||
+                !isxdigit((unsigned char)s[at + 2])) {
+                ctx->error = make_error(ctx, line_num, col + (int)at,
+                    "Bad percent-encoding in reference (use %% and two hex digits)");
+                return NULL;
+            }
+            continue;
+        }
+        if (c == '\n' || c == '\r') break;
+        if (c == ' ') {
+            ctx->error = make_error(ctx, line_num, col + (int)at,
+                                    "Unexpected space in reference");
+            return NULL;
+        }
+        if (c == '\t') {
+            ctx->error = make_error(ctx, line_num, col + (int)at,
+                                    "Tab not allowed in reference");
+            return NULL;
+        }
+        if (c >= 0x80) {
+            /* A non-ASCII character, decoded from its UTF-8 */
+            int len = utf8_len(c);
+            uint32_t cp = c & (0xFF >> (len + 1));
+            int k = 1;
+            for (; k < len && ((unsigned char)s[at + k] & 0xC0) == 0x80; k++) {
+                cp = (cp << 6) | ((unsigned char)s[at + k] & 0x3F);
+            }
+            if (k == len && is_iri_code_point(cp)) {
+                at += len - 1;
+                continue;
+            }
+            ctx->error = make_error(ctx, line_num, col + (int)at,
+                                    "Unexpected character \"%.*s\" in reference",
+                                    k, s + at);
+            return NULL;
+        }
+        if (isalnum(c) || strchr("-._~:/?#[]@!$&'()*+,;=", c)) continue;
+        ctx->error = make_error(ctx, line_num, col + (int)at,
+                                "Unexpected character \"%c\" in reference", c);
+        return NULL;
+    }
+    ctx->error = make_error(ctx, line_num, col, "Unmatched angle bracket");
+    return NULL;
+}
+
+/* Read a reference that must be all of s */
+static yay_value_t *parse_whole_reference(parse_ctx_t *ctx, const char *s,
+                                          int line_num, int col) {
+    size_t n;
+    yay_value_t *ref = parse_reference(ctx, s, &n, line_num, col);
+    if (!ref) return NULL;
+    if (s[n] != '\0') {
+        if (s[n] == ':') {
+            ctx->error = make_error(ctx, line_num, col, "Invalid key");
+        } else {
+            ctx->error = make_error(ctx, line_num, col + (int)n,
+                                    "Unexpected character \"%c\"", s[n]);
+        }
+        yay_free(ref);
+        return NULL;
+    }
+    return ref;
+}
+
 static int find_colon_outside_quotes(const char *s) {
     bool in_double = false;
     bool in_single = false;
@@ -880,7 +1035,9 @@ static int find_colon_outside_quotes(const char *s) {
             if (c == ')') in_tag = false;
             continue;
         }
-        if (c == '(' && !in_double && !in_single) {
+        if (c == '<' && !in_double && !in_single && reference_end(s + i)) {
+            i += reference_end(s + i);
+        } else if (c == '(' && !in_double && !in_single) {
             in_tag = true;
         } else if (c == '"' && !in_single) {
             in_double = !in_double;
@@ -1146,6 +1303,7 @@ static int find_top_level_tag(const char *s) {
         }
         if (c == '"') in_double = true;
         else if (c == '\'') in_single = true;
+        else if (c == '<' && reference_end(s + i)) i += reference_end(s + i);
         else if (c == '[' || c == '{') depth++;
         else if (c == ']' || c == '}') depth--;
         else if (c == '(') {
@@ -1944,6 +2102,11 @@ static bool validate_inline_syntax(parse_ctx_t *ctx, const char *s,
             continue;
         }
         
+        if (c == '<' && reference_end(s + i)) {
+            /* A reference: its punctuation is its own */
+            i += reference_end(s + i);
+            continue;
+        }
         if (c == '(') {
             /* A tag: opaque like a string, closed by ")" */
             in_string = true;
@@ -2065,6 +2228,10 @@ static bool validate_inline_syntax(parse_ctx_t *ctx, const char *s,
                         }
                         continue;
                     }
+                    if (s[j] == '<' && reference_end(s + j)) {
+                        j += reference_end(s + j);
+                        continue;
+                    }
                     if (s[j] == '"' || s[j] == '\'') {
                         la_in_string = true;
                         la_string_char = s[j];
@@ -2149,6 +2316,11 @@ static int find_matching_bracket(const char *s) {
             escape = true;
             continue;
         }
+        /* A reference is opaque */
+        if (!in_string && s[i] == '<' && reference_end(s + i)) {
+            i += reference_end(s + i);
+            continue;
+        }
         /* A tag, "(" to ")", is opaque like a string */
         if (!in_string && s[i] == '(') {
             in_string = true;
@@ -2194,6 +2366,11 @@ static int find_matching_brace(const char *s) {
         }
         if (s[i] == '\\' && in_string) {
             escape = true;
+            continue;
+        }
+        /* A reference is opaque */
+        if (!in_string && s[i] == '<' && reference_end(s + i)) {
+            i += reference_end(s + i);
             continue;
         }
         /* A tag, "(" to ")", is opaque like a string */
@@ -2529,6 +2706,10 @@ static yay_value_t *parse_inline_atom(parse_ctx_t *ctx, const char *s,
         return obj;
     }
     
+    if (is_reference_start(s)) {
+        return parse_reference(ctx, s, consumed, line_num, col);
+    }
+    
     if (s[0] == '<') {
         return parse_inline_bytes(ctx, s, consumed, line_num, col);
     }
@@ -2672,7 +2853,9 @@ static char *strip_inline_comment(char *s) {
             if (*p == ')') in_tag = 0;
             continue;
         }
-        if (*p == '(' && !in_double && !in_single) {
+        if (*p == '<' && !in_double && !in_single && reference_end(p)) {
+            p += reference_end(p);
+        } else if (*p == '(' && !in_double && !in_single) {
             in_tag = 1;
         } else if (*p == '"' && !in_single) {
             in_double = !in_double;
@@ -2814,6 +2997,11 @@ static yay_value_t *parse_scalar_impl(parse_ctx_t *ctx, const char *s,
         }
         size_t consumed;
         return parse_inline_value_impl(ctx, s, &consumed, line_num, col);
+    }
+    
+    /* A reference */
+    if (is_reference_start(s)) {
+        return parse_whole_reference(ctx, s, line_num, col);
     }
     
     /* Inline bytes */
@@ -3038,6 +3226,12 @@ static bool validate_object_property(parse_ctx_t *ctx, const char *text,
     } else if (after_colon[0] == ' ' && after_colon[1] == ' ') {
         ctx->error = make_error(ctx, line_num, col + colon_idx + 2,
                                "Unexpected space after \":\"");
+        return false;
+    }
+    
+    /* A reference is never a key */
+    if (is_reference_start(text)) {
+        ctx->error = make_error(ctx, line_num, col, "Invalid key");
         return false;
     }
     
@@ -3484,6 +3678,16 @@ static yay_value_t *parse_value(parse_ctx_t *ctx, size_t *idx) {
             size_t consumed;
             (*idx)++;
             return parse_inline_value(ctx, s, &consumed, t->line_num, t->col);
+        }
+        
+        /* A reference */
+        if (is_reference_start(s)) {
+            (*idx)++;
+            char *s_copy = str_dup(s);
+            strip_inline_comment(s_copy);
+            yay_value_t *ref = parse_whole_reference(ctx, s_copy, t->line_num, t->col);
+            free(s_copy);
+            return ref;
         }
         
         /* Inline bytes */
