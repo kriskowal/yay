@@ -25,6 +25,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // ============================================================================
@@ -43,6 +44,7 @@ import (
 //   - object -> map[string]any
 //   - bytes -> []byte
 //   - tagged value -> Tagged
+//   - reference -> Reference
 func Unmarshal(data []byte) (any, error) {
 	return unmarshal(data, "")
 }
@@ -474,7 +476,8 @@ func parseRoot(tokens []token, ctx *parseContext) (any, error) {
 
 	// Detect root object (key: value at indent 0)
 	// But not inline objects starting with {
-	if t.typ == tokenText && strings.Contains(t.text, ":") && t.indent == 0 && !strings.HasPrefix(t.text, "{") &&
+	masked, _ := maskTags(t.text)
+	if t.typ == tokenText && strings.Contains(masked, ":") && t.indent == 0 && !strings.HasPrefix(t.text, "{") &&
 		!(strings.Contains(t.text, "(") && findColonOutsideQuotes(t.text) < 0) {
 		value, next, err := parseRootObject(tokens, i, ctx)
 		if err != nil {
@@ -608,6 +611,15 @@ func parseTextValue(tokens []token, i int, ctx *parseContext) (any, int, error) 
 	// Try inline object
 	if strings.HasPrefix(s, "{") {
 		return parseInlineObjectValue(s, t, i, ctx)
+	}
+
+	// Try a reference
+	if isReferenceStart(s) {
+		ref, err := parseWholeReference(stripComment(s), ctx, t.lineNum, t.col)
+		if err != nil {
+			return nil, 0, err
+		}
+		return ref, i + 1, nil
 	}
 
 	// Try inline bytes
@@ -1262,6 +1274,14 @@ func parseInlineAtomStrict(s string, ctx *parseContext, lineNum, col int) (any, 
 		return obj, end + 1, err
 	}
 
+	if isReferenceStart(s) {
+		ref, n, err := parseReference(s, ctx, lineNum, col)
+		if err != nil {
+			return nil, 0, err
+		}
+		return ref, n, nil
+	}
+
 	if strings.HasPrefix(s, "<") {
 		end := strings.Index(s, ">")
 		if end < 0 {
@@ -1582,6 +1602,7 @@ func parseInlineObjectStrict(s string, ctx *parseContext, lineNum, col int) (map
 
 // validateColonWhitespace checks for invalid whitespace around colons in inline objects.
 func validateColonWhitespace(s string, ctx *parseContext, lineNum, col int) error {
+	s, _ = maskTags(s)
 	runes := []rune(s)
 	inSingle := false
 	inDouble := false
@@ -2941,6 +2962,11 @@ func parseScalarAtom(s string, ctx *parseContext, lineNum, col int) (any, error)
 		return parseInlineObjectStrict(s, ctx, lineNum, col)
 	}
 
+	// A reference
+	if isReferenceStart(s) {
+		return parseWholeReference(s, ctx, lineNum, col)
+	}
+
 	// Inline bytes
 	if strings.HasPrefix(s, "<") {
 		return parseAngleBytes(s, ctx, lineNum, col)
@@ -2968,9 +2994,10 @@ type Tagged struct {
 	Payload any
 }
 
-// maskTags replaces the text inside each tag's parentheses (outside quotes)
-// with "x", byte for byte, so that the scanners for quotes, brackets, colons
-// and comments see no punctuation a tag holds. It also returns the offset
+// maskTags replaces the text inside each tag's parentheses and each
+// reference's angle brackets (outside quotes) with "x", byte for byte, so
+// that the scanners for quotes, brackets, colons and comments see no
+// punctuation a tag or reference holds. It also returns the offset
 // of the first "(" outside quotes, brackets and braces, or -1.
 func maskTags(s string) (string, int) {
 	out := []byte(s)
@@ -2990,6 +3017,16 @@ func maskTags(s string) (string, int) {
 		switch b {
 		case '"', '\'':
 			quote = b
+		case '<':
+			// A reference's text is no syntax
+			if isReferenceStart(s[i:]) {
+				if end := strings.IndexByte(s[i:], '>'); end >= 0 {
+					for k := i + 1; k < i+end; k++ {
+						out[k] = 'x'
+					}
+					i += end
+				}
+			}
 		case '[', '{':
 			depth++
 		case ']', '}':
@@ -3011,8 +3048,8 @@ func maskTags(s string) (string, int) {
 			}
 		}
 	}
-	// Only ASCII bytes were replaced, and only whole characters: a tag's
-	// text runs from one ASCII delimiter to another.
+	// Only whole characters were replaced: a tag's or reference's text runs
+	// from one ASCII delimiter to another.
 	return string(out), first
 }
 
@@ -3161,4 +3198,94 @@ func prefixTakes(rest string) bool {
 // prefixWithoutBlock is the error for a prefix that introduces no block.
 func prefixWithoutBlock(ctx *parseContext, lineNum, col int) error {
 	return fmt.Errorf("A tag before a value needs a block below it; write the tag after an inline value%s", locSuffix(ctx, lineNum, col))
+}
+
+// ============================================================================
+// References
+// ============================================================================
+
+// Reference is a reference, written "<scheme:...>": a URI or IRI, held as
+// written. It designates, and is never dereferenced. Two references are
+// equal when their texts are, character for character; a reference never
+// equals a string.
+type Reference string
+
+// schemeLen returns the length of the scheme, colon included, if s (the
+// text after "<") begins [A-Za-z][A-Za-z0-9+.-]*":", or 0. Uppercase
+// letters are matched so that the reader can name an uppercase scheme
+// rather than call it bad hex.
+func schemeLen(s string) int {
+	if s == "" || !(s[0] >= 'a' && s[0] <= 'z' || s[0] >= 'A' && s[0] <= 'Z') {
+		return 0
+	}
+	for i := 1; i < len(s); i++ {
+		b := s[i]
+		if b == ':' {
+			return i + 1
+		}
+		if !(isAlphanumeric(b) || b == '+' || b == '-' || b == '.') {
+			return 0
+		}
+	}
+	return 0
+}
+
+// isReferenceStart reports whether s begins with "<" and a scheme, so is a
+// reference rather than bytes.
+func isReferenceStart(s string) bool {
+	return strings.HasPrefix(s, "<") && schemeLen(s[1:]) > 0
+}
+
+// isURIChar reports whether r may appear in a reference (RFC 3986 and RFC
+// 3987), "%" aside, which must begin a percent-encoding.
+func isURIChar(r rune) bool {
+	if r < 0x80 {
+		return isAlphanumeric(byte(r)) || strings.ContainsRune("-._~:/?#[]@!$&'()*+,;=", r)
+	}
+	return r >= 0xA0 && !unicode.IsControl(r) && !unicode.IsSpace(r) && r != 0xFFFE && r != 0xFFFF
+}
+
+// parseReference reads a reference at the start of s, which
+// isReferenceStart accepted, to the first ">", which always closes it. It
+// returns the reference and the bytes consumed, the ">" included.
+func parseReference(s string, ctx *parseContext, lineNum, col int) (Reference, int, error) {
+	n := schemeLen(s[1:]) - 1
+	if scheme := s[1 : 1+n]; strings.ToLower(scheme) != scheme {
+		return "", 0, fmt.Errorf("Uppercase scheme \"%s\" in reference (use lowercase)%s", scheme, locSuffix(ctx, lineNum, col))
+	}
+	for j, r := range s[1+n:] {
+		at := 1 + n + j
+		switch {
+		case r == '>':
+			return Reference(s[1:at]), at + 1, nil
+		case r == '%':
+			if !(at+2 < len(s) && isHexDigit(rune(s[at+1])) && isHexDigit(rune(s[at+2]))) {
+				return "", 0, fmt.Errorf("Bad percent-encoding in reference (use %% and two hex digits)%s", locSuffix(ctx, lineNum, col+at))
+			}
+		case r == '\n' || r == '\r':
+			return "", 0, fmt.Errorf("Unmatched angle bracket%s", locSuffix(ctx, lineNum, col))
+		case r == ' ':
+			return "", 0, fmt.Errorf("Unexpected space in reference%s", locSuffix(ctx, lineNum, col+at))
+		case r == '\t':
+			return "", 0, fmt.Errorf("Tab not allowed in reference%s", locSuffix(ctx, lineNum, col+at))
+		case !isURIChar(r):
+			return "", 0, fmt.Errorf("Unexpected character \"%c\" in reference%s", r, locSuffix(ctx, lineNum, col+at))
+		}
+	}
+	return "", 0, fmt.Errorf("Unmatched angle bracket%s", locSuffix(ctx, lineNum, col))
+}
+
+// parseWholeReference reads a reference that must be all of s.
+func parseWholeReference(s string, ctx *parseContext, lineNum, col int) (Reference, error) {
+	ref, n, err := parseReference(s, ctx, lineNum, col)
+	if err != nil {
+		return "", err
+	}
+	if rest := s[n:]; rest != "" {
+		if rest[0] == ':' {
+			return "", fmt.Errorf("Invalid key%s", locSuffix(ctx, lineNum, col))
+		}
+		return "", fmt.Errorf("Unexpected character \"%c\"%s", rest[0], locSuffix(ctx, lineNum, col+n))
+	}
+	return ref, nil
 }

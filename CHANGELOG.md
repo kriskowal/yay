@@ -50,7 +50,8 @@ and YSON. The JavaScript port reads them as a frozen `reference(uri)`, and
 its CapData bridge, `ysonToCapData` and `capDataToYson`, moves each distinct
 URI of a YSON document into a slot, `$0`, `$1`, ..., for `@endo/marshal`'s
 `makeMarshal`, and back. The Python port reads and writes them as a frozen
-dataclass `Reference(uri)`.
+dataclass `Reference(uri)`. The Go port reads them as `yay.Reference`, a
+string type of its own.
 
 **Breaking: YSON follows smallcaps.** A tagged value is
 `{"#tag": tag, "payload": value}`. An integer is `"+42"` or `"-7"`, not

@@ -64,6 +64,18 @@ v, _ := yay.Unmarshal([]byte("count: 10 (s)\n"))
 // map[count:{s 10}]
 ```
 
+### `Reference`
+
+A reference, `<https://example.com/>`: a URI or IRI, held as written, as a
+`string` type of its own. YAY never dereferences it. References are equal
+when their texts are (`==`, or `reflect.DeepEqual` within a parsed value);
+a reference never equals a string.
+
+```go
+v, _ := yay.Unmarshal([]byte("<ocapn://a.tcp> (Counter)\n"))
+// {Counter ocapn://a.tcp}, a Tagged over a Reference
+```
+
 ## Type Mapping
 
 | YAY Type | Go Type | Notes |
@@ -77,6 +89,7 @@ v, _ := yay.Unmarshal([]byte("count: 10 (s)\n"))
 | object | `map[string]any` | |
 | bytes | `[]byte` | |
 | tagged | `yay.Tagged` | `Tagged{Tag: tag, Payload: payload}` |
+| reference | `yay.Reference` | `Reference("https://example.com/")` |
 
 # YAY Format
 
