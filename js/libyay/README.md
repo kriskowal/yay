@@ -79,6 +79,28 @@ parseYay('icon: <https://example.com/cat.png>');
 // => { icon: reference("https://example.com/cat.png") }
 ```
 
+### `ysonToCapData(yson)`, `capDataToYson(capData)`
+
+YSON writes a reference as smallcaps writes a remotable, a string beginning
+with `$`, with the URI in place of the slot: `"$https://example.com/"`.
+`ysonToCapData` takes YSON text and returns CapData, `{body, slots}`: each
+distinct URI goes to `slots` in order of first appearance, and the body
+names it `$0`, `$1`, ... as `@endo/marshal`'s smallcaps does.
+`capDataToYson` puts each slot's URI back, dropping any alleged interface
+(`$0.Alleged: Counter`), and refuses a promise (`&0`), which YAY does not
+write. What a URI becomes is the caller's choice, in the
+`convertSlotToVal` it gives `makeMarshal`.
+
+```js
+import { makeMarshal } from '@endo/marshal';
+import { ysonToCapData } from 'libyay';
+
+const { fromCapData } = makeMarshal(undefined, (uri, iface) =>
+  lookup(uri), { serializeBodyFormat: 'smallcaps' });
+fromCapData(ysonToCapData('["$ocapn://a.tcp", "$ocapn://a.tcp"]'));
+// one slot, "ocapn://a.tcp"; both items are the remotable lookup returned
+```
+
 ## Type Mapping
 
 | YAY Type | JavaScript Type |
@@ -918,7 +940,9 @@ Files with `.js` extension contain expected JavaScript output.
 `smallcaps.test.js` checks a round trip through Endo's smallcaps encoding
 (`@endo/marshal`), and skips when the dev dependencies are not installed
 (`npm install`). `references.test.js` reads the design's reference cases, in
-`../../doc/design/references/cases/`.
+`../../doc/design/references/cases/`, and checks the CapData bridge;
+`capdata.test.js` takes the bridge through `@endo/marshal` and skips as
+`smallcaps.test.js` does.
 
 ## References
 

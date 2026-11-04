@@ -12,8 +12,8 @@
     "README.md"
   ],
   "scripts": {
-    "test": "node --test yay.test.js tagged.test.js smallcaps.test.js references.test.js",
-    "coverage": "c8 --all --include yay.js --reporter=text --reporter=html node --test yay.test.js tagged.test.js smallcaps.test.js references.test.js"
+    "test": "node --test yay.test.js tagged.test.js smallcaps.test.js references.test.js capdata.test.js",
+    "coverage": "c8 --all --include yay.js --reporter=text --reporter=html node --test yay.test.js tagged.test.js smallcaps.test.js references.test.js capdata.test.js"
   },
   "author": "Kris Kowal",
   "license": "Apache-2.0",

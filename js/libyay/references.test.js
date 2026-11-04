@@ -1,7 +1,8 @@
 // References, against the cases of the design
 // (doc/design/references/cases/): each .yay parses to its .yson, with a
 // reference as "$uri", and each .nay and .meh is refused, MEH's leniency not
-// being YAY's. Then the model.
+// being YAY's. Then the model, and the CapData bridge without Endo (see
+// capdata.test.js for the round trip through @endo/marshal).
 
 import { describe, it } from "node:test";
 import assert from "node:assert";
@@ -16,6 +17,8 @@ import {
   reference,
   isReference,
   Reference,
+  ysonToCapData,
+  capDataToYson,
 } from "./yay.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -127,5 +130,44 @@ describe("references: the model", () => {
       parseYay("<ocapn://a.tcp> (Counter)\n"),
       tagged("Counter", reference("ocapn://a.tcp")),
     );
+  });
+});
+
+describe("references: the CapData bridge", () => {
+  it("gives each distinct URI one slot, in order of first appearance", () => {
+    const yson = JSON.stringify({
+      a: "$ocapn://b.tcp",
+      b: ["$ocapn://a.tcp", "$ocapn://b.tcp", "!$not-a-reference"],
+      c: { "#tag": "Counter", payload: "$ocapn://a.tcp" },
+      d: "+1",
+    });
+    const capData = ysonToCapData(yson);
+    assert.deepStrictEqual(capData.slots, ["ocapn://b.tcp", "ocapn://a.tcp"]);
+    assert.deepStrictEqual(JSON.parse(capData.body.slice(1)), {
+      a: "$0",
+      b: ["$1", "$0", "!$not-a-reference"],
+      c: { "#tag": "Counter", payload: "$1" },
+      d: "+1",
+    });
+    assert.deepStrictEqual(
+      JSON.parse(capDataToYson(capData)),
+      JSON.parse(yson),
+    );
+  });
+  it("drops smallcaps' alleged interface on the way back", () => {
+    const yson = capDataToYson({
+      body: '#["$0.Alleged: Counter","$1"]',
+      slots: ["ocapn://a.tcp", "https://x"],
+    });
+    assert.deepStrictEqual(JSON.parse(yson), ["$ocapn://a.tcp", "$https://x"]);
+  });
+  it("refuses a reference without a scheme, a promise, a missing slot", () => {
+    assert.throws(() => ysonToCapData('"$0"'), /needs a scheme/);
+    assert.throws(() => ysonToCapData('"$https://x y"'), /space/);
+    assert.throws(
+      () => capDataToYson({ body: '#"&0"', slots: ["https://x"] }),
+      /promise/,
+    );
+    assert.throws(() => capDataToYson({ body: '#"$1"', slots: [] }), /slot/);
   });
 });

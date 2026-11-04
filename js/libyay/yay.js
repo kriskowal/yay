@@ -2728,6 +2728,98 @@ function parseReference(s, ctx, lineNum, col) {
   throw new Error("Unmatched angle bracket" + locSuffix(ctx, lineNum, col));
 }
 
+// --- The CapData bridge ---
+
+/**
+ * Walk a YSON value, mapping each string that begins with "$" (a
+ * reference, or a slot) through f. A tagged value's tag is a string, never
+ * a reference, so only its payload is walked.
+ * @param {unknown} value
+ * @param {(s: string) => string} f
+ * @returns {unknown}
+ */
+function mapDollars(value, f) {
+  if (typeof value === "string") {
+    return value.startsWith("$") ? f(value) : value;
+  }
+  if (Array.isArray(value)) return value.map((v) => mapDollars(v, f));
+  if (value !== null && typeof value === "object") {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+      out[k] = k === "#tag" && "payload" in value ? v : mapDollars(v, f);
+    }
+    return out;
+  }
+  return value;
+}
+
+/**
+ * From YSON to CapData: each distinct reference goes to `slots` in order of
+ * first appearance, and the body names it `$0`, `$1`, ... as smallcaps
+ * names a remotable. `makeMarshal(convertValToSlot, convertSlotToVal)` then
+ * reads it, and its convertSlotToVal decides what each URI becomes.
+ * @param {string} yson
+ * @returns {{body: string, slots: string[]}}
+ */
+function ysonToCapData(yson) {
+  /** @type {string[]} */
+  const slots = [];
+  const index = new Map();
+  const body = mapDollars(JSON.parse(yson), (s) => {
+    const uri = s.slice(1);
+    if (!isReferenceStart(`<${uri}`)) {
+      throw new Error(`A reference needs a scheme: ${JSON.stringify(s)}`);
+    }
+    parseReference(`<${uri}>`, {}, 0, 0);
+    if (uri.includes(">")) {
+      throw new Error(
+        `Unexpected character ">" in reference: ${JSON.stringify(s)}`,
+      );
+    }
+    let slot = index.get(uri);
+    if (slot === undefined) {
+      slot = slots.length;
+      index.set(uri, slot);
+      slots.push(uri);
+    }
+    return `$${slot}`;
+  });
+  return { body: `#${JSON.stringify(body)}`, slots };
+}
+
+/**
+ * From CapData to YSON: the reverse of ysonToCapData. Each `$n` (with or
+ * without smallcaps' interface, `$n.Alleged: x`, which YAY does not keep)
+ * becomes `"$" + slots[n]`. A body with promises (`&n`) is refused.
+ * @param {{body: string, slots: string[]}} capData
+ * @returns {string}
+ */
+function capDataToYson({ body, slots }) {
+  if (!body.startsWith("#")) {
+    throw new Error("Expected a smallcaps body, beginning with #");
+  }
+  const value = JSON.parse(body.slice(1));
+  const check = (v) => {
+    if (typeof v === "string" && v.startsWith("&")) {
+      throw new Error(`A promise has no YAY form: ${JSON.stringify(v)}`);
+    }
+    if (Array.isArray(v)) v.forEach(check);
+    else if (v !== null && typeof v === "object") {
+      Object.values(v).forEach(check);
+    }
+  };
+  check(value);
+  const yson = mapDollars(value, (s) => {
+    const match = /^\$(0|[1-9][0-9]*)(\..*)?$/.exec(s);
+    const uri = match ? slots[Number(match[1])] : undefined;
+    if (typeof uri !== "string") {
+      throw new Error(`No slot for ${JSON.stringify(s)}`);
+    }
+    return `$${uri}`;
+  });
+  return JSON.stringify(yson);
+}
+
 export {
   parseYay,
   tagged,
@@ -2736,4 +2828,6 @@ export {
   reference,
   isReference,
   Reference,
+  ysonToCapData,
+  capDataToYson,
 };
