@@ -116,6 +116,19 @@ fn a_reference_is_not_its_text() {
 }
 
 #[test]
+fn a_space_after_the_open_angle_is_refused() {
+    for src in ["a: < ff>", "a: < https://x>"] {
+        let err = parse(src).unwrap_err().to_string();
+        assert!(
+            err.contains("Unexpected space after \"<\""),
+            "{}: {}",
+            src,
+            err
+        );
+    }
+}
+
+#[test]
 fn scheme_is_lowercase_in_yay_and_lowercased_by_meh() {
     let err = parse("a: <HTTPS://x>").unwrap_err().to_string();
     assert!(err.contains("Uppercase scheme \"HTTPS\""), "{}", err);

@@ -1548,8 +1548,19 @@ fn parse_angle_bytes(s: &str, ctx: &ParseContext, line_num: usize, col: usize) -
         return Ok(Vec::new());
     }
 
-    // Check for space before closing >
+    // Check for space after opening <
     let chars: Vec<char> = s.chars().collect();
+    if chars.len() >= 2 && chars[1] == ' ' {
+        return Err(
+            ParseError::UnexpectedSpaceAfter("<".to_string(), String::new()).with_location(
+                ctx,
+                line_num,
+                col + 1,
+            ),
+        );
+    }
+
+    // Check for space before closing >
     if chars.len() >= 2 && chars[chars.len() - 2] == ' ' && chars[chars.len() - 1] == '>' {
         return Err(
             ParseError::UnexpectedSpaceBefore(">".to_string(), String::new()).with_location(
