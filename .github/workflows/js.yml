@@ -38,4 +38,4 @@ jobs:
         run: npm ci
 
       - name: Run tests
-        run: node --test yay.test.js tagged.test.js smallcaps.test.js
+        run: node --test yay.test.js tagged.test.js smallcaps.test.js references.test.js

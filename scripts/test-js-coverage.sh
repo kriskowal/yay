@@ -45,4 +45,4 @@ npx c8 \
   --functions "$MIN_FUNCTIONS" \
   --lines "$MIN_LINES" \
   --reporter=text \
-  node --test yay.test.js tagged.test.js
+  node --test yay.test.js tagged.test.js references.test.js

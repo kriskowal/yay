@@ -62,6 +62,23 @@ parseYay('(rgb)\n- 255\n- 136\n- 0');
 // => tagged("rgb", [255n, 136n, 0n])
 ```
 
+### `reference(uri)`, `isReference(value)`, `Reference`
+
+A reference is a URI or IRI in angle brackets, `<https://example.com/>`,
+held as written and never dereferenced. The parser makes them with
+`reference`, which returns a frozen `Reference` instance with a `reference`
+property, the name `yay -t js` writes. Two references are equal
+(`assert.deepStrictEqual`) when their texts are, and a reference never
+equals a string or a plain `{reference}` object. A tagged reference,
+`<ocapn://a.tcp> (Counter)`, is a tagged value over a reference.
+
+```js
+import { parseYay, reference } from 'libyay';
+
+parseYay('icon: <https://example.com/cat.png>');
+// => { icon: reference("https://example.com/cat.png") }
+```
+
 ## Type Mapping
 
 | YAY Type | JavaScript Type |
@@ -75,6 +92,7 @@ parseYay('(rgb)\n- 255\n- 136\n- 0');
 | object | `Object` |
 | bytes | `Uint8Array` |
 | tagged | `Tagged`, from `tagged(tag, payload)` |
+| reference | `Reference`, from `reference(uri)` |
 
 # YAY Format
 
@@ -899,7 +917,8 @@ Files with `.js` extension contain expected JavaScript output.
 `../../doc/design/tagged-values-g/cases/`, until they join the shared corpus.
 `smallcaps.test.js` checks a round trip through Endo's smallcaps encoding
 (`@endo/marshal`), and skips when the dev dependencies are not installed
-(`npm install`).
+(`npm install`). `references.test.js` reads the design's reference cases, in
+`../../doc/design/references/cases/`.
 
 ## References
 

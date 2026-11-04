@@ -477,6 +477,10 @@ function parseValue(tokens, i, ctx = {}) {
       const inlineObj = parseInlineObject(s, ctx, t.lineNum ?? 0, sCol);
       if (inlineObj !== null) return [inlineObj, i + 1];
     }
+    // A reference, which may hold a colon
+    if (isReferenceStart(s)) {
+      return [parseScalar(s, ctx, t.lineNum ?? 0, sCol), i + 1];
+    }
     if (s.startsWith("<") && s.includes(">"))
       return [parseAngleBytes(s, ctx, t.lineNum, t.col), i + 1];
     if (s.startsWith("<")) {
@@ -816,6 +820,15 @@ function parseScalarAtom(s, ctx = {}, lineNum = 0, col = 0) {
   }
   if (s.startsWith("[")) return parseInlineArray(s, ctx, lineNum, col);
   if (s.startsWith("{")) return parseInlineObject(s, ctx, lineNum, col);
+  if (isReferenceStart(s)) {
+    const [value, n] = parseReference(s, ctx, lineNum, col);
+    if (n !== s.length) {
+      throw new Error(
+        `Unexpected character "${s[n]}"` + locSuffix(ctx, lineNum, col + n),
+      );
+    }
+    return value;
+  }
   if (s.startsWith("<")) return parseAngleBytes(s, ctx, lineNum, col);
   // Bare words are not valid - strings must be quoted
   const firstChar = s.charAt(0) || "?";
@@ -2335,7 +2348,9 @@ function isTagged(value) {
  * @returns {{masked: string, first: number|undefined}}
  */
 function maskTags(s) {
-  if (!s.includes("(")) return { masked: s, first: undefined };
+  if (!s.includes("(") && !s.includes("<")) {
+    return { masked: s, first: undefined };
+  }
   let out = "";
   let first;
   let quote = "";
@@ -2353,6 +2368,15 @@ function maskTags(s) {
       out += c;
       i++;
       continue;
+    }
+    // A reference's text is no syntax either
+    if (c === "<" && isReferenceStart(s.slice(i))) {
+      const end = s.indexOf(">", i);
+      if (end >= 0) {
+        out += "<" + "x".repeat(end - i - 1) + ">";
+        i = end + 1;
+        continue;
+      }
     }
     out += c;
     if (c === '"' || c === "'") {
@@ -2582,4 +2606,134 @@ function prefixWithoutBlock(ctx, lineNum, col) {
   );
 }
 
-export { parseYay, tagged, isTagged, Tagged };
+// --- References ---
+
+/**
+ * A reference: a URI or IRI, held as written; it designates, and is never
+ * dereferenced. Instances are frozen. Two are equal when their texts are,
+ * code unit for code unit, and a reference never equals a string or a plain
+ * object.
+ */
+class Reference {
+  /**
+   * @param {string} uri
+   */
+  constructor(uri) {
+    if (typeof uri !== "string") {
+      throw new TypeError("A reference must be a string");
+    }
+    this.reference = uri;
+    Object.freeze(this);
+  }
+}
+
+/**
+ * Make a reference, as the YAY parser does and as `yay -t js` writes it.
+ * @param {string} uri
+ * @returns {Reference}
+ */
+function reference(uri) {
+  return new Reference(uri);
+}
+
+/**
+ * @param {unknown} value
+ * @returns {value is Reference}
+ */
+function isReference(value) {
+  return value instanceof Reference;
+}
+
+/**
+ * The length of the scheme, colon included, if s (the text after "<")
+ * begins [A-Za-z][A-Za-z0-9+.-]*":". Uppercase letters are matched so that
+ * the reader can name an uppercase scheme rather than call it bad hex.
+ * @param {string} s
+ * @returns {number|undefined}
+ */
+function schemeLength(s) {
+  if (!/^[A-Za-z]/.test(s)) return undefined;
+  for (let i = 1; i < s.length; i++) {
+    const c = s[i];
+    if (c === ":") return i + 1;
+    if (!/[A-Za-z0-9+.-]/.test(c)) return undefined;
+  }
+  return undefined;
+}
+
+/**
+ * Whether s begins with "<" and a scheme, so is a reference.
+ * @param {string} s
+ */
+function isReferenceStart(s) {
+  return s.startsWith("<") && schemeLength(s.slice(1)) !== undefined;
+}
+
+// White space beyond ASCII, which an IRI cannot hold
+const unicodeSpace =
+  /[\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]/;
+
+/**
+ * Whether the character c may appear in a reference (RFC 3986 and RFC
+ * 3987), "%" aside, which must begin a percent-encoding.
+ * @param {string} c
+ */
+function isUriChar(c) {
+  const cp = c.codePointAt(0) ?? 0;
+  if (cp < 0x80) return /[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=]/.test(c);
+  return cp >= 0xa0 && !unicodeSpace.test(c) && cp !== 0xfffe && cp !== 0xffff;
+}
+
+/**
+ * Parse a reference at the start of s, which begins with "<" and a scheme.
+ * Returns the reference and the number of units consumed, the ">" included.
+ * The text between the brackets is the URI, verbatim.
+ * @param {string} s
+ * @param {ParseContext} ctx
+ * @param {number} lineNum
+ * @param {number} col
+ * @returns {[Reference, number]}
+ */
+function parseReference(s, ctx, lineNum, col) {
+  const schemeEnd = 1 + /** @type {number} */ (schemeLength(s.slice(1))) - 1;
+  const scheme = s.slice(1, schemeEnd);
+  if (/[A-Z]/.test(scheme)) {
+    throw new Error(
+      `Uppercase scheme "${scheme}" in reference (use lowercase)` +
+        locSuffix(ctx, lineNum, col),
+    );
+  }
+  let i = schemeEnd;
+  while (i < s.length) {
+    const c = String.fromCodePoint(/** @type {number} */ (s.codePointAt(i)));
+    if (c === ">") return [reference(s.slice(1, i)), i + 1];
+    if (c === "%") {
+      if (!/^[0-9A-Fa-f]{2}/.test(s.slice(i + 1))) {
+        throw new Error(
+          "Bad percent-encoding in reference (use % and two hex digits)" +
+            locSuffix(ctx, lineNum, col + i),
+        );
+      }
+    } else if (!isUriChar(c)) {
+      const message =
+        c === " "
+          ? "Unexpected space in reference"
+          : c === "\t"
+            ? "Tab not allowed in reference"
+            : `Unexpected character "${c}" in reference`;
+      throw new Error(message + locSuffix(ctx, lineNum, col + i));
+    }
+    i += c.length;
+  }
+  throw new Error("Unmatched angle bracket" + locSuffix(ctx, lineNum, col));
+}
+
+export {
+  parseYay,
+  tagged,
+  isTagged,
+  Tagged,
+  reference,
+  isReference,
+  Reference,
+};

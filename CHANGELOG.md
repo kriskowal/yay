@@ -46,7 +46,7 @@ back as a string. YAML, TOML and CBOR refuse a reference. SHON gains
 `yay.Reference(uri)`, `Reference(uri)`, `Value::Reference(uri)`,
 `yay_reference(uri)`, `new Reference(uri)` and `(make-reference uri)`.
 The Rust port reads and writes references (`Value::Reference`), YAY, MEH
-and YSON.
+and YSON. The JavaScript port reads them as a frozen `reference(uri)`.
 
 **Breaking: YSON follows smallcaps.** A tagged value is
 `{"#tag": tag, "payload": value}`. An integer is `"+42"` or `"-7"`, not
