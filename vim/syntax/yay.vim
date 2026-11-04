@@ -60,6 +60,12 @@ syntax match yayBlockStringBody /.*/ contained
 syntax region yayBytes start=/</ end=/>/ contains=yayHexContent oneline
 syntax match  yayHexContent /[0-9a-f ]\+/ contained
 
+" --- References -------------------------------------------------------------
+
+" A reference: <scheme:...>, its text to the next >; a # inside is not a
+" comment. Defined after bytes, so it wins where both start at a <.
+syntax region yayReference matchgroup=yayReferenceDelim start=/<\ze[a-z][a-z0-9+.-]*:/ end=/>/ oneline
+
 " Block byte array introducer and content.
 " The > leader and subsequent indented hex lines are handled via match rules
 " since region-based indent tracking is fragile.
@@ -78,12 +84,12 @@ syntax match  yayTagEscape /\\[\\)]/ contained
 " --- Arrays -----------------------------------------------------------------
 
 " Inline arrays.
-syntax region yayInlineArray start=/\[/ end=/\]/ contains=yayString,yaySingleString,yayNull,yayBoolean,yayFloat,yayInteger,yayBytes,yayTag,yayInlineArray,yayInlineObject,yayComment transparent
+syntax region yayInlineArray start=/\[/ end=/\]/ contains=yayString,yaySingleString,yayNull,yayBoolean,yayFloat,yayInteger,yayBytes,yayReference,yayTag,yayInlineArray,yayInlineObject,yayComment transparent
 
 " --- Objects ----------------------------------------------------------------
 
 " Inline objects.
-syntax region yayInlineObject start=/{/ end=/}/ contains=yayString,yaySingleString,yayNull,yayBoolean,yayFloat,yayInteger,yayBytes,yayTag,yayInlineArray,yayInlineObject,yayKey,yayComment transparent
+syntax region yayInlineObject start=/{/ end=/}/ contains=yayString,yaySingleString,yayNull,yayBoolean,yayFloat,yayInteger,yayBytes,yayReference,yayTag,yayInlineArray,yayInlineObject,yayKey,yayComment transparent
 
 " --- Keys -------------------------------------------------------------------
 
@@ -126,6 +132,8 @@ highlight default link yayHexContent    Number
 highlight default link yayBlockBytesLeader Delimiter
 highlight default link yayHexLine       Special
 highlight default link yayHexData       Number
+highlight default link yayReference     Underlined
+highlight default link yayReferenceDelim Delimiter
 highlight default link yayKey           Identifier
 highlight default link yayColon         Delimiter
 highlight default link yayDash          Delimiter

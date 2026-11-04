@@ -24,6 +24,7 @@
       "patterns": [
         { "include": "#block-string-open" },
         { "include": "#block-bytes-open" },
+        { "include": "#reference" },
         { "include": "#inline-bytes" },
         { "include": "#inline-array" },
         { "include": "#inline-object" },
@@ -204,6 +205,17 @@
     "hex-data": {
       "match": "[0-9a-f][0-9a-f ]*[0-9a-f]|[0-9a-f]{2}",
       "name": "constant.numeric.hex.yay"
+    },
+
+    "reference": {
+      "comment": "A reference: <scheme:...>, its text to the next >; a # inside is not a comment",
+      "match": "(<)([a-z][a-z0-9+.-]*:[^>\\s]*)(>)",
+      "name": "string.other.link.reference.yay",
+      "captures": {
+        "1": { "name": "punctuation.definition.reference.begin.yay" },
+        "2": { "name": "markup.underline.link.yay" },
+        "3": { "name": "punctuation.definition.reference.end.yay" }
+      }
     },
 
     "inline-bytes": {
