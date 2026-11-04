@@ -658,10 +658,7 @@ class Lexer:
                     "Uppercase hex digit (use lowercase)", self.line, self.col
                 )
             else:
-                if block_mode:
-                    # Unknown char ends block mode
-                    break
-                raise self.error(f"Invalid character in byte array: {ch!r}")
+                raise self.error("Invalid hex digit")
 
         hex_str = "".join(hex_chars)
         if len(hex_str) % 2 != 0:
@@ -871,7 +868,10 @@ class Lexer:
                     raise YaySyntaxError(
                         "Uppercase hex digit (use lowercase)", self.line, self.col
                     )
-                elif next_ch in " " or next_ch in "0123456789abcdef":
+                elif next_ch == " ":
+                    # GRAMMAR.md: no space after the opening "<"
+                    raise self.error('Unexpected space after "<"')
+                elif next_ch in "0123456789abcdef":
                     # Inline byte array - read until closing >
                     # already_consumed_open=True since we already consumed '<'
                     # allow_multiline=False since inline byte arrays must close on same line

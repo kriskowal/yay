@@ -38,3 +38,4 @@ jobs:
         run: |
           python test_yay.py
           python test_tagged.py
+          python test_references.py
