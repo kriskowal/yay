@@ -46,7 +46,7 @@ syntax region yaySingleString start=/'/ skip=/\\\\\|\\'/ end=/'/ oneline
 " Block string introducer: backtick at start of content (after indent),
 " optionally followed by a space and same-line content.
 " At root or array-item level:
-syntax region yayBlockString matchgroup=yayBlockStringDelim start=/\v^(\s*)%(- )?`%( |$)/ end=/\v^%(\s*$|\1\S)/ contains=yayBlockStringBody keepend
+syntax region yayBlockString matchgroup=yayBlockStringDelim start=/\v^\z(\s*)%(- )?`%( |$)/ end=/\v^%(\s*$|%(\z1\s)@!)/ contains=yayBlockStringBody keepend
 
 " As a property value (key: ` must be alone):
 syntax region yayBlockStringProp matchgroup=yayBlockStringDelim start=/\v(:\s+)`$/ end=/\v^%(\s*$|\s{0,}\S)/ contains=yayBlockStringBody keepend
@@ -107,7 +107,7 @@ syntax match yayColon /:/ contained
 
 " --- List markers -----------------------------------------------------------
 
-syntax match yayListMarker /\v^(\s*)- / contains=yayDash
+syntax match yayListMarker /\v^(\s*)- %(`)@!/ contains=yayDash
 syntax match yayDash       /\v-\ze / contained
 
 " --- Comments ---------------------------------------------------------------
@@ -143,5 +143,8 @@ highlight default link yayTagDelim      Delimiter
 highlight default link yayTagEscape     SpecialChar
 highlight default link yayComment       Comment
 highlight default link yayTodo          Todo
+
+" A block string spans lines, so read from the top of the file.
+syntax sync fromstart
 
 let b:current_syntax = 'yay'
