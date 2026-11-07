@@ -280,13 +280,13 @@ function outlineLex(lines) {
     // Every blank line is a break, so that a block string keeps a run of
     // blank lines.
     if (line.length > 0) {
-      // The text's column follows the list leader, if any.
+      // The text's column follows the list leader, "- ", if any.
       tokens.push({
         type: "text",
         text: line,
         indent,
         lineNum,
-        col: indent + leader.length,
+        col: leader ? indent + 2 : indent,
       });
     } else {
       tokens.push({ type: "break", text: "", lineNum, col: indent });
@@ -1875,7 +1875,7 @@ function parseObjectOrNamedArray(tokens, i, key, ctx = {}) {
     }
   }
   if (first && first.type === "start" && first.text === "-") {
-    const [arr, next] = parseListArray(tokens, i);
+    const [arr, next] = parseListArray(tokens, i, ctx);
     return [{ [key]: arr }, next];
   }
   // Note: '*' syntax for multiline bytes is rejected by the scanner
@@ -1999,7 +1999,7 @@ function parseObjectOrNamedArray(tokens, i, key, ctx = {}) {
               obj[k] = body;
               i = next;
             } else if (nextT && nextT.type === "start" && nextT.text === "-") {
-              const [arr, next] = parseListArray(tokens, i);
+              const [arr, next] = parseListArray(tokens, i, ctx);
               obj[k] = arr;
               i = next;
             } else if (
@@ -2298,9 +2298,10 @@ function parseRootObject(tokens, i, ctx = {}) {
           obj[k] = wrapPrefix(obj[k], tags);
         }
       } else if ((t.indent ?? 0) > baseIndent) {
-        // A line indented under a property that took no block
+        // A line indented under a property that took no block, placed at
+        // the line's start as every other unexpected indent is
         throw new Error(
-          "Unexpected indent" + locSuffix(ctx, t.lineNum ?? 0, t.col ?? 0),
+          "Unexpected indent" + locSuffix(ctx, t.lineNum ?? 0, 0),
         );
       } else {
         i++;

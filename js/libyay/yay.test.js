@@ -178,19 +178,12 @@ describe("parseYay negative (invalid .nay)", () => {
       assert.throws(
         () => parseYay(naySource, filename),
         (err) => {
-          // Extract the error type (before "at X:Y of")
-          const match = expectedMessage.match(/^(.+?)\s+at\s+\d+:\d+/);
-          const expectedPattern = match ? match[1].trim() : expectedMessage;
-          // Check if actual error contains expected pattern (case-insensitive)
-          const actualMsg = err.message.trim();
-          const containsPattern = actualMsg
-            .toLowerCase()
-            .includes(expectedPattern.toLowerCase());
-          if (!containsPattern) {
-            assert.fail(
-              `error message for ${basename}: expected to contain "${expectedPattern}", got "${actualMsg}"`,
-            );
-          }
+          // The whole message, its line and column included
+          assert.equal(
+            err.message.trim(),
+            expectedMessage,
+            `error message for ${basename}`,
+          );
           return true;
         },
         `parseYay should throw for ${basename}.nay`,
