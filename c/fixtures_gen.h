@@ -1396,6 +1396,8 @@ static error_fixture_t error_fixtures[] = {
     {"bytearray_block_invalid_empty_leader", "bytearray-block-invalid-empty-leader.nay", ">\n  b0b5\n", 9, "Expected hex or comment in hex block"},
     {"bytearray_block_property_invalid_leader_next_line", "bytearray-block-property-invalid-leader-next-line.nay", "i:\n  >\n    cafe\n    babe\n", 25, "Unexpected indent at 2:1 of <bytearray-block-property-invalid-leader-next-line.nay>"},
     {"bytearray_block_property_invalid_same_line", "bytearray-block-property-invalid-same-line.nay", "data: > b0b5\n  c0ff\n", 20, "Expected newline after block leader in property"},
+    {"bytearray_inline_in_array_space_after_open", "bytearray-inline-in-array-space-after-open.nay", "[< ff>]\n", 8, "Unexpected space after \"<\" at 1:3 of <bytearray-inline-in-array-space-after-open.nay>"},
+    {"bytearray_inline_in_object_space_after_open", "bytearray-inline-in-object-space-after-open.nay", "{a: < ff>}\n", 11, "Unexpected space after \"<\" at 1:6 of <bytearray-inline-in-object-space-after-open.nay>"},
     {"bytearray_inline_invalid_hex_digit", "bytearray-inline-invalid-hex-digit.nay", "<deadbeefXX>\n", 13, "Invalid hex digit at 1:1 of <bytearray-inline-invalid-hex-digit.nay>"},
     {"bytearray_inline_invalid_space_after_open", "bytearray-inline-invalid-space-after-open.nay", "a: < ff>\n", 9, "Unexpected space after \"<\" at 1:5 of <bytearray-inline-invalid-space-after-open.nay>"},
     {"bytearray_inline_invalid_unclosed_root", "bytearray-inline-invalid-unclosed-root.nay", "<\n  b0b5\n", 9, "Unmatched angle bracket at 1:1 of <bytearray-inline-invalid-unclosed-root.nay>"},
@@ -1519,6 +1521,6 @@ static error_fixture_t error_fixtures[] = {
     {NULL, NULL, NULL, 0, NULL}
 };
 
-#define ERROR_FIXTURE_COUNT 136
+#define ERROR_FIXTURE_COUNT 138
 
 #endif /* FIXTURES_GEN_H */

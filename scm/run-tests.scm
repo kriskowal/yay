@@ -598,7 +598,9 @@
            "reference-tab-inside.e"
            "reference-unclosed"
            "reference-unclosed.e"
-           "bytearray-inline-invalid-space-after-open")))
+           "bytearray-inline-invalid-space-after-open"
+           "bytearray-inline-in-array-space-after-open"
+           "bytearray-inline-in-object-space-after-open")))
     (for-each
      (lambda (name)
        (let ((nay-path (string-append test-dir "/nay/" name ".nay")))

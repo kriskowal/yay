@@ -1123,7 +1123,7 @@ func parseInlineArrayStrict(s string, ctx *parseContext, lineNum, col int) ([]an
 	offset := 1 // Start after '['
 
 	for len(remaining) > 0 {
-		remaining = strings.TrimLeft(remaining, " ")
+		remaining, offset = skipSpaces(remaining, offset)
 
 		value, consumed, err := parseInlineValueStrict(remaining, ctx, lineNum, col+offset)
 		if err != nil {
@@ -1133,7 +1133,7 @@ func parseInlineArrayStrict(s string, ctx *parseContext, lineNum, col int) ([]an
 		result = append(result, value)
 		remaining = remaining[consumed:]
 		offset += consumed
-		remaining = strings.TrimLeft(remaining, " ")
+		remaining, offset = skipSpaces(remaining, offset)
 
 		// Skip comma
 		if strings.HasPrefix(remaining, ",") {
@@ -1143,6 +1143,13 @@ func parseInlineArrayStrict(s string, ctx *parseContext, lineNum, col int) ([]an
 	}
 
 	return result, nil
+}
+
+// skipSpaces drops the spaces that lead s and adds their count to offset,
+// so that offset stays the column of the rest of s.
+func skipSpaces(s string, offset int) (string, int) {
+	t := strings.TrimLeft(s, " ")
+	return t, offset + len(s) - len(t)
 }
 
 // validateInlineSyntax validates whitespace in inline arrays/objects.
@@ -1560,7 +1567,7 @@ func parseInlineObjectStrict(s string, ctx *parseContext, lineNum, col int) (map
 	offset := 1 // Start after '{'
 
 	for len(remaining) > 0 {
-		remaining = strings.TrimLeft(remaining, " ")
+		remaining, offset = skipSpaces(remaining, offset)
 
 		// Parse key
 		key, keyLen, err := parseInlineKeyStrict(remaining, ctx, lineNum, col+offset, col)
@@ -1569,7 +1576,7 @@ func parseInlineObjectStrict(s string, ctx *parseContext, lineNum, col int) (map
 		}
 		remaining = remaining[keyLen:]
 		offset += keyLen
-		remaining = strings.TrimLeft(remaining, " ")
+		remaining, offset = skipSpaces(remaining, offset)
 
 		// Expect colon
 		if !strings.HasPrefix(remaining, ":") {
@@ -1577,7 +1584,7 @@ func parseInlineObjectStrict(s string, ctx *parseContext, lineNum, col int) (map
 		}
 		remaining = remaining[1:]
 		offset++
-		remaining = strings.TrimLeft(remaining, " ")
+		remaining, offset = skipSpaces(remaining, offset)
 
 		// Parse value
 		value, consumed, err := parseInlineValueStrict(remaining, ctx, lineNum, col+offset)
@@ -1588,7 +1595,7 @@ func parseInlineObjectStrict(s string, ctx *parseContext, lineNum, col int) (map
 		result[key] = value
 		remaining = remaining[consumed:]
 		offset += consumed
-		remaining = strings.TrimLeft(remaining, " ")
+		remaining, offset = skipSpaces(remaining, offset)
 
 		// Skip comma
 		if strings.HasPrefix(remaining, ",") {

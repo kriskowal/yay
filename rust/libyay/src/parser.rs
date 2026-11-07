@@ -874,6 +874,15 @@ fn validate_inline_syntax(
             in_double = true;
             continue;
         }
+        if ch == '<' && i + 1 < chars.len() && chars[i + 1] == ' ' {
+            return Err(
+                ParseError::UnexpectedSpaceAfter("<".to_string(), String::new()).with_location(
+                    ctx,
+                    line_num,
+                    col + i + 1,
+                ),
+            );
+        }
         if ch == open_char {
             depth += 1;
             if i + 1 < chars.len() && chars[i + 1] == ' ' {

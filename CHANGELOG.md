@@ -60,9 +60,10 @@ malformed ones with the Rust port's messages.
 
 **Fixed: a space after `<` in bytes.** GRAMMAR.md forbids a space after
 the opening `<` of inline bytes, as it forbids one before `>`, but the
-Rust, Python, Go and Java ports read `a: < ff>` as one byte. YAY now
-refuses it in every port, as `Unexpected space after "<"`. MEH still reads
-it, and `yay -f meh -t yay` writes `a: <ff>`.
+Rust, Python, Go and Java ports read `a: < ff>` as one byte, and the Rust
+port read `[< ff>]` and `{a: < ff>}` too. YAY now refuses it in every port,
+in inline arrays and objects as well, as `Unexpected space after "<"`. MEH
+still reads it, and `yay -f meh -t yay` writes `a: <ff>`.
 
 **Breaking: YSON follows smallcaps.** A tagged value is
 `{"#tag": tag, "payload": value}`. An integer is `"+42"` or `"-7"`, not
