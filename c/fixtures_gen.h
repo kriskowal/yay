@@ -575,6 +575,13 @@ static yay_value_t *make_expected_object_inline_empty(void) {
     return YAY_OBJECT("empty", yay_object());
 }
 
+static yay_value_t *make_expected_object_inline_in_list(void) {
+    return YAY_ARRAY(
+    YAY_OBJECT("a", yay_int(1)),
+    YAY_OBJECT("b", YAY_ARRAY(yay_int(1), yay_int(2)))
+);
+}
+
 static yay_value_t *make_expected_object_inline_integers(void) {
     return YAY_OBJECT("answer", yay_int(42), "error", yay_int(404));
 }
@@ -1279,6 +1286,7 @@ static test_fixture_t test_fixtures[] = {
     {"object_deeply_nested_empty", "level1:\n  level2:\n    level3: {}\n", make_expected_object_deeply_nested_empty},
     {"object_inline_doublequote_key", "\"*\": 1.0\n", make_expected_object_inline_doublequote_key},
     {"object_inline_empty", "empty: {}\n", make_expected_object_inline_empty},
+    {"object_inline_in_list", "- {a: 1}\n- {b: [1, 2]}\n", make_expected_object_inline_in_list},
     {"object_inline_integers", "{answer: 42, error: 404}\n", make_expected_object_inline_integers},
     {"object_inline_mixed", "{name: 'Marvin', mood: 'depressed'}\n", make_expected_object_inline_mixed},
     {"object_inline_nested", "{luggage: {combination: 12345}, air: [\"canned\", \"Perri-Air\"]}\n", make_expected_object_inline_nested},
@@ -1377,7 +1385,7 @@ static test_fixture_t test_fixtures[] = {
     {NULL, NULL, NULL}
 };
 
-#define TEST_FIXTURE_COUNT 185
+#define TEST_FIXTURE_COUNT 186
 
 static error_fixture_t error_fixtures[] = {
     {"array_inline_invalid_multiline", "array-inline-invalid-multiline.nay", "[\n  1,\n  2\n]\n", 13, "Unexpected newline in inline array at 1:1 of <array-inline-invalid-multiline.nay>"},
@@ -1429,6 +1437,7 @@ static error_fixture_t error_fixtures[] = {
     {"number_float_invalid_space_before_dot", "number-float-invalid-space-before-dot.nay", "1 .0\n", 5, "Unexpected space in number at 1:2 of <number-float-invalid-space-before-dot.nay>"},
     {"number_float_invalid_uppercase_exponent", "number-float-invalid-uppercase-exponent.nay", "1.5E10\n", 7, "Uppercase exponent (use lowercase 'e') at 1:4 of <number-float-invalid-uppercase-exponent.nay>"},
     {"number_property_invalid_next_line", "number-property-invalid-next-line.nay", "i:\n  42\n", 8, "Unexpected indent at 2:1 of <number-property-invalid-next-line.nay>"},
+    {"object_inline_in_list_space_before_close", "object-inline-in-list-space-before-close.nay", "- {a: 1 }\n", 10, "Unexpected space before \"}\" at 1:8 of <object-inline-in-list-space-before-close.nay>"},
     {"object_inline_invalid_key_symbol", "object-inline-invalid-key-symbol.nay", "{@: 1}\n", 7, "Invalid key at 1:1 of <object-inline-invalid-key-symbol.nay>"},
     {"object_inline_invalid_missing_colon", "object-inline-invalid-missing-colon.nay", "{a 1}\n", 6, "Expected colon after key at 1:1 of <object-inline-invalid-missing-colon.nay>"},
     {"object_inline_invalid_multiline", "object-inline-invalid-multiline.nay", "{\n  \"a\": 1\n}\n", 13, "Unexpected newline in inline object at 1:1 of <object-inline-invalid-multiline.nay>"},
@@ -1532,6 +1541,6 @@ static error_fixture_t error_fixtures[] = {
     {NULL, NULL, NULL, 0, NULL}
 };
 
-#define ERROR_FIXTURE_COUNT 149
+#define ERROR_FIXTURE_COUNT 150
 
 #endif /* FIXTURES_GEN_H */

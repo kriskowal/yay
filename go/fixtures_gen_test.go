@@ -265,8 +265,12 @@ var fixtures = map[string]any{
 	},
 	"object-inline-doublequote-key": map[string]any{"*": 1.0},
 	"object-inline-empty":           map[string]any{"empty": map[string]any{}},
-	"object-inline-integers":        map[string]any{"answer": big.NewInt(42), "error": big.NewInt(404)},
-	"object-inline-mixed":           map[string]any{"mood": "depressed", "name": "Marvin"},
+	"object-inline-in-list": []any{
+		map[string]any{"a": big.NewInt(1)},
+		map[string]any{"b": []any{big.NewInt(1), big.NewInt(2)}},
+	},
+	"object-inline-integers": map[string]any{"answer": big.NewInt(42), "error": big.NewInt(404)},
+	"object-inline-mixed":    map[string]any{"mood": "depressed", "name": "Marvin"},
 	"object-inline-nested": map[string]any{
 		"air":     []any{"canned", "Perri-Air"},
 		"luggage": map[string]any{"combination": big.NewInt(12345)},

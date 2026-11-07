@@ -83,6 +83,12 @@ everywhere else.
 every port as `Invalid key` at the brace, as `{@: 1}` is; JavaScript had
 said `Unexpected character ":"` and Python "Expected key, got BYTES".
 
+**Fixed: an inline object as a list item.** The JavaScript, C and Java
+ports took a list item that opened an inline object (`- {a: 1}`) for a
+block object, because it held a colon, and refused it as a bad key. Each
+now reads it as an inline object, and `- {a: 1 }` is refused as
+`Unexpected space before "}"`, as in every other port.
+
 **Fixed: spaces around a nested key's colon.** The Rust and Go ports
 checked the space after a property's colon only at the root, so they read
 `- a:  1`, `- a : 1` and a nested object's `b:  1` or `b : 1`. Every port

@@ -3522,6 +3522,7 @@ static yay_value_t *parse_multiline_array_impl(parse_ctx_t *ctx, size_t *idx, in
         }
         /* Object in array */
         else if (next->type == TOKEN_TEXT && next->text[0] != '[' &&
+                 next->text[0] != '{' &&
                  find_colon_outside_quotes(next->text) >= 0) {
             /* Use list_indent as base so sibling properties at higher indent are included */
             yay_value_t *obj = parse_nested_object(ctx, idx, list_indent, next->line_num);

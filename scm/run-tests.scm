@@ -262,6 +262,7 @@
            "array-item-nested-object-then-item"
            "array-item-object-empty-key"
            "array-item-object-quoted-key"
+           "object-inline-in-list"
            "array-multiline"
            "array-multiline-named"
            "array-multiline-nested"
@@ -611,7 +612,8 @@
            "bytearray-as-key-in-list"
            "reference-in-array-space-after-open"
            "reference-in-item-array-space-after-open"
-           "bytearray-as-key-in-inline-object")))
+           "bytearray-as-key-in-inline-object"
+           "object-inline-in-list-space-before-close")))
     (for-each
      (lambda (name)
        (let ((nay-path (string-append test-dir "/nay/" name ".nay")))

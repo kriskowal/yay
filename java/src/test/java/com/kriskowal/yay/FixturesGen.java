@@ -219,6 +219,7 @@ public class FixturesGen {
     FIXTURES.put("object-deeply-nested-empty", map("level1", map("level2", map("level3", map()))));
     FIXTURES.put("object-inline-doublequote-key", map("*", 1.0));
     FIXTURES.put("object-inline-empty", map("empty", map()));
+    FIXTURES.put("object-inline-in-list", list(map("a", bi(1)), map("b", list(bi(1), bi(2)))));
     FIXTURES.put("object-inline-integers", map("answer", bi(42), "error", bi(404)));
     FIXTURES.put("object-inline-mixed", map("name", "Marvin", "mood", "depressed"));
     FIXTURES.put(

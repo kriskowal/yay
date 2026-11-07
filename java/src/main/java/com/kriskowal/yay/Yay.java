@@ -1171,6 +1171,7 @@ public class Yay {
               items.add(parseTaggedItem(next, listItemIndent));
             } else if (next.type == TokenType.TEXT
                 && !next.text.startsWith("[")
+                && !next.text.startsWith("{")
                 && findColonOutsideQuotes(next.text) > 0) {
               // Object inside array item - parse all key-value pairs at this indent level
               items.add(parseObjectInArrayItem(listItemIndent));

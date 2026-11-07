@@ -1552,6 +1552,7 @@ function parseListItem(tokens, i, listIndent, ctx) {
   } else if (
     next.type === "text" &&
     !next.text.startsWith("[") &&
+    !next.text.startsWith("{") &&
     findKeyColonOutsideQuotes(next.text) >= 0
   ) {
     const nextIndent = next.indent ?? 0;
