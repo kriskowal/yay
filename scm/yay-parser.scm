@@ -2153,8 +2153,9 @@
                                     (find-key-colon (token-text t))
                                     (not (string-starts-with? (token-text t) "("))
                                     (= (token-indent t) 0)
-                                    ;; Don't treat inline objects as root objects
-                                    (not (string-starts-with? (token-text t) "{"))))
+                                    ;; Don't treat inline objects or arrays as root objects
+                                    (not (string-starts-with? (token-text t) "{"))
+                                    (not (string-starts-with? (token-text t) "["))))
                (result (if is-root-object
                            ;; Root object
                            (parse-object-block p 0)

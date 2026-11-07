@@ -71,13 +71,13 @@ Bytes are a value, never a key, so every port now refuses it as
 `Unexpected character ":"` at the colon, as it refuses a reference there,
 in a list item (`- <ff>: 1`) as well as at the root.
 
-**Fixed: an inline array that holds a colon.** Every port but Python and
-Scheme took a root inline array or a list item's inline array that held a
-colon, as in a reference (`[< https://x>]`), for a property, and refused
-it as a bad key; Rust and JavaScript refused the well-formed `[{a: 1}]`
-so. An inline array is never a key, so each now reads it as an inline
-array, and `[< https://x>]` is refused as `Unexpected space after "<"`, as
-everywhere else.
+**Fixed: an inline array that holds a colon.** Every port but Python took
+a root inline array or a list item's inline array that held a colon, as in
+a reference (`[< https://x>]`), for a property, and refused it as a bad
+key; Rust, JavaScript and Scheme refused the well-formed `[{a: 1}]` so. An
+inline array is never a key, so each now reads it as an inline array, and
+`[< https://x>]` is refused as `Unexpected space after "<"`, as everywhere
+else.
 
 **Fixed: bytes as an inline object's key.** `{<ff>: 1}` is refused in
 every port as `Invalid key` at the brace, as `{@: 1}` is; JavaScript had

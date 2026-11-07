@@ -39,6 +39,10 @@ var fixtures = map[string]any{
 		[]any{"I feel happy!", "yay."},
 		[]any{"And there was much rejoicing.", "yay."},
 	},
+	"array-inline-object-root": []any{
+		map[string]any{"a": big.NewInt(1)},
+		map[string]any{"b": "c: d"},
+	},
 	"array-inline-singlequote": []any{"a", "b"},
 	"array-item-nested-object-then-item": map[string]any{
 		"steps": []any{

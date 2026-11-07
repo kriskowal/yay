@@ -59,6 +59,13 @@ static yay_value_t *make_expected_array_inline_nested(void) {
 );
 }
 
+static yay_value_t *make_expected_array_inline_object_root(void) {
+    return YAY_ARRAY(
+    YAY_OBJECT("a", yay_int(1)),
+    YAY_OBJECT("b", yay_string("c: d"))
+);
+}
+
 static yay_value_t *make_expected_array_inline_singlequote(void) {
     return YAY_ARRAY(yay_string("a"), yay_string("b"));
 }
@@ -1202,6 +1209,7 @@ static test_fixture_t test_fixtures[] = {
     {"array_inline_doublequote", "[\"And there was much rejoicing.\", \"yay.\"]\n", make_expected_array_inline_doublequote},
     {"array_inline_integers", "[42, 404, 418]\n", make_expected_array_inline_integers},
     {"array_inline_nested", "[[\"I feel happy!\", \"yay.\"], [\"And there was much rejoicing.\", \"yay.\"]]\n", make_expected_array_inline_nested},
+    {"array_inline_object_root", "[{a: 1}, {b: 'c: d'}]\n", make_expected_array_inline_object_root},
     {"array_inline_singlequote", "['a', 'b']\n", make_expected_array_inline_singlequote},
     {"array_item_nested_object_then_item", "steps:\n  - run:\n      command: \"make\"\n  - \"a plain item after an item holding an object\"\n", make_expected_array_item_nested_object_then_item},
     {"array_item_object_empty_key", "items:\n  - \"\": \"the empty key opens this item\"\n    b: 2\n", make_expected_array_item_object_empty_key},
@@ -1385,7 +1393,7 @@ static test_fixture_t test_fixtures[] = {
     {NULL, NULL, NULL}
 };
 
-#define TEST_FIXTURE_COUNT 186
+#define TEST_FIXTURE_COUNT 187
 
 static error_fixture_t error_fixtures[] = {
     {"array_inline_invalid_multiline", "array-inline-invalid-multiline.nay", "[\n  1,\n  2\n]\n", 13, "Unexpected newline in inline array at 1:1 of <array-inline-invalid-multiline.nay>"},

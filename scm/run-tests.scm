@@ -258,6 +258,7 @@
            "array-inline-doublequote-escapes"
            "array-inline-integers"
            "array-inline-nested"
+           "array-inline-object-root"
            "array-inline-singlequote"
            "array-item-nested-object-then-item"
            "array-item-object-empty-key"

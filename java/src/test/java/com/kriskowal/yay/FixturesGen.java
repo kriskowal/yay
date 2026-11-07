@@ -75,6 +75,7 @@ public class FixturesGen {
         "array-inline-apostrophe", list("I'm getting better!", "No you're not.", "I feel happy!"));
     FIXTURES.put("array-inline-doublequote", list("And there was much rejoicing.", "yay."));
     FIXTURES.put("array-inline-integers", list(bi(42), bi(404), bi(418)));
+    FIXTURES.put("array-inline-object-root", list(map("a", bi(1)), map("b", "c: d")));
     FIXTURES.put(
         "array-inline-nested",
         list(list("I feel happy!", "yay."), list("And there was much rejoicing.", "yay.")));
