@@ -79,6 +79,10 @@ so. An inline array is never a key, so each now reads it as an inline
 array, and `[< https://x>]` is refused as `Unexpected space after "<"`, as
 everywhere else.
 
+**Fixed: bytes as an inline object's key.** `{<ff>: 1}` is refused in
+every port as `Invalid key` at the brace, as `{@: 1}` is; JavaScript had
+said `Unexpected character ":"` and Python "Expected key, got BYTES".
+
 **Fixed: spaces around a nested key's colon.** The Rust and Go ports
 checked the space after a property's colon only at the root, so they read
 `- a:  1`, `- a : 1` and a nested object's `b:  1` or `b : 1`. Every port

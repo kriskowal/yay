@@ -420,7 +420,10 @@ class Parser:
                     "Unexpected newline in inline object", lbrace.line, lbrace.col
                 )
 
-            # Parse key
+            # Parse key: bytes or a reference is never one, and a bad key
+            # is reported at the brace
+            if self.peek().kind not in ("IDENT", "STRING"):
+                raise YaySyntaxError("Invalid key", lbrace.line, lbrace.col)
             key = self.parse_key()
 
             # Check colon spacing

@@ -610,7 +610,8 @@
            "object-nested-key-space-before-colon"
            "bytearray-as-key-in-list"
            "reference-in-array-space-after-open"
-           "reference-in-item-array-space-after-open")))
+           "reference-in-item-array-space-after-open"
+           "bytearray-as-key-in-inline-object")))
     (for-each
      (lambda (name)
        (let ((nay-path (string-append test-dir "/nay/" name ".nay")))

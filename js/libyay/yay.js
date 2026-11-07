@@ -549,8 +549,13 @@ function splitKeyValue(s, sCol, ctx, lineNum, inlineCol) {
     if (keyRaw.length === 0) {
       throw new Error("Missing key" + locSuffix(ctx, lineNum, sCol + colonIdx));
     }
-    if (keyRaw.startsWith("<") && keyRaw.endsWith(">")) {
+    if (
+      keyRaw.startsWith("<") &&
+      keyRaw.endsWith(">") &&
+      inlineCol === undefined
+    ) {
       // A reference or bytes is a value, never a key: the colon is stray.
+      // In an inline object, "<" is a bad key's first character, below.
       throw new Error(
         'Unexpected character ":"' + locSuffix(ctx, lineNum, sCol + colonIdx),
       );
