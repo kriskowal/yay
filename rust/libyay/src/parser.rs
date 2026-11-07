@@ -2311,6 +2311,17 @@ fn parse_key_name(s: &str, ctx: &ParseContext, line_num: usize, col: usize) -> R
         return Ok(s[1..s.len() - 1].to_string());
     }
 
+    // Bytes or a reference is a value, never a key: the colon is stray
+    if s.starts_with('<') && s.ends_with('>') {
+        return Err(
+            ParseError::UnexpectedChar(':', String::new()).with_location(
+                ctx,
+                line_num,
+                col + s.len(),
+            ),
+        );
+    }
+
     Ok(s.to_string())
 }
 

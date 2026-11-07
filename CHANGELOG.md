@@ -65,6 +65,11 @@ port read `[< ff>]` and `{a: < ff>}` too. YAY now refuses it in every port,
 in inline arrays and objects as well, as `Unexpected space after "<"`. MEH
 still reads it, and `yay -f meh -t yay` writes `a: <ff>`.
 
+**Fixed: bytes as a key.** The Rust port read `<ff>: 1` as an object with
+the key `"<ff>"`, and the other ports refused it with differing messages.
+Bytes are a value, never a key, so every port now refuses it as
+`Unexpected character ":"` at the colon, as it refuses a reference there.
+
 **Breaking: YSON follows smallcaps.** A tagged value is
 `{"#tag": tag, "payload": value}`. An integer is `"+42"` or `"-7"`, not
 `"#42"`, which YSON no longer reads. An object key that begins with `#`, `*`

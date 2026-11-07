@@ -3234,8 +3234,9 @@ static bool validate_object_property(parse_ctx_t *ctx, const char *text,
         return false;
     }
     
-    /* A reference is never a key: the colon after it is stray */
-    if (is_reference_start(text)) {
+    /* Bytes or a reference is never a key: the colon after it is stray */
+    if (is_reference_start(text) ||
+        (text[0] == '<' && colon_idx >= 2 && text[colon_idx - 1] == '>')) {
         ctx->error = make_error(ctx, line_num, col + colon_idx,
                                "Unexpected character \":\"");
         return false;

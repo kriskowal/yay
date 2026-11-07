@@ -314,8 +314,8 @@ class Parser:
         if token.kind == "STRING" and self.peek(1).kind == "COLON":
             return self.parse_block_object(min_indent)
 
-        # A reference is never a key: the colon after it is stray
-        if token.kind == "REFERENCE" and self.peek(1).kind == "COLON":
+        # Bytes or a reference is never a key: the colon after it is stray
+        if token.kind in ("BYTES", "REFERENCE") and self.peek(1).kind == "COLON":
             colon = self.peek(1)
             raise YaySyntaxError('Unexpected character ":"', colon.line, colon.col)
 

@@ -1582,8 +1582,8 @@ public class Yay {
         key = parseDoubleQuotedString(key, t.lineNum, t.col);
       } else if (key.startsWith("'") && key.endsWith("'")) {
         key = parseSingleQuotedString(key);
-      } else if (isReferenceStart(key, 0)) {
-        // A reference is never a key: the colon after it is stray
+      } else if (isReferenceStart(key, 0) || (key.startsWith("<") && key.endsWith(">"))) {
+        // Bytes or a reference is never a key: the colon after it is stray
         throw new YayException(
             "Unexpected character \":\"", filename, t.lineNum + 1, t.col + key.length() + 1);
       } else {

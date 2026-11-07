@@ -600,7 +600,8 @@
            "reference-unclosed.e"
            "bytearray-inline-invalid-space-after-open"
            "bytearray-inline-in-array-space-after-open"
-           "bytearray-inline-in-object-space-after-open")))
+           "bytearray-inline-in-object-space-after-open"
+           "bytearray-as-key")))
     (for-each
      (lambda (name)
        (let ((nay-path (string-append test-dir "/nay/" name ".nay")))
