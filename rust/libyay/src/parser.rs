@@ -54,11 +54,12 @@ pub fn parse_root(tokens: &[Token], ctx: &ParseContext, had_comments: bool) -> R
     }
 
     // Detect root object (key: value at indent 0)
-    // But not inline objects starting with {
+    // But not inline objects or arrays, starting with { or [
     if t.typ == TokenType::Text
         && t.text.contains(':')
         && t.indent == 0
         && !t.text.starts_with('{')
+        && !t.text.starts_with('[')
         && !is_reference_start(&t.text)
         && !(t.text.contains('<') && find_colon_outside_quotes(&t.text).is_none())
         && !(t.text.contains('(') && find_colon_outside_quotes(&t.text).is_none())

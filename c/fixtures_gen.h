@@ -1450,6 +1450,8 @@ static error_fixture_t error_fixtures[] = {
     {"reference_excluded_brace", "reference-excluded-brace.nay", "a: <https://x/a}b>\n", 19, "Unexpected character \"}\" in reference at 1:16 of <reference-excluded-brace.nay>"},
     {"reference_excluded_char", "reference-excluded-char.nay", "a: <https://x/a\"b>\n", 19, "Unexpected character \"\"\" in reference at 1:16 of <reference-excluded-char.nay>"},
     {"reference_glued_tag", "reference-glued-tag.nay", "a: <https://x>rgb\n", 18, "Unexpected character \"r\" at 1:15 of <reference-glued-tag.nay>"},
+    {"reference_in_array_space_after_open", "reference-in-array-space-after-open.nay", "[< https://x>]\n", 15, "Unexpected space after \"<\" at 1:3 of <reference-in-array-space-after-open.nay>"},
+    {"reference_in_item_array_space_after_open", "reference-in-item-array-space-after-open.nay", "- [< https://x>]\n", 17, "Unexpected space after \"<\" at 1:5 of <reference-in-item-array-space-after-open.nay>"},
     {"reference_no_scheme_fragment", "reference-no-scheme-fragment.nay", "a: <#frag>\n", 11, "Unmatched angle bracket at 1:4 of <reference-no-scheme-fragment.nay>"},
     {"reference_no_scheme", "reference-no-scheme.nay", "a: <./a.yay>\n", 13, "Odd number of hex digits in byte literal at 1:4 of <reference-no-scheme.nay>"},
     {"reference_prefix_on_inline", "reference-prefix-on-inline.nay", "a: (t) <https://x>\n", 19, "A tag before a value needs a block below it; write the tag after an inline value at 1:4 of <reference-prefix-on-inline.nay>"},
@@ -1529,6 +1531,6 @@ static error_fixture_t error_fixtures[] = {
     {NULL, NULL, NULL, 0, NULL}
 };
 
-#define ERROR_FIXTURE_COUNT 146
+#define ERROR_FIXTURE_COUNT 148
 
 #endif /* FIXTURES_GEN_H */

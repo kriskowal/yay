@@ -347,7 +347,8 @@ function parseRoot(tokens, ctx = {}) {
     t.type === "text" &&
     findKeyColonOutsideQuotes(t.text) >= 0 &&
     (t.indent ?? 0) === 0 &&
-    !t.text.startsWith("{")
+    !t.text.startsWith("{") &&
+    !t.text.startsWith("[")
   ) {
     const [value, next] = parseRootObject(tokens, i, ctx);
     return ensureAtEnd(value, tokens, next, ctx);
@@ -1545,6 +1546,7 @@ function parseListItem(tokens, i, listIndent, ctx) {
     return [group, j];
   } else if (
     next.type === "text" &&
+    !next.text.startsWith("[") &&
     findKeyColonOutsideQuotes(next.text) >= 0
   ) {
     const nextIndent = next.indent ?? 0;

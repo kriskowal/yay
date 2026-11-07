@@ -359,7 +359,10 @@ public class Yay {
       }
 
       // Check for root-level multiline object (key: value at indent 0)
-      if (t.type == TokenType.TEXT && t.indent == 0 && !t.text.startsWith("{")) {
+      if (t.type == TokenType.TEXT
+          && t.indent == 0
+          && !t.text.startsWith("{")
+          && !t.text.startsWith("[")) {
         int colonIdx = findColonOutsideQuotes(t.text);
         if (colonIdx > 0) {
           Object result = parseRootObject();
@@ -1166,7 +1169,9 @@ public class Yay {
             } else if (next.type == TokenType.TEXT && next.text.startsWith("(")) {
               // A tagged block: below the item, or a block string or block bytes on its line
               items.add(parseTaggedItem(next, listItemIndent));
-            } else if (next.type == TokenType.TEXT && findColonOutsideQuotes(next.text) > 0) {
+            } else if (next.type == TokenType.TEXT
+                && !next.text.startsWith("[")
+                && findColonOutsideQuotes(next.text) > 0) {
               // Object inside array item - parse all key-value pairs at this indent level
               items.add(parseObjectInArrayItem(listItemIndent));
             } else if (next.type == TokenType.TEXT

@@ -475,9 +475,10 @@ func parseRoot(tokens []token, ctx *parseContext) (any, error) {
 	}
 
 	// Detect root object (key: value at indent 0)
-	// But not inline objects starting with {
+	// But not inline objects or arrays, starting with { or [
 	masked, _ := maskTags(t.text)
 	if t.typ == tokenText && strings.Contains(masked, ":") && t.indent == 0 && !strings.HasPrefix(t.text, "{") &&
+		!strings.HasPrefix(t.text, "[") &&
 		!(strings.Contains(t.text, "(") && findColonOutsideQuotes(t.text) < 0) {
 		value, next, err := parseRootObject(tokens, i, ctx)
 		if err != nil {

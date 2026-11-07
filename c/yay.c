@@ -3521,7 +3521,8 @@ static yay_value_t *parse_multiline_array_impl(parse_ctx_t *ctx, size_t *idx, in
             yay_array_push(arr, value);
         }
         /* Object in array */
-        else if (next->type == TOKEN_TEXT && find_colon_outside_quotes(next->text) >= 0) {
+        else if (next->type == TOKEN_TEXT && next->text[0] != '[' &&
+                 find_colon_outside_quotes(next->text) >= 0) {
             /* Use list_indent as base so sibling properties at higher indent are included */
             yay_value_t *obj = parse_nested_object(ctx, idx, list_indent, next->line_num);
             if (ctx->error) {
@@ -3854,8 +3855,8 @@ static yay_value_t *parse_root(parse_ctx_t *ctx) {
         }
     }
     
-    /* Detect root object (key: value at indent 0, not inline object) */
-    if (t->type == TOKEN_TEXT && t->text[0] != '{' &&
+    /* Detect root object (key: value at indent 0, not inline object or array) */
+    if (t->type == TOKEN_TEXT && t->text[0] != '{' && t->text[0] != '[' &&
         find_colon_outside_quotes(t->text) >= 0 && t->indent == 0) {
         yay_value_t *value = parse_root_object(ctx, &i);
         if (ctx->error) {

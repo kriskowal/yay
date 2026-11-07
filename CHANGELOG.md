@@ -71,6 +71,14 @@ Bytes are a value, never a key, so every port now refuses it as
 `Unexpected character ":"` at the colon, as it refuses a reference there,
 in a list item (`- <ff>: 1`) as well as at the root.
 
+**Fixed: an inline array that holds a colon.** Every port but Python and
+Scheme took a root inline array or a list item's inline array that held a
+colon, as in a reference (`[< https://x>]`), for a property, and refused
+it as a bad key; Rust and JavaScript refused the well-formed `[{a: 1}]`
+so. An inline array is never a key, so each now reads it as an inline
+array, and `[< https://x>]` is refused as `Unexpected space after "<"`, as
+everywhere else.
+
 **Fixed: spaces around a nested key's colon.** The Rust and Go ports
 checked the space after a property's colon only at the root, so they read
 `- a:  1`, `- a : 1` and a nested object's `b:  1` or `b : 1`. Every port
