@@ -188,40 +188,38 @@ def run_error_tests(test_root: str, verbose: bool = False) -> tuple[int, int, li
             failed += 1
             errors.append((fname, f"Expected error but got result: {result!r}"))
         except yay.YayError as e:
-            # Check if error message matches expected pattern
+            # The whole message, its line and column included, in this port's
+            # form: "(line L, col C)" for " at L:C of <file>", and nothing for
+            # the file name of a message without a location
             error_msg = str(e)
-            if expected_error:
-                # Extract the key part of expected error (before "at X:Y of")
-                # e.g., "Unexpected space after \":\"" from full message
-                match = re.match(r"^(.+?)\s+at\s+\d+:\d+", expected_error)
-                if match:
-                    expected_pattern = match.group(1).strip()
-                    if expected_pattern.lower() in error_msg.lower():
-                        passed += 1
-                        if verbose:
-                            print(f"  {fname}: OK (error: {error_msg})")
-                    else:
-                        failed += 1
-                        errors.append(
-                            (
-                                fname,
-                                f"Error mismatch: got '{error_msg}', expected pattern '{expected_pattern}'",
-                            )
-                        )
-                else:
-                    # No "at X:Y" pattern, just check if any error was raised
+            if expected_error is not None:
+                file = re.escape(f"<{fname}>")
+                expected_msg = re.sub(
+                    rf" at (\d+):(\d+) of {file}$",
+                    r" (line \1, col \2)",
+                    expected_error,
+                )
+                expected_msg = re.sub(rf" {file}$", "", expected_msg)
+                if error_msg == expected_msg:
                     passed += 1
                     if verbose:
                         print(f"  {fname}: OK (error: {error_msg})")
+                else:
+                    failed += 1
+                    errors.append(
+                        (
+                            fname,
+                            f"Error mismatch: got '{error_msg}', expected '{expected_msg}'",
+                        )
+                    )
             else:
                 passed += 1
                 if verbose:
                     print(f"  {fname}: OK (error: {error_msg})")
         except Exception as e:
-            # Other exceptions count as pass (we expected an error)
-            passed += 1
-            if verbose:
-                print(f"  {fname}: OK (exception: {type(e).__name__}: {e})")
+            # Any other exception is a defect, not the expected error
+            failed += 1
+            errors.append((fname, f"Unexpected {type(e).__name__}: {e}"))
 
     return passed, failed, errors
 
