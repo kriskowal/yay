@@ -622,6 +622,13 @@ func parseTextValue(tokens []token, i int, ctx *parseContext) (any, int, error) 
 		return ref, i + 1, nil
 	}
 
+	// Bytes before a colon are a key, which bytes never are: the colon is
+	// stray, as at the root
+	if colonIdx := findColonOutsideQuotes(s); strings.HasPrefix(s, "<") && colonIdx >= 0 &&
+		strings.HasSuffix(strings.TrimRight(s[:colonIdx], " "), ">") {
+		return nil, 0, fmt.Errorf("Unexpected character \":\"%s", locSuffix(ctx, t.lineNum, t.col+colonIdx))
+	}
+
 	// Try inline bytes
 	if strings.HasPrefix(s, "<") && strings.Contains(s, ">") {
 		bytes, err := parseAngleBytesStrict(s, ctx, t.lineNum, t.col)

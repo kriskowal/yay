@@ -1393,6 +1393,7 @@ static error_fixture_t error_fixtures[] = {
     {"array_multiline_invalid_trailing_space", "array-multiline-invalid-trailing-space.nay", "- \n  1\n", 7, "Unexpected trailing space at 1:2 of <array-multiline-invalid-trailing-space.nay>"},
     {"array_multiline_nested_invalid_bare_word", "array-multiline-nested-invalid-bare-word.nay", "- - a\n  - b\n- - 1\n  - 2\n", 24, "Unexpected character \"a\" at 1:5 of <array-multiline-nested-invalid-bare-word.nay>"},
     {"blank_line_trailing_space", "blank-line-trailing-space.nay", "   \n", 4, "Unexpected trailing space at 1:3 of <blank-line-trailing-space.nay>"},
+    {"bytearray_as_key_in_list", "bytearray-as-key-in-list.nay", "- <ff>: 1\n", 10, "Unexpected character \":\" at 1:7 of <bytearray-as-key-in-list.nay>"},
     {"bytearray_as_key", "bytearray-as-key.nay", "<ff>: 1\n", 8, "Unexpected character \":\" at 1:5 of <bytearray-as-key.nay>"},
     {"bytearray_block_invalid_empty_leader", "bytearray-block-invalid-empty-leader.nay", ">\n  b0b5\n", 9, "Expected hex or comment in hex block"},
     {"bytearray_block_property_invalid_leader_next_line", "bytearray-block-property-invalid-leader-next-line.nay", "i:\n  >\n    cafe\n    babe\n", 25, "Unexpected indent at 2:1 of <bytearray-block-property-invalid-leader-next-line.nay>"},
@@ -1528,6 +1529,6 @@ static error_fixture_t error_fixtures[] = {
     {NULL, NULL, NULL, 0, NULL}
 };
 
-#define ERROR_FIXTURE_COUNT 145
+#define ERROR_FIXTURE_COUNT 146
 
 #endif /* FIXTURES_GEN_H */

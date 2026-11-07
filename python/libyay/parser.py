@@ -601,6 +601,11 @@ class Parser:
                     return self.wrap_prefix(tags, result)
             raise self.error(PREFIX_WITHOUT_BLOCK, first)
 
+        # Bytes or a reference is never a key: the colon after it is stray
+        if token.kind in ("BYTES", "REFERENCE") and self.peek(1).kind == "COLON":
+            colon = self.peek(1)
+            raise YaySyntaxError('Unexpected character ":"', colon.line, colon.col)
+
         # Inline values
         if token.kind in (
             "NULL",

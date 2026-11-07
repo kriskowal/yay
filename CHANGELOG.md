@@ -68,7 +68,8 @@ still reads it, and `yay -f meh -t yay` writes `a: <ff>`.
 **Fixed: bytes as a key.** The Rust port read `<ff>: 1` as an object with
 the key `"<ff>"`, and the other ports refused it with differing messages.
 Bytes are a value, never a key, so every port now refuses it as
-`Unexpected character ":"` at the colon, as it refuses a reference there.
+`Unexpected character ":"` at the colon, as it refuses a reference there,
+in a list item (`- <ff>: 1`) as well as at the root.
 
 **Fixed: spaces around a nested key's colon.** The Rust and Go ports
 checked the space after a property's colon only at the root, so they read

@@ -236,6 +236,16 @@ fn parse_text_value(tokens: &[Token], i: usize, ctx: &ParseContext) -> Result<(V
         return Ok((parse_scalar(s, ctx, t.line_num, t.col)?, i + 1));
     }
 
+    // Bytes before a colon are a key, which bytes never are: the colon is
+    // stray, as at the root
+    if s.starts_with('<') {
+        if let Some(colon_idx) = find_colon_outside_quotes(s) {
+            if s[..colon_idx].trim_end().ends_with('>') {
+                return parse_key_value_pair(tokens, i, colon_idx, ctx);
+            }
+        }
+    }
+
     // Try inline bytes
     if s.starts_with('<') && s.contains('>') {
         let bytes = parse_angle_bytes(s, ctx, t.line_num, t.col)?;
