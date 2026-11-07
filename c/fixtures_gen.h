@@ -1411,6 +1411,7 @@ static error_fixture_t error_fixtures[] = {
     {"blank_line_trailing_space", "blank-line-trailing-space.nay", "   \n", 4, "Unexpected trailing space at 1:3 of <blank-line-trailing-space.nay>"},
     {"bytearray_as_key_in_inline_object", "bytearray-as-key-in-inline-object.nay", "{<ff>: 1}\n", 10, "Invalid key at 1:1 of <bytearray-as-key-in-inline-object.nay>"},
     {"bytearray_as_key_in_list", "bytearray-as-key-in-list.nay", "- <ff>: 1\n", 10, "Unexpected character \":\" at 1:7 of <bytearray-as-key-in-list.nay>"},
+    {"bytearray_as_key_in_object_in_array", "bytearray-as-key-in-object-in-array.nay", "[{<ff>: 1}]\n", 12, "Invalid key at 1:2 of <bytearray-as-key-in-object-in-array.nay>"},
     {"bytearray_as_key", "bytearray-as-key.nay", "<ff>: 1\n", 8, "Unexpected character \":\" at 1:5 of <bytearray-as-key.nay>"},
     {"bytearray_block_invalid_empty_leader", "bytearray-block-invalid-empty-leader.nay", ">\n  b0b5\n", 9, "Expected hex or comment in hex block"},
     {"bytearray_block_property_invalid_leader_next_line", "bytearray-block-property-invalid-leader-next-line.nay", "i:\n  >\n    cafe\n    babe\n", 25, "Unexpected indent at 2:1 of <bytearray-block-property-invalid-leader-next-line.nay>"},
@@ -1445,6 +1446,7 @@ static error_fixture_t error_fixtures[] = {
     {"number_float_invalid_space_before_dot", "number-float-invalid-space-before-dot.nay", "1 .0\n", 5, "Unexpected space in number at 1:2 of <number-float-invalid-space-before-dot.nay>"},
     {"number_float_invalid_uppercase_exponent", "number-float-invalid-uppercase-exponent.nay", "1.5E10\n", 7, "Uppercase exponent (use lowercase 'e') at 1:4 of <number-float-invalid-uppercase-exponent.nay>"},
     {"number_property_invalid_next_line", "number-property-invalid-next-line.nay", "i:\n  42\n", 8, "Unexpected indent at 2:1 of <number-property-invalid-next-line.nay>"},
+    {"object_in_array_space_before_close", "object-in-array-space-before-close.nay", "[{a: 1 }]\n", 10, "Unexpected space before \"}\" at 1:7 of <object-in-array-space-before-close.nay>"},
     {"object_inline_in_list_space_before_close", "object-inline-in-list-space-before-close.nay", "- {a: 1 }\n", 10, "Unexpected space before \"}\" at 1:8 of <object-inline-in-list-space-before-close.nay>"},
     {"object_inline_invalid_key_symbol", "object-inline-invalid-key-symbol.nay", "{@: 1}\n", 7, "Invalid key at 1:1 of <object-inline-invalid-key-symbol.nay>"},
     {"object_inline_invalid_missing_colon", "object-inline-invalid-missing-colon.nay", "{a 1}\n", 6, "Expected colon after key at 1:1 of <object-inline-invalid-missing-colon.nay>"},
@@ -1549,6 +1551,6 @@ static error_fixture_t error_fixtures[] = {
     {NULL, NULL, NULL, 0, NULL}
 };
 
-#define ERROR_FIXTURE_COUNT 150
+#define ERROR_FIXTURE_COUNT 152
 
 #endif /* FIXTURES_GEN_H */
