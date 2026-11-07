@@ -70,6 +70,12 @@ the key `"<ff>"`, and the other ports refused it with differing messages.
 Bytes are a value, never a key, so every port now refuses it as
 `Unexpected character ":"` at the colon, as it refuses a reference there.
 
+**Fixed: columns in a list item.** An error in a list item's text was
+placed as if the `- ` before it were not there: `- < ff>` reported 1:2
+for the space at 1:4, and `- - a` reported the bare word at 1:3, not 1:5.
+The Rust, JavaScript, Go, C and Java ports now count the list leader, as
+the Python port already did, and the shared cases expect the true column.
+
 **Breaking: YSON follows smallcaps.** A tagged value is
 `{"#tag": tag, "payload": value}`. An integer is `"+42"` or `"-7"`, not
 `"#42"`, which YSON no longer reads. An object key that begins with `#`, `*`

@@ -405,7 +405,7 @@ func emitContent(tokens []token, sl scanLine) []token {
 			text:    sl.line,
 			indent:  sl.indent,
 			lineNum: sl.lineNum,
-			col:     sl.indent,
+			col:     sl.indent + len(sl.leader), // after the list leader, if any
 		})
 	}
 

@@ -280,7 +280,14 @@ function outlineLex(lines) {
     // Every blank line is a break, so that a block string keeps a run of
     // blank lines.
     if (line.length > 0) {
-      tokens.push({ type: "text", text: line, indent, lineNum, col: indent });
+      // The text's column follows the list leader, if any.
+      tokens.push({
+        type: "text",
+        text: line,
+        indent,
+        lineNum,
+        col: indent + leader.length,
+      });
     } else {
       tokens.push({ type: "break", text: "", lineNum, col: indent });
     }

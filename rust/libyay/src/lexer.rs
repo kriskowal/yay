@@ -99,12 +99,13 @@ pub fn outline_lex(lines: &[ScanLine]) -> Vec<Token> {
         // Emit text or break. Every blank line is a break, so that a block
         // string keeps a run of blank lines.
         if !sl.line.is_empty() {
+            // The text's column follows the list leader, if any
             tokens.push(Token::new(
                 TokenType::Text,
                 &sl.line,
                 sl.indent,
                 sl.line_num,
-                sl.indent,
+                sl.indent + sl.leader.len(),
             ));
         } else {
             tokens.push(Token::new(

@@ -223,6 +223,8 @@ public class Yay {
     int indent;
     int lineNum;
     int col;
+    // The indent of the token's line, before any list leader
+    int lineIndent;
 
     Token(TokenType type, String text, int indent, int lineNum, int col) {
       this.type = type;
@@ -230,6 +232,7 @@ public class Yay {
       this.indent = indent;
       this.lineNum = lineNum;
       this.col = col;
+      this.lineIndent = col;
     }
   }
 
@@ -279,8 +282,11 @@ public class Yay {
 
       // Handle content
       if (!sl.content.isEmpty()) {
-        // Use indent as col (like JS), not indent + leader.length()
-        tokens.add(new Token(TokenType.TEXT, sl.content, effectiveIndent, sl.lineNum, sl.indent));
+        // The text's column follows the list leader, if any
+        Token text =
+            new Token(TokenType.TEXT, sl.content, effectiveIndent, sl.lineNum, effectiveIndent);
+        text.lineIndent = sl.indent;
+        tokens.add(text);
       }
     }
 
@@ -492,7 +498,7 @@ public class Yay {
       if (s.equals("`") || (s.startsWith("`") && s.length() >= 2 && s.charAt(1) == ' ')) {
         String firstLine = s.length() > 2 ? s.substring(2) : "";
         // The block ends at a line indented no deeper than the opener's line.
-        return parseBlockString(firstLine, t.col, false);
+        return parseBlockString(firstLine, t.lineIndent, false);
       }
 
       // Block bytes (>)
@@ -1195,7 +1201,7 @@ public class Yay {
       String rest = restOut[0];
       if (rest.equals("`") || rest.startsWith("` ")) {
         String firstLine = rest.length() > 2 ? rest.substring(2) : "";
-        return wrapPrefix(parseBlockString(firstLine, next.col, false), tags);
+        return wrapPrefix(parseBlockString(firstLine, next.lineIndent, false), tags);
       }
       if (rest.startsWith(">") && !rest.contains("<")) {
         return wrapPrefix(parseBlockBytes(rest, -1, listItemIndent), tags);

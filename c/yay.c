@@ -828,8 +828,9 @@ static void outline_lex(parse_ctx_t *ctx) {
         /* Emit text or break. Every blank line is a break, so that a block
          * string keeps a run of blank lines. */
         if (strlen(sl->line) > 0) {
-            add_token(ctx, TOKEN_TEXT, sl->line, sl->indent, 
-                     sl->line_num, sl->indent);
+            /* The text's column follows the list leader, if any */
+            add_token(ctx, TOKEN_TEXT, sl->line, sl->indent,
+                     sl->line_num, sl->indent + (int)strlen(sl->leader));
         } else {
             add_token(ctx, TOKEN_BREAK, "", sl->line_num, sl->indent, 0);
         }

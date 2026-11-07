@@ -601,7 +601,9 @@
            "bytearray-inline-invalid-space-after-open"
            "bytearray-inline-in-array-space-after-open"
            "bytearray-inline-in-object-space-after-open"
-           "bytearray-as-key")))
+           "bytearray-as-key"
+           "bytearray-inline-in-item-space-after-open"
+           "bytearray-inline-in-nested-item-space-after-open")))
     (for-each
      (lambda (name)
        (let ((nay-path (string-append test-dir "/nay/" name ".nay")))
