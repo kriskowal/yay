@@ -394,6 +394,9 @@ class Parser:
                 raise self.error(f"Expected ',' or ']', got {self.peek().kind}")
 
         self.expect("RBRACKET")
+        if self.peek().kind == "COLON":
+            colon = self.peek()
+            raise YaySyntaxError('Unexpected character ":"', colon.line, colon.col)
         return items
 
     def parse_inline_object(self) -> dict:

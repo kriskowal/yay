@@ -2613,6 +2613,11 @@ static yay_value_t *parse_inline_atom(parse_ctx_t *ctx, const char *s,
     if (s[0] == '[') {
         int end = find_matching_bracket(s);
         if (end < 0) return NULL;
+        if (s[end + 1] == ':') {
+            ctx->error = make_error(ctx, line_num, col + end + 1,
+                                    "Unexpected character \":\"");
+            return NULL;
+        }
         
         yay_value_t *arr = yay_array();
         const char *inner = s + 1;

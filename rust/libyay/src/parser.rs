@@ -819,6 +819,17 @@ fn parse_inline_array_value(
     i: usize,
     ctx: &ParseContext,
 ) -> Result<(Value, usize)> {
+    if let Some(end) = find_matching_bracket(s) {
+        if s[end + 1..].starts_with(':') {
+            return Err(
+                ParseError::UnexpectedChar(':', String::new()).with_location(
+                    ctx,
+                    t.line_num,
+                    t.col + end + 1,
+                ),
+            );
+        }
+    }
     if !s.contains(']') {
         return Err(
             ParseError::UnexpectedNewline("array".to_string(), String::new())

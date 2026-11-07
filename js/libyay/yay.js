@@ -456,6 +456,13 @@ function parseValue(tokens, i, ctx = {}) {
       return [parseQuotedString(s, ctx, t.lineNum ?? 0, sCol), i + 1];
     }
     if (s.startsWith("[")) {
+      const close = findMatchingBracket(s);
+      if (close >= 0 && s[close + 1] === ":") {
+        throw new Error(
+          'Unexpected character ":"' +
+            locSuffix(ctx, t.lineNum ?? 0, sCol + close + 1),
+        );
+      }
       // Inline arrays must close on the same line.
       if (!s.endsWith("]")) {
         throw new Error(
@@ -1207,6 +1214,38 @@ function parseInlineArray(s, ctx = {}, lineNum = 0, col = 0) {
     arr.push(parseScalar(part.text, ctx, lineNum, partCol));
   }
   return arr;
+}
+
+/**
+ * @param {string} s
+ * @returns {number}
+ */
+function findMatchingBracket(s) {
+  const masked = maskTags(s).masked;
+  let depth = 0;
+  let quote = "";
+  let escape = false;
+  for (let i = 0; i < masked.length; i++) {
+    const c = masked[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (quote !== "") {
+      if (c === "\\") escape = true;
+      else if (c === quote) quote = "";
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      quote = c;
+    } else if (c === "[") {
+      depth++;
+    } else if (c === "]") {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
 }
 
 /**

@@ -1396,6 +1396,7 @@ static test_fixture_t test_fixtures[] = {
 #define TEST_FIXTURE_COUNT 187
 
 static error_fixture_t error_fixtures[] = {
+    {"array_as_key", "array-as-key.nay", "[1]: 2\n", 7, "Unexpected character \":\" at 1:4 of <array-as-key.nay>"},
     {"array_inline_invalid_multiline", "array-inline-invalid-multiline.nay", "[\n  1,\n  2\n]\n", 13, "Unexpected newline in inline array at 1:1 of <array-inline-invalid-multiline.nay>"},
     {"array_inline_invalid_space_after_comma", "array-inline-invalid-space-after-comma.nay", "[1,  2]\n", 8, "Unexpected space after \",\" at 1:5 of <array-inline-invalid-space-after-comma.nay>"},
     {"array_inline_invalid_space_after_open", "array-inline-invalid-space-after-open.nay", "[ 1,2]\n", 7, "Unexpected space after \"[\" at 1:2 of <array-inline-invalid-space-after-open.nay>"},
@@ -1551,6 +1552,6 @@ static error_fixture_t error_fixtures[] = {
     {NULL, NULL, NULL, 0, NULL}
 };
 
-#define ERROR_FIXTURE_COUNT 152
+#define ERROR_FIXTURE_COUNT 153
 
 #endif /* FIXTURES_GEN_H */

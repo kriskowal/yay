@@ -79,6 +79,11 @@ inline array is never a key, so each now reads it as an inline array, and
 `[< https://x>]` is refused as `Unexpected space after "<"`, as everywhere
 else.
 
+**Fixed: an inline array as a key.** `[1]: 2` is refused by every port as
+`Unexpected character ":"` at the colon. An inline array is a value, never a
+key; the bracket is matched, so neither an unmatched-bracket nor an
+unexpected-newline error describes it.
+
 **Fixed: bytes as an inline object's key.** `{<ff>: 1}` is refused in
 every port as `Invalid key` at the brace, as `{@: 1}` is; JavaScript had
 said `Unexpected character ":"` and Python "Expected key, got BYTES".

@@ -1082,6 +1082,9 @@ func buildBlockStringResult(firstLine string, lines []string, inPropertyContext 
 
 // parseInlineArrayValue parses an inline array from a text token.
 func parseInlineArrayValue(s string, t token, i int, ctx *parseContext) (any, int, error) {
+	if end := findMatchingBracket(s); end >= 0 && end+1 < len(s) && s[end+1] == ':' {
+		return nil, 0, fmt.Errorf("Unexpected character \":\"%s", locSuffix(ctx, t.lineNum, t.col+end+1))
+	}
 	if !strings.Contains(s, "]") {
 		return nil, 0, fmt.Errorf("Unexpected newline in inline array%s", locSuffix(ctx, t.lineNum, t.col))
 	}

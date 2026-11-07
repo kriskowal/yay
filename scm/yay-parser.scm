@@ -873,6 +873,9 @@
             (cond
              ;; End of array
              ((char=? ch #\])
+              (when (and (< (+ i 1) len)
+                         (char=? (string-ref s (+ i 1)) #\:))
+                (yay-error "Unexpected character \":\""))
               (let ((items (if (string=? (string-trim current) "")
                                items
                                (cons (parse-inline-value (string-trim current)) items))))

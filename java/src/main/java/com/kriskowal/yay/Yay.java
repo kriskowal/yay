@@ -529,6 +529,11 @@ public class Yay {
 
       // Inline array
       if (s.startsWith("[")) {
+        int close = findMatchingBracket(s, 0, '[', ']');
+        if (close + 1 < s.length() && s.charAt(close + 1) == ':') {
+          throw new YayException(
+              "Unexpected character \":\"", filename, t.lineNum + 1, t.col + close + 2);
+        }
         pos++;
         return parseInlineArray(s, t.lineNum, t.col);
       }
