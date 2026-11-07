@@ -180,8 +180,12 @@ class InlineBytes(unittest.TestCase):
         self.assertRefused("a: < https://x>\n", 'Unexpected space after "<"', 1, 5)
 
     def test_not_hex(self):
-        self.assertRefused("a: <1a:b>\n", "Invalid hex digit", 1, 7)
-        self.assertRefused("a: <ffz>\n", "Invalid hex digit", 1, 7)
+        # At the "<", as the shared corpus has it, and an odd count first
+        self.assertRefused("a: <1a:b>\n", "Invalid hex digit", 1, 4)
+        self.assertRefused("a: <ffzz>\n", "Invalid hex digit", 1, 4)
+        self.assertRefused(
+            "a: <ffz>\n", "Odd number of hex digits in byte literal", 1, 4
+        )
 
     def test_still_read(self):
         self.assertEqual(yay.loads("a: <ff 00>\n"), {"a": b"\xff\x00"})

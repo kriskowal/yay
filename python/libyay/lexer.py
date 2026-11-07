@@ -285,8 +285,9 @@ class Lexer:
             lines.pop(0)
 
         if not lines:
-            # Empty block string is not allowed
-            raise self.error(
+            # Empty block string is not allowed; the shared corpus gives
+            # this error no location
+            raise YaySyntaxError(
                 'Empty block string not allowed (use "" or "\\n" explicitly)'
             )
 
@@ -318,7 +319,8 @@ class Lexer:
             if not has_content and start_col == 1:
                 # > alone at the start of a line (root level) is invalid
                 # In property context (start_col > 1), it's valid
-                raise self.error("Expected hex or comment in hex block")
+                # The shared corpus gives this error no location
+                raise YaySyntaxError("Expected hex or comment in hex block")
             if next_ch == "\n":
                 self.advance()
                 self.at_line_start = True
@@ -407,7 +409,10 @@ class Lexer:
 
         hex_str = "".join(hex_chars)
         if len(hex_str) % 2 != 0:
-            raise self.error("Odd number of hex digits in byte literal")
+            # At the start of the line that opens the block
+            raise YaySyntaxError(
+                "Odd number of hex digits in byte literal", start_line, base_indent + 1
+            )
         if bad:
             raise YaySyntaxError("Invalid hex digit", start_line, start_col)
 
@@ -450,40 +455,49 @@ class Lexer:
                 elif esc == '"':
                     chars.append('"')
                 elif esc == "u":
+                    # A malformed escape is at its "u", and a bad code point
+                    # at its "{", as the other ports place them
+                    esc_line, u_col = self.line, self.col
+
+                    def escape_error(message: str, col: int) -> YaySyntaxError:
+                        return YaySyntaxError(message, esc_line, col)
+
                     self.advance()  # consume 'u'
                     # YAY uses \u{XXXXXX} syntax (variable-length with braces)
                     if self.peek() != "{":
-                        raise self.error("Bad escaped character")
+                        raise escape_error("Bad escaped character", u_col)
+                    brace_col = self.col
                     self.advance()  # consume '{'
                     hex_chars = ""
                     while self.peek() and self.peek() != "}":
                         h = self.peek()
                         if h not in "0123456789abcdefABCDEF":
-                            raise self.error("Bad Unicode escape")
+                            raise escape_error("Bad Unicode escape", brace_col)
                         hex_chars += self.advance()
                         # Max 6 hex digits
                         if len(hex_chars) > 6:
-                            raise self.error("Bad Unicode escape")
+                            raise escape_error("Bad Unicode escape", brace_col)
                     if self.peek() != "}":
-                        raise self.error("Bad Unicode escape")
+                        raise escape_error("Bad Unicode escape", brace_col)
                     self.advance()  # consume '}'
                     if not hex_chars:
-                        raise self.error("Bad Unicode escape")
+                        raise escape_error("Bad Unicode escape", brace_col)
                     codepoint = int(hex_chars, 16)
                     # Check for surrogate code points (U+D800 to U+DFFF)
                     if 0xD800 <= codepoint <= 0xDFFF:
-                        raise self.error("Illegal surrogate")
+                        raise escape_error("Illegal surrogate", brace_col)
                     if codepoint > 0x10FFFF:
-                        raise self.error("Unicode code point out of range")
+                        raise escape_error("Unicode code point out of range", brace_col)
                     chars.append(chr(codepoint))
                     continue
                 else:
                     raise self.error("Bad escaped character")
                 self.advance()
             elif ord(ch) < 0x20:
-                # Newline means unterminated string, other control chars are bad
+                # Newline means unterminated string, at the line's last
+                # character; other control chars are bad
                 if ch == "\n" or ch == "\r":
-                    raise self.error("Unterminated string")
+                    raise YaySyntaxError("Unterminated string", self.line, self.col - 1)
                 raise self.error("Bad character in string")
             else:
                 chars.append(self.advance())
@@ -506,9 +520,10 @@ class Lexer:
                 else:
                     break
             elif ord(ch) < 0x20:
-                # Newline means unterminated string, other control chars are bad
+                # Newline means unterminated string, at the line's last
+                # character; other control chars are bad
                 if ch == "\n" or ch == "\r":
-                    raise self.error("Unterminated string")
+                    raise YaySyntaxError("Unterminated string", self.line, self.col - 1)
                 raise self.error("Bad character in string")
             else:
                 # Single-quoted strings are literal - no backslash escapes
@@ -610,10 +625,14 @@ class Lexer:
         start_line = self.line
         start_col = self.col
 
-        if not already_consumed_open:
+        if already_consumed_open:
+            # The literal, and its errors, begin at its "<"
+            start_col -= 1
+        else:
             self.advance()  # consume '<'
 
         hex_chars = []
+        bad = False
         last_was_space = False
         space_col = 0
         while True:
@@ -671,11 +690,18 @@ class Lexer:
                     "Uppercase hex digit (use lowercase)", self.line, self.col
                 )
             else:
-                raise self.error("Invalid hex digit")
+                # Counted, then refused after the odd-length check, as the
+                # block form and the other ports do
+                bad = True
+                hex_chars.append(self.advance())
 
         hex_str = "".join(hex_chars)
         if len(hex_str) % 2 != 0:
-            raise self.error("Odd number of hex digits in byte literal")
+            raise YaySyntaxError(
+                "Odd number of hex digits in byte literal", start_line, start_col
+            )
+        if bad:
+            raise YaySyntaxError("Invalid hex digit", start_line, start_col)
 
         try:
             value = bytes.fromhex(hex_str)
@@ -714,8 +740,12 @@ class Lexer:
             if self.source[self.pos - 1] != " ":
                 raise self.error("Expected one space before a tag")
             if self.pos > 1 and self.source[self.pos - 2] == " ":
+                # At the first of the spaces
+                spaces = 2
+                while self.pos > spaces and self.source[self.pos - spaces - 1] == " ":
+                    spaces += 1
                 raise YaySyntaxError(
-                    'Unexpected space before "("', self.line, self.col - 1
+                    'Unexpected space before "("', self.line, self.col - spaces
                 )
         self.advance()  # consume '('
         chars = []
@@ -747,25 +777,32 @@ class Lexer:
                     continue
                 if esc != "u":
                     raise self.error("Bad escaped character")
-                self.advance()  # consume 'u'
-                if self.peek() != "{":
+                # As in a double-quoted string: a malformed escape is at its
+                # "u", and a bad code point at its "{"
+                if self.peek(1) != "{":
                     raise self.error("Bad escaped character")
+                self.advance()  # consume 'u'
+                brace_line, brace_col = self.line, self.col
                 self.advance()  # consume '{'
                 hex_chars = ""
                 while self.peek() != "}":
                     h = self.peek()
                     hex_digit = h != "" and h in "0123456789abcdefABCDEF"
                     if not hex_digit or len(hex_chars) == 6:
-                        raise self.error("Bad Unicode escape")
+                        raise YaySyntaxError(
+                            "Bad Unicode escape", brace_line, brace_col
+                        )
                     hex_chars += self.advance()
                 self.advance()  # consume '}'
                 if not hex_chars:
-                    raise self.error("Bad Unicode escape")
+                    raise YaySyntaxError("Bad Unicode escape", brace_line, brace_col)
                 codepoint = int(hex_chars, 16)
                 if 0xD800 <= codepoint <= 0xDFFF:
-                    raise self.error("Illegal surrogate")
+                    raise YaySyntaxError("Illegal surrogate", brace_line, brace_col)
                 if codepoint > 0x10FFFF:
-                    raise self.error("Unicode code point out of range")
+                    raise YaySyntaxError(
+                        "Unicode code point out of range", brace_line, brace_col
+                    )
                 chars.append(chr(codepoint))
                 continue
             chars.append(self.advance())
@@ -811,6 +848,8 @@ class Lexer:
     def tokenize(self) -> Iterator[Token]:
         """Generate tokens from the source."""
         self._last_token = None
+        # The columns of the open inline objects' braces
+        braces: list[int] = []
         self._tag_run_start = 0
 
         def emit(token):
@@ -987,11 +1026,14 @@ class Lexer:
                 continue
 
             if ch == "{":
+                braces.append(self.col)
                 yield emit(Token("LBRACE", "{", self.line, self.col))
                 self.advance()
                 continue
 
             if ch == "}":
+                if braces:
+                    braces.pop()
                 yield emit(Token("RBRACE", "}", self.line, self.col))
                 self.advance()
                 continue
@@ -1004,7 +1046,9 @@ class Lexer:
             # Check if we're in a context where this might be an invalid key
             # (after { or , in an inline object)
             if self._last_token and self._last_token.kind in ("LBRACE", "COMMA"):
-                raise self.error("Invalid key")
+                # At the inline object's "{", as the other ports place it
+                col = braces[-1] if braces else self.col
+                raise YaySyntaxError("Invalid key", self.line, col)
 
             # Text after a scalar on its line: the scalar is not one
             last = self._last_token

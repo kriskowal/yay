@@ -192,7 +192,7 @@ class Parser:
                             break
                     if not next_is_closing_with_space:
                         raise YaySyntaxError(
-                            f'Expected space after ","', line, start_col + i + 1
+                            f'Expected space after ","', line, start_col + i
                         )
                 if i + 2 < len(s) and s[i + 1] == " " and s[i + 2] == " ":
                     raise YaySyntaxError(
@@ -290,7 +290,8 @@ class Parser:
         if self.peek().kind == "EOF":
             # If there was content (comments) but no value, that's an error
             if has_content:
-                raise YaySyntaxError("No value found in document", 1, 1)
+                # The shared corpus gives this error no location
+                raise YaySyntaxError("No value found in document")
             return None
 
         if self.peek().kind == "TAG":
@@ -433,7 +434,7 @@ class Parser:
             # Colon must be followed by exactly one space
             next_col = colon.col + 1
             if self.char_at(colon.line, next_col) != " ":
-                raise YaySyntaxError('Expected space after ":"', colon.line, next_col)
+                raise YaySyntaxError('Expected space after ":"', colon.line, colon.col)
             if self.char_at(colon.line, next_col + 1) == " ":
                 raise YaySyntaxError(
                     'Unexpected space after ":"', colon.line, next_col + 1
@@ -537,12 +538,15 @@ class Parser:
                 )
             if self.char_at(dash_token.line, next_col + 1) == " ":
                 # Check if this is the first dash at the root level (leading space error)
-                # or a nested/indented dash (space after dash error)
+                # or a nested/indented dash (space after dash error), each at
+                # the space too many
                 if base_indent == 0 and dash_token.col == 1:
-                    raise YaySyntaxError("Unexpected leading space", dash_token.line, 1)
+                    raise YaySyntaxError(
+                        "Unexpected leading space", dash_token.line, next_col + 1
+                    )
                 else:
                     raise YaySyntaxError(
-                        'Unexpected space after "-"', dash_token.line, dash_token.col
+                        'Unexpected space after "-"', dash_token.line, next_col + 1
                     )
 
             # Parse the item value
@@ -570,16 +574,17 @@ class Parser:
         # A tagged block, below or, for a block string or block bytes, here
         if token.kind == "TAG":
             tags = self.parse_prefix()
+            first = token
             token = self.peek()
             if self.is_block_leader(token, "`") or self.is_block_leader(token, ">"):
                 self.advance()
                 return self.wrap_prefix(tags, token.value)
             if token.kind != "NEWLINE":
-                raise self.error(PREFIX_WITHOUT_BLOCK)
+                raise self.error(PREFIX_WITHOUT_BLOCK, first)
             self.advance()
             indent_token = self.peek()
             if indent_token.kind != "INDENT" or indent_token.value < item_indent:
-                raise self.error(PREFIX_WITHOUT_BLOCK, indent_token)
+                raise self.error(PREFIX_WITHOUT_BLOCK, first)
             self.advance()
             child_indent = indent_token.value
             token = self.peek()
@@ -594,7 +599,7 @@ class Parser:
                 result = self.parse_concatenated_strings(child_indent)
                 if result is not None:
                     return self.wrap_prefix(tags, result)
-            raise self.error(PREFIX_WITHOUT_BLOCK, token)
+            raise self.error(PREFIX_WITHOUT_BLOCK, first)
 
         # Inline values
         if token.kind in (
@@ -671,7 +676,7 @@ class Parser:
                 next_col = colon.col + 1
                 if self.char_at(colon.line, next_col) != " ":
                     raise YaySyntaxError(
-                        'Expected space after ":"', colon.line, next_col
+                        'Expected space after ":"', colon.line, colon.col
                     )
                 if self.char_at(colon.line, next_col + 1) == " ":
                     raise YaySyntaxError(
@@ -680,7 +685,7 @@ class Parser:
 
             # Parse value
             value_token = self.peek()
-            value = self.parse_object_value(current_indent)
+            value = self.parse_object_value(current_indent, colon=colon)
             obj[key] = value
 
             # Text after an inline value on its line: the value is not one
@@ -700,22 +705,41 @@ class Parser:
 
         return obj
 
-    def parse_object_value(self, key_indent: int, prefix: bool = False) -> Any:
+    def parse_object_value(
+        self,
+        key_indent: int,
+        prefix: Token | None = None,
+        colon: Token | None = None,
+    ) -> Any:
         """Parse the value part of a key: value pair. After a prefix of tags,
-        only a block may follow."""
+        whose first tag is the prefix token, only a block may follow. Errors
+        about a missing value stand just after the colon."""
         token = self.peek()
+        if colon is None:
+            colon = token
+
+        def missing_value() -> YaySyntaxError:
+            return YaySyntaxError(
+                "Expected value after property", colon.line, colon.col + 1
+            )
+
+        def prefix_without_block() -> YaySyntaxError:
+            return YaySyntaxError(PREFIX_WITHOUT_BLOCK, prefix.line, prefix.col)
 
         # A tagged block
-        if token.kind == "TAG" and not prefix:
+        if token.kind == "TAG" and prefix is None:
             tags = self.parse_prefix()
+            prefix = token
             token = self.peek()
             if not (
                 token.kind == "NEWLINE"
                 or self.is_block_leader(token, "`")
                 or self.is_block_leader(token, ">")
             ):
-                raise self.error(PREFIX_WITHOUT_BLOCK)
-            return self.wrap_prefix(tags, self.parse_object_value(key_indent, True))
+                raise prefix_without_block()
+            return self.wrap_prefix(
+                tags, self.parse_object_value(key_indent, prefix, colon)
+            )
 
         # Empty object
         if token.kind == "LBRACE":
@@ -749,10 +773,9 @@ class Parser:
                     # Backtick block string - check if there's content after it on the same line
                     rest_of_line = line_content[token.col :]
                     if rest_of_line.startswith(" ") and len(rest_of_line.strip()) > 0:
+                        # The shared corpus gives this error no location
                         raise YaySyntaxError(
-                            "Expected newline after block leader in property",
-                            token.line,
-                            token.col,
+                            "Expected newline after block leader in property"
                         )
             if prefix:
                 self.advance()
@@ -777,10 +800,9 @@ class Parser:
                         rest_of_line = rest_of_line[1:]
                     # Check if there's hex content (not just a comment or empty)
                     if rest_of_line and rest_of_line[0] in "0123456789abcdef":
+                        # The shared corpus gives this error no location
                         raise YaySyntaxError(
-                            "Expected newline after block leader in property",
-                            token.line,
-                            token.col,
+                            "Expected newline after block leader in property"
                         )
             if prefix:
                 self.advance()
@@ -800,8 +822,8 @@ class Parser:
             # Check indent of next line
             if self.peek().kind != "INDENT":
                 if prefix:
-                    raise self.error(PREFIX_WITHOUT_BLOCK)
-                raise self.error("Expected value after property")
+                    raise prefix_without_block()
+                raise missing_value()
 
             indent_token = self.peek()
             child_indent = indent_token.value
@@ -818,7 +840,7 @@ class Parser:
                     or (child_indent == key_indent and next_token.kind != "DASH")
                 )
             ):
-                raise self.error(PREFIX_WITHOUT_BLOCK)
+                raise prefix_without_block()
 
             # For named arrays, the array can be at same indent as key
             # e.g., "arrayName:\n- item1\n- item2"
@@ -827,7 +849,7 @@ class Parser:
 
             # Under a tag, only an array may stand at the key's indent
             if prefix and child_indent == key_indent and next_token.kind != "DASH":
-                raise self.error("Expected value after property")
+                raise missing_value()
 
             self.advance()  # consume INDENT
 
@@ -857,7 +879,9 @@ class Parser:
                     return result
                 # Single string on new line is invalid
 
-            raise self.error("Unexpected indent")
+            # Nothing else may stand indented under the property, and an
+            # unexpected indent is at its line's first column
+            raise YaySyntaxError("Unexpected indent", next_token.line, 1)
 
         if token.kind == "IDENT":
             raise trailing_text_error(self.lexer.source, token.line, token.col)
