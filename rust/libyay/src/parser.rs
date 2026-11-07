@@ -2177,6 +2177,7 @@ fn parse_key_value_pair(
     let t = &tokens[i];
     let s = &t.text;
 
+    check_colon_spaces(s, colon_idx, ctx, t.line_num, t.col)?;
     let key_raw = s[..colon_idx].trim();
     let key = parse_key_name(key_raw, ctx, t.line_num, t.col)?;
     // A quoted empty key ("") is a key; only a missing one is not.
@@ -2260,6 +2261,36 @@ fn parse_key_value_pair(
     }
 
     Ok((Value::Null, i + 1))
+}
+
+/// Refuse a space before a property's colon, or more than one after it,
+/// as the root object does.
+fn check_colon_spaces(
+    s: &str,
+    colon_idx: usize,
+    ctx: &ParseContext,
+    line_num: usize,
+    col: usize,
+) -> Result<()> {
+    if s[..colon_idx].ends_with(' ') {
+        return Err(
+            ParseError::UnexpectedSpaceBefore(":".to_string(), String::new()).with_location(
+                ctx,
+                line_num,
+                col + colon_idx - 1,
+            ),
+        );
+    }
+    if s[colon_idx + 1..].starts_with("  ") {
+        return Err(
+            ParseError::UnexpectedSpaceAfter(":".to_string(), String::new()).with_location(
+                ctx,
+                line_num,
+                col + colon_idx + 2,
+            ),
+        );
+    }
+    Ok(())
 }
 
 /// Find the first colon not inside quotes.
@@ -2427,6 +2458,7 @@ fn parse_nested_object_content(
                 break;
             }
 
+            check_colon_spaces(&t.text, colon_idx, ctx, t.line_num, t.col)?;
             let k_raw = t.text[..colon_idx].trim();
             let k = parse_key_name(k_raw, ctx, t.line_num, t.col)?;
             let v_part = t.text[colon_idx + 1..].trim();

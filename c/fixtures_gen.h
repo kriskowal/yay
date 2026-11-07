@@ -1419,6 +1419,8 @@ static error_fixture_t error_fixtures[] = {
     {"illegal_space_before_angle", "illegal-space-before-angle.nay", "<cafe >\n", 8, "Unexpected space before \">\" at 1:6 of <illegal-space-before-angle.nay>"},
     {"illegal_space_before_brace", "illegal-space-before-brace.nay", "{a: 1 }\n", 8, "Unexpected space before \"}\" at 1:6 of <illegal-space-before-brace.nay>"},
     {"indent_invalid_unexpected_number", "indent-invalid-unexpected-number.nay", "  1\n", 4, "Unexpected indent at 1:1 of <indent-invalid-unexpected-number.nay>"},
+    {"list_item_key_space_after_colon", "list-item-key-space-after-colon.nay", "- a:  1\n", 8, "Unexpected space after \":\" at 1:6 of <list-item-key-space-after-colon.nay>"},
+    {"list_item_key_space_before_colon", "list-item-key-space-before-colon.nay", "- a : 1\n", 8, "Unexpected space before \":\" at 1:4 of <list-item-key-space-before-colon.nay>"},
     {"mixed_depth_nesting_2_invalid_bare_word", "mixed-depth-nesting-2-invalid-bare-word.nay", "- a:\n    b:\n      - 1\n      - 2\n  c: 3\n- - d\n  - e:\n      f: 4\n", 63, "Unexpected character \"d\" at 6:5 of <mixed-depth-nesting-2-invalid-bare-word.nay>"},
     {"not_a_string", "not-a-string.nay", "hello\n", 6, "Unexpected character \"h\" at 1:1 of <not-a-string.nay>"},
     {"number_float_invalid_space_after_dot", "number-float-invalid-space-after-dot.nay", "1. 0\n", 5, "Unexpected space in number at 1:3 of <number-float-invalid-space-after-dot.nay>"},
@@ -1439,6 +1441,8 @@ static error_fixture_t error_fixtures[] = {
     {"object_multiline_invalid_quoted_key_space_before_colon_single", "object-multiline-invalid-quoted-key-space-before-colon-single.nay", "'key' : 1\n", 10, "Unexpected space before \":\" at 1:6 of <object-multiline-invalid-quoted-key-space-before-colon-single.nay>"},
     {"object_multiline_invalid_quoted_key_space_before_colon", "object-multiline-invalid-quoted-key-space-before-colon.nay", "\"key\" : 1\n", 10, "Unexpected space before \":\" at 1:6 of <object-multiline-invalid-quoted-key-space-before-colon.nay>"},
     {"object_multiline_invalid_value_space", "object-multiline-invalid-value-space.nay", "key:  1\n", 8, "Unexpected space after \":\" at 1:6 of <object-multiline-invalid-value-space.nay>"},
+    {"object_nested_key_space_after_colon", "object-nested-key-space-after-colon.nay", "a:\n  b:  1\n", 11, "Unexpected space after \":\" at 2:6 of <object-nested-key-space-after-colon.nay>"},
+    {"object_nested_key_space_before_colon", "object-nested-key-space-before-colon.nay", "a:\n  b : 1\n", 11, "Unexpected space before \":\" at 2:4 of <object-nested-key-space-before-colon.nay>"},
     {"reference_as_key", "reference-as-key.nay", "<https://x>: 1\n", 15, "Unexpected character \":\" at 1:12 of <reference-as-key.nay>"},
     {"reference_bad_percent", "reference-bad-percent.nay", "a: <https://x/%zz>\n", 19, "Bad percent-encoding in reference (use % and two hex digits) at 1:15 of <reference-bad-percent.nay>"},
     {"reference_block_form", "reference-block-form.nay", "a: >\n  https://x\n", 17, "Odd number of hex digits in byte literal at 1:1 of <reference-block-form.nay>"},
@@ -1524,6 +1528,6 @@ static error_fixture_t error_fixtures[] = {
     {NULL, NULL, NULL, 0, NULL}
 };
 
-#define ERROR_FIXTURE_COUNT 141
+#define ERROR_FIXTURE_COUNT 145
 
 #endif /* FIXTURES_GEN_H */

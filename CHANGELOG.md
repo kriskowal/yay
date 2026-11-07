@@ -70,6 +70,12 @@ the key `"<ff>"`, and the other ports refused it with differing messages.
 Bytes are a value, never a key, so every port now refuses it as
 `Unexpected character ":"` at the colon, as it refuses a reference there.
 
+**Fixed: spaces around a nested key's colon.** The Rust and Go ports
+checked the space after a property's colon only at the root, so they read
+`- a:  1`, `- a : 1` and a nested object's `b:  1` or `b : 1`. Every port
+now refuses them, as at the root, with `Unexpected space after ":"` or
+`Unexpected space before ":"`.
+
 **Fixed: columns in a list item.** An error in a list item's text was
 placed as if the `- ` before it were not there: `- < ff>` reported 1:2
 for the space at 1:4, and `- - a` reported the bare word at 1:3, not 1:5.

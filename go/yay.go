@@ -2194,6 +2194,9 @@ func parseKeyValuePair(tokens []token, i, colonIdx int, ctx *parseContext) (any,
 	t := tokens[i]
 	s := t.text
 
+	if err := checkColonSpaces(s, colonIdx, t, ctx); err != nil {
+		return nil, 0, err
+	}
 	keyRaw := strings.TrimSpace(s[:colonIdx])
 	key := parseKeyName(keyRaw)
 	valuePart := strings.TrimSpace(s[colonIdx+1:])
@@ -2305,6 +2308,18 @@ func isBlockBytesStart(valuePart string) bool {
 }
 
 // findColonOutsideQuotes finds the first colon not inside quotes.
+// checkColonSpaces refuses a space before a property's colon, or more than
+// one after it, as the root object does.
+func checkColonSpaces(s string, colonIdx int, t token, ctx *parseContext) error {
+	if colonIdx > 0 && s[colonIdx-1] == ' ' {
+		return fmt.Errorf("Unexpected space before \":\"%s", locSuffix(ctx, t.lineNum, t.col+colonIdx-1))
+	}
+	if strings.HasPrefix(s[colonIdx+1:], "  ") {
+		return fmt.Errorf("Unexpected space after \":\"%s", locSuffix(ctx, t.lineNum, t.col+colonIdx+2))
+	}
+	return nil
+}
+
 func findColonOutsideQuotes(s string) int {
 	masked, _ := maskTags(s)
 	return findColonOutsideQuotesRaw(masked)
@@ -2495,6 +2510,9 @@ func parseNestedObjectContent(tokens []token, i, baseIndent int, ctx *parseConte
 				break
 			}
 
+			if err := checkColonSpaces(t.text, colonIdx, t, ctx); err != nil {
+				return nil, 0, err
+			}
 			kRaw := strings.TrimSpace(t.text[:colonIdx])
 			k := parseKeyName(kRaw)
 			vPart := strings.TrimSpace(t.text[colonIdx+1:])
