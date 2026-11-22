@@ -353,6 +353,7 @@
            "object-nested-empty-inline"
            "object-nested-empty-property"
            "object-nested-quoted-key-first"
+           "object-same-key-at-different-depths"
            "object-quoted-key-escapes"
            "string-block-array-in-property"
            "string-block-array-item-property"
@@ -646,7 +647,18 @@
            "string-block-property-nested-comment-after-backtick"
            "string-lone-doublequote-under-key"
            "string-singlequote-unclosed-in-array"
-           "string-singlequote-unclosed-property")))
+           "string-singlequote-unclosed-property"
+           "duplicate-key-after-block"
+           "duplicate-key-double-quoted"
+           "duplicate-key-inline-object"
+           "duplicate-key-inline-object-nested"
+           "duplicate-key-list-item"
+           "duplicate-key-list-item-nested"
+           "duplicate-key-nested"
+           "duplicate-key-quoted-inline"
+           "duplicate-key-root"
+           "duplicate-key-single-quoted"
+           "duplicate-key-three")))
     (for-each
      (lambda (name)
        (let ((nay-path (string-append test-dir "/nay/" name ".nay")))

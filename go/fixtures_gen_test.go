@@ -312,6 +312,14 @@ var fixtures = map[string]any{
 		"a\\b":        "an escaped backslash",
 		"line\nbreak": "an escaped newline",
 	},
+	"object-same-key-at-different-depths": map[string]any{
+		"a": map[string]any{"a": big.NewInt(1)},
+		"b": []any{
+			map[string]any{"a": big.NewInt(2)},
+			map[string]any{"a": big.NewInt(3)},
+		},
+		"c": map[string]any{"a": map[string]any{"a": big.NewInt(4)}},
+	},
 	"reference-block-array": []any{
 		MustReference("https://a.example/x"),
 		MustReference("urn:isbn:0451450523"),

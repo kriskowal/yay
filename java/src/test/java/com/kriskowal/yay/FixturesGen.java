@@ -250,6 +250,12 @@ public class FixturesGen {
     FIXTURES.put("object-proto-key-quoted", map("__proto__", bi(1)));
     FIXTURES.put("object-quoted-key-escapes", map("", "the empty key", "a\"b", "an escaped quote", "a/b", "a slash", "a\\b", "an escaped backslash", "line\nbreak", "an escaped newline"));
     FIXTURES.put(
+        "object-same-key-at-different-depths",
+        map(
+            "a", map("a", bi(1)),
+            "b", list(map("a", bi(2)), map("a", bi(3))),
+            "c", map("a", map("a", bi(4)))));
+    FIXTURES.put(
         "string-block-array-in-property",
         map("items", list("a\n- b\n", "\n* c\n\n\n---\n"), "next", bi(1)));
     FIXTURES.put(

@@ -709,6 +709,14 @@ static yay_value_t *make_expected_object_quoted_key_escapes(void) {
 );
 }
 
+static yay_value_t *make_expected_object_same_key_at_different_depths(void) {
+    return YAY_OBJECT(
+    "a", YAY_OBJECT("a", yay_int(1)),
+    "b", YAY_ARRAY(YAY_OBJECT("a", yay_int(2)), YAY_OBJECT("a", yay_int(3))),
+    "c", YAY_OBJECT("a", YAY_OBJECT("a", yay_int(4)))
+);
+}
+
 static yay_value_t *make_expected_reference_block_array(void) {
     return YAY_ARRAY(
     yay_reference("https://a.example/x"),
@@ -1386,6 +1394,7 @@ static test_fixture_t test_fixtures[] = {
     {"object_proto_key_quoted", "\"__proto__\": 1\n", make_expected_object_proto_key_quoted},
     {"object_proto_key", "__proto__:\n  polluted: true\n", make_expected_object_proto_key},
     {"object_quoted_key_escapes", "\"\": \"the empty key\"\n\"a\\\"b\": \"an escaped quote\"\n\"a\\\\b\": \"an escaped backslash\"\n\"a/b\": \"a slash\"\n\"line\\nbreak\": \"an escaped newline\"\n", make_expected_object_quoted_key_escapes},
+    {"object_same_key_at_different_depths", "a:\n  a: 1\nb:\n  - a: 2\n  - a: 3\nc: {a: {a: 4}}\n", make_expected_object_same_key_at_different_depths},
     {"reference_block_array", "- <https://a.example/x>\n- <urn:isbn:0451450523>\n", make_expected_reference_block_array},
     {"reference_delimiters_inside", "q: [<https://x.example/a,b]c?e=(f)&g='h'>, 1]\n", make_expected_reference_delimiters_inside},
     {"reference_inline_array", "mirrors: [<https://a.example/x>, <https://b.example/x>, <ff>, <>]\n", make_expected_reference_inline_array},
@@ -1475,7 +1484,7 @@ static test_fixture_t test_fixtures[] = {
     {NULL, NULL, NULL}
 };
 
-#define TEST_FIXTURE_COUNT 202
+#define TEST_FIXTURE_COUNT 203
 
 static error_fixture_t error_fixtures[] = {
     {"array_as_key", "array-as-key.nay", "[1]: 2\n", 7, "Unexpected character \":\" at 1:4 of <array-as-key.nay>"},
@@ -1528,6 +1537,17 @@ static error_fixture_t error_fixtures[] = {
     {"character_invalid_dollar", "character-invalid-dollar.nay", "$\n", 2, "Unexpected character \"$\" at 1:1 of <character-invalid-dollar.nay>"},
     {"comment_only", "comment-only.nay", "# comment\n", 10, "No value found in document <comment-only.nay>"},
     {"document_invalid_extra_content", "document-invalid-extra-content.nay", "\"value\"\nextra\n", 14, "Unexpected extra content at 2:1 of <document-invalid-extra-content.nay>"},
+    {"duplicate_key_after_block", "duplicate-key-after-block.nay", "a:\n  b: 1\na: 2\n", 15, "Duplicate key \"a\" (first at 1:1) at 3:1 of <duplicate-key-after-block.nay>"},
+    {"duplicate_key_double_quoted", "duplicate-key-double-quoted.nay", "\"a\": 1\na: 2\n", 12, "Duplicate key \"a\" (first at 1:1) at 2:1 of <duplicate-key-double-quoted.nay>"},
+    {"duplicate_key_inline_object_nested", "duplicate-key-inline-object-nested.nay", "x: {b: {a: 1, a: 2}}\n", 21, "Duplicate key \"a\" (first at 1:9) at 1:15 of <duplicate-key-inline-object-nested.nay>"},
+    {"duplicate_key_inline_object", "duplicate-key-inline-object.nay", "{a: 1, a: 2}\n", 13, "Duplicate key \"a\" (first at 1:2) at 1:8 of <duplicate-key-inline-object.nay>"},
+    {"duplicate_key_list_item_nested", "duplicate-key-list-item-nested.nay", "x:\n  - a: 1\n    b: 2\n    a: 3\n", 30, "Duplicate key \"a\" (first at 2:5) at 4:5 of <duplicate-key-list-item-nested.nay>"},
+    {"duplicate_key_list_item", "duplicate-key-list-item.nay", "- a: 1\n  a: 2\n", 14, "Duplicate key \"a\" (first at 1:3) at 2:3 of <duplicate-key-list-item.nay>"},
+    {"duplicate_key_nested", "duplicate-key-nested.nay", "x:\n  a: 1\n  a: 2\n", 17, "Duplicate key \"a\" (first at 2:3) at 3:3 of <duplicate-key-nested.nay>"},
+    {"duplicate_key_quoted_inline", "duplicate-key-quoted-inline.nay", "{\"a\": 1, 'a': 2}\n", 17, "Duplicate key \"a\" (first at 1:2) at 1:10 of <duplicate-key-quoted-inline.nay>"},
+    {"duplicate_key_root", "duplicate-key-root.nay", "a: 1\na: 2\n", 10, "Duplicate key \"a\" (first at 1:1) at 2:1 of <duplicate-key-root.nay>"},
+    {"duplicate_key_single_quoted", "duplicate-key-single-quoted.nay", "a: 1\n'a': 2\n", 12, "Duplicate key \"a\" (first at 1:1) at 2:1 of <duplicate-key-single-quoted.nay>"},
+    {"duplicate_key_three", "duplicate-key-three.nay", "a: 1\nb: 2\na: 3\na: 4\n", 20, "Duplicate key \"a\" (first at 1:1) at 3:1 of <duplicate-key-three.nay>"},
     {"illegal_no_space_after_colon", "illegal-no-space-after-colon.nay", "key:value\n", 10, "Expected space after \":\" at 1:4 of <illegal-no-space-after-colon.nay>"},
     {"illegal_no_space_after_comma", "illegal-no-space-after-comma.nay", "[1,2, 3]\n", 9, "Expected space after \",\" at 1:3 of <illegal-no-space-after-comma.nay>"},
     {"illegal_space_after_brace", "illegal-space-after-brace.nay", "{ a: 1}\n", 8, "Unexpected space after \"{\" at 1:2 of <illegal-space-after-brace.nay>"},
@@ -1662,6 +1682,6 @@ static error_fixture_t error_fixtures[] = {
     {NULL, NULL, NULL, 0, NULL}
 };
 
-#define ERROR_FIXTURE_COUNT 181
+#define ERROR_FIXTURE_COUNT 192
 
 #endif /* FIXTURES_GEN_H */

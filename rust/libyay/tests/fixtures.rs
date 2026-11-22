@@ -897,6 +897,8 @@ fn test_quoted_key_single() {
 /// Get all MEH reformat test files from the test/meh/ directory.
 /// Naming convention: <test-name>.<variant>.meh -> <test-name>.yay
 /// e.g., "comment-alignment.unaligned.meh" -> "comment-alignment.yay"
+/// A case with <test-name>.error instead is a refusal, read by
+/// `test_meh_refusal_fixtures`.
 fn get_meh_reformat_files() -> Vec<(String, String)> {
     let test_dir = test_root().join("meh");
 
@@ -1016,6 +1018,55 @@ fn test_meh_reformat_fixtures() {
     }
 
     assert!(failed == 0, "{} MEH reformat tests failed", failed);
+}
+
+/// Every MEH refusal case in test/meh/: `<test-name>.<variant>.meh` with a
+/// `<test-name>.error` and no `<test-name>.yay`. MEH must refuse the
+/// document with exactly the message in the .error file. MEH reads loose
+/// spacing, but never chooses between two values for one key.
+#[test]
+fn test_meh_refusal_fixtures() {
+    let test_dir = test_root().join("meh");
+    let mut cases: Vec<(String, String)> = Vec::new();
+    for entry in fs::read_dir(&test_dir).unwrap().flatten() {
+        let path = entry.path();
+        if path.extension().is_some_and(|ext| ext == "meh") {
+            let stem = path.file_stem().unwrap().to_string_lossy().to_string();
+            let test_name = stem.rsplit_once('.').map_or(stem.as_str(), |(n, _)| n);
+            let error_path = test_dir.join(format!("{}.error", test_name));
+            if error_path.exists() {
+                cases.push((
+                    path.to_string_lossy().to_string(),
+                    error_path.to_string_lossy().to_string(),
+                ));
+            }
+        }
+    }
+    cases.sort();
+    assert!(!cases.is_empty(), "no MEH refusal cases in {:?}", test_dir);
+
+    let mut errors: Vec<String> = Vec::new();
+    for (meh_path, error_path) in &cases {
+        let source = fs::read_to_string(meh_path).unwrap();
+        let expected = fs::read_to_string(error_path).unwrap();
+        let expected = expected.trim_end();
+        match libyay::format_yay(&source) {
+            Ok(formatted) => errors.push(format!(
+                "{}: expected {:?}, but MEH read it as\n{}",
+                meh_path, expected, formatted
+            )),
+            Err(e) if e != expected => errors.push(format!(
+                "{}: expected {:?}, got {:?}",
+                meh_path, expected, e
+            )),
+            Err(_) => println!("  {} => refused", meh_path),
+        }
+    }
+    assert!(
+        errors.is_empty(),
+        "MEH refusal cases failed:\n{}",
+        errors.join("\n")
+    );
 }
 
 #[test]

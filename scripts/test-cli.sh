@@ -114,9 +114,9 @@ run_reformat_tests() {
   echo "=== Reformatter Tests (MEH → YAY) ==="
   echo ""
 
-  local tmp name base expected_file
+  local tmp name base expected_file error_file
   tmp=$(mktemp)
-  trap 'rm -f "$tmp"' RETURN
+  trap 'rm -f "$tmp" "$tmp.err"' RETURN
 
   for meh_file in "$MEH_DIR"/*.meh; do
     [[ -f "$meh_file" ]] || continue
@@ -126,6 +126,22 @@ run_reformat_tests() {
     base=${name%.*}     # remove .meh
     base=${base%.*}.yay # remove variant, add .yay
     expected_file="$MEH_DIR/$base"
+
+    # A <base>.error file instead of <base>.yay: MEH refuses the document,
+    # and the message after the file name is the .error file's text
+    error_file="$MEH_DIR/${base%.yay}.error"
+    if [[ ! -f "$expected_file" && -f "$error_file" ]]; then
+      if "$YAY" -t yay "$meh_file" >"$tmp" 2>"$tmp.err"; then
+        fail "refused/$name (MEH read it)"
+      elif [[ "$(cat "$tmp.err")" == "$meh_file: $(cat "$error_file")" ]]; then
+        pass "refused/$name"
+      else
+        fail "refused/$name (message differs from expected)"
+        echo "  Expected: $meh_file: $(cat "$error_file")"
+        echo "  Got:      $(cat "$tmp.err")"
+      fi
+      continue
+    fi
 
     if [[ ! -f "$expected_file" ]]; then
       skip "reformat/$name (no expected .yay file)"
