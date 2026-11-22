@@ -1,31 +1,37 @@
-//! References, against the cases of the design
-//! (doc/design/references/cases/): each .yay reads to its .yson, as YAY and
-//! through the MEH formatter; each .meh only through MEH; each .nay is
-//! refused as YAY, and MEH reads it, if at all, with no reference in it, as
-//! 3.0.0 did.
+//! References, over the corpus's reference cases, the files named
+//! reference-* in test/yay, test/meh and test/nay: each YAY case reads the
+//! same through the MEH formatter and survives YSON and YAY; each MEH case
+//! reads only through MEH, to its .yay; each NAY case is refused as YAY, and
+//! MEH reads it, if at all, with no reference in it. fixtures.rs reads the
+//! same cases against their expected values and messages.
 
 use libyay::{
     encode, format_yay, parse, parse_json, parse_shon, parse_yson, Format, Reference, Value,
 };
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-fn cases_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../doc/design/references/cases")
+fn test_dir(kind: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../test")
+        .join(kind)
 }
 
-fn cases(ext: &str) -> Vec<PathBuf> {
-    let mut paths: Vec<PathBuf> = fs::read_dir(cases_dir())
-        .expect("the design's cases")
+/// The corpus's reference cases in test/<kind> with the extension.
+fn cases(kind: &str, ext: &str) -> Vec<PathBuf> {
+    let mut paths: Vec<PathBuf> = fs::read_dir(test_dir(kind))
+        .expect("the corpus")
         .map(|e| e.unwrap().path())
         .filter(|p| p.extension().map_or(false, |e| e == ext))
+        .filter(|p| {
+            p.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("reference-")
+        })
         .collect();
     paths.sort();
     paths
-}
-
-fn expected(path: &Path) -> Value {
-    parse_yson(&fs::read_to_string(path.with_extension("yson")).unwrap()).unwrap()
 }
 
 fn read_meh(src: &str) -> Result<Value, String> {
@@ -44,14 +50,12 @@ fn has_reference(value: &Value) -> bool {
 }
 
 #[test]
-fn yay_cases_read_to_their_yson() {
-    let paths = cases("yay");
+fn yay_cases_read_the_same_as_meh() {
+    let paths = cases("yay", "yay");
     assert!(paths.len() >= 15);
     for path in paths {
         let src = fs::read_to_string(&path).unwrap();
-        let want = expected(&path);
-        let got = parse(&src).unwrap_or_else(|e| panic!("{}: {}", path.display(), e));
-        assert_eq!(got, want, "{}", path.display());
+        let want = parse(&src).unwrap_or_else(|e| panic!("{}: {}", path.display(), e));
         let meh = read_meh(&src).unwrap_or_else(|e| panic!("{} as MEH: {}", path.display(), e));
         assert_eq!(meh, want, "{} as MEH", path.display());
     }
@@ -59,7 +63,7 @@ fn yay_cases_read_to_their_yson() {
 
 #[test]
 fn yay_cases_round_trip_through_yson_and_yay() {
-    for path in cases("yay") {
+    for path in cases("yay", "yay") {
         let value = parse(&fs::read_to_string(&path).unwrap()).unwrap();
         let yson = encode(&value, Format::Yson);
         assert_eq!(
@@ -79,21 +83,27 @@ fn yay_cases_round_trip_through_yson_and_yay() {
     }
 }
 
+/// test/meh/<name>.<variant>.meh reads as MEH to test/meh/<name>.yay.
 #[test]
 fn meh_cases_read_only_as_meh() {
-    let paths = cases("meh");
+    let paths = cases("meh", "meh");
     assert!(paths.len() >= 2);
     for path in paths {
         let src = fs::read_to_string(&path).unwrap();
         assert!(parse(&src).is_err(), "{} accepted as YAY", path.display());
+        let stem = path.file_stem().unwrap().to_string_lossy().to_string();
+        let name = stem.rsplit_once('.').map_or(stem.as_str(), |(n, _)| n);
+        let expected = test_dir("meh").join(format!("{}.yay", name));
+        let want = parse(&fs::read_to_string(&expected).unwrap())
+            .unwrap_or_else(|e| panic!("{}: {}", expected.display(), e));
         let got = read_meh(&src).unwrap_or_else(|e| panic!("{} as MEH: {}", path.display(), e));
-        assert_eq!(got, expected(&path), "{} as MEH", path.display());
+        assert_eq!(got, want, "{} as MEH", path.display());
     }
 }
 
 #[test]
 fn nay_cases_are_refused() {
-    let paths = cases("nay");
+    let paths = cases("nay", "nay");
     assert!(paths.len() >= 14);
     for path in paths {
         let src = fs::read_to_string(&path).unwrap();
