@@ -157,84 +157,28 @@ fn parse_text_value(tokens: &[Token], i: usize, ctx: &ParseContext) -> Result<(V
     let t = &tokens[i];
     let s = &t.text;
 
-    // A tagged inline value: tags after it, and no property's colon before;
-    // a block string or block bytes reads its tags itself
-    if let (_, Some(p)) = mask_tags(s) {
-        let inline = s.starts_with('{') || s.starts_with('[');
-        let block = s.starts_with('`') || s.starts_with('>');
-        if p > 0 && !block && (inline || find_colon_outside_quotes(&s[..p]).is_none()) {
-            let scalar = parse_scalar(strip_inline_comment(s), ctx, t.line_num, t.col)?;
-            return Ok((scalar, i + 1));
-        }
-    }
-
-    // Try keywords
-    if let Some(v) = parse_keyword(s) {
-        return Ok((v, i + 1));
-    }
-
-    // Validate number spaces before parsing
-    if looks_like_number(s) {
-        if let Some(space_col) = validate_number_spaces(s) {
-            return Err(
-                ParseError::UnexpectedSpaceInNumber(String::new()).with_location(
-                    ctx,
-                    t.line_num,
-                    t.col + space_col,
-                ),
-            );
-        }
-    }
-
-    // Check for uppercase E in exponent (must be lowercase)
-    if let Some(e_pos) = s.find('E') {
-        // Only error if it looks like a number with exponent
-        let before_e = &s[..e_pos];
-        let trimmed: String = before_e.chars().filter(|c| *c != ' ').collect();
-        if !trimmed.is_empty()
-            && (trimmed
-                .chars()
-                .all(|c| c.is_ascii_digit() || c == '.' || c == '-'))
-        {
-            return Err(ParseError::UppercaseExponent(String::new()).with_location(
-                ctx,
-                t.line_num,
-                t.col + e_pos,
-            ));
-        }
-    }
-
-    // Try numbers
-    if let Some(num) = parse_number(s) {
-        return Ok((num, i + 1));
-    }
-
-    // Try block string
+    // The block forms, which read the lines below
     if is_block_string_start(s) {
         let first_line = extract_block_string_first_line(s);
         return parse_block_string(tokens, i, first_line);
     }
-
-    // Try quoted string, unless the quotes open a property's key
-    if is_quoted_string(s) && find_colon_outside_quotes(s).is_none() {
-        let str_val = parse_quoted_string(s, ctx, t.line_num, t.col)?;
-        return Ok((Value::String(str_val), i + 1));
+    if s.starts_with('>') {
+        return parse_block_bytes(tokens, i, ctx);
     }
 
-    // Try inline array
+    // An inline array taken for a key
     if s.starts_with('[') {
-        return parse_inline_array_value(s, t, i, ctx);
-    }
-
-    // Try inline object
-    if s.starts_with('{') {
-        return parse_inline_object_value(s, t, i, ctx);
-    }
-
-    // Try a reference, which may hold a colon
-    if is_reference_start(s) {
-        let s = strip_inline_comment(s);
-        return Ok((parse_scalar(s, ctx, t.line_num, t.col)?, i + 1));
+        if let Some(end) = find_matching_bracket(s) {
+            if s[end + 1..].starts_with(':') {
+                return Err(
+                    ParseError::UnexpectedChar(':', String::new()).with_location(
+                        ctx,
+                        t.line_num,
+                        t.col + end + 1,
+                    ),
+                );
+            }
+        }
     }
 
     // Bytes before a colon are a key, which bytes never are: the colon is
@@ -247,43 +191,79 @@ fn parse_text_value(tokens: &[Token], i: usize, ctx: &ParseContext) -> Result<(V
         }
     }
 
-    // Try inline bytes
-    if s.starts_with('<') && s.contains('>') {
-        let bytes = parse_angle_bytes(s, ctx, t.line_num, t.col)?;
-        return Ok((Value::Bytes(bytes), i + 1));
+    let bare = strip_inline_comment(s, ctx, t.line_num, t.col)?;
+
+    // Validate number spaces before parsing
+    if looks_like_number(bare) {
+        if let Some(space_col) = validate_number_spaces(bare) {
+            return Err(
+                ParseError::UnexpectedSpaceInNumber(String::new()).with_location(
+                    ctx,
+                    t.line_num,
+                    t.col + space_col,
+                ),
+            );
+        }
     }
 
-    // Unclosed angle bracket is invalid
-    if s.starts_with('<') {
-        return Err(ParseError::UnmatchedAngle(String::new()).with_location(ctx, t.line_num, t.col));
+    // A property on this line: "key: value" or "key:" over a block. An
+    // inline value with tags after it, an inline container, a reference and
+    // bytes never take a key here.
+    let tagged = match mask_tags(bare) {
+        (_, Some(p)) => p > 0 && find_colon_outside_quotes(&bare[..p]).is_none(),
+        _ => false,
+    };
+    if !tagged && !bare.starts_with(['[', '{', '<']) {
+        if let Some(colon_idx) = find_colon_outside_quotes(bare) {
+            return parse_key_value_pair(tokens, i, colon_idx, ctx);
+        }
     }
 
-    // Try block bytes (> hex)
-    if s.starts_with('>') {
-        return parse_block_bytes(tokens, i, ctx);
-    }
-
-    // Try key:value pair
-    if let Some(colon_idx) = find_colon_outside_quotes(s) {
-        return parse_key_value_pair(tokens, i, colon_idx, ctx);
-    }
-
-    // Fall back to scalar (strip inline comments first)
-    let s_no_comment = strip_inline_comment(s);
-    let scalar = parse_scalar(s_no_comment, ctx, t.line_num, t.col)?;
-    Ok((scalar, i + 1))
+    // Every inline value reads as a property's does
+    Ok((parse_scalar(bare, ctx, t.line_num, t.col)?, i + 1))
 }
 
 // ============================================================================
 // Comment Handling
 // ============================================================================
 
-/// Strip inline comments from a string.
-/// Returns the value part (trimmed) without the comment.
-fn strip_inline_comment(s: &str) -> &str {
+/// Strip an inline comment from a value. A comment after a value takes two
+/// spaces before its `#`; one space is refused.
+fn strip_inline_comment<'a>(
+    s: &'a str,
+    ctx: &ParseContext,
+    line_num: usize,
+    col: usize,
+) -> Result<&'a str> {
     let (masked, _) = mask_tags(s);
     let end = strip_inline_comment_raw(&masked).len();
-    &s[..end]
+    if end < s.len() {
+        let hash = end + s[end..].find('#').unwrap_or(0);
+        check_comment_spacing(s, hash, ctx, line_num, col)?;
+    }
+    Ok(&s[..end])
+}
+
+/// Refuse a comment, at byte `hash` of `s`, that has one space before it
+/// rather than two.
+fn check_comment_spacing(
+    s: &str,
+    hash: usize,
+    ctx: &ParseContext,
+    line_num: usize,
+    col: usize,
+) -> Result<()> {
+    let b = s.as_bytes();
+    if hash >= 1 && b[hash - 1] == b' ' && (hash < 2 || b[hash - 2] != b' ') {
+        return Err(
+            ParseError::Generic("Expected two spaces before a comment".to_string()).with_location(
+                ctx,
+                line_num,
+                col + s[..hash].chars().count(),
+            ),
+        );
+    }
+    Ok(())
 }
 
 fn strip_inline_comment_raw(s: &str) -> &str {
@@ -474,54 +454,45 @@ fn extract_block_string_first_line(s: &str) -> &str {
     }
 }
 
-/// Check if s is a quoted string (double or single).
-fn is_quoted_string(s: &str) -> bool {
-    (s.starts_with('"') && s.len() > 1) || (s.starts_with('\'') && s.len() > 1)
-}
-
 /// Parse a quoted string value.
 fn parse_quoted_string(s: &str, ctx: &ParseContext, line_num: usize, col: usize) -> Result<String> {
     if s.starts_with('"') {
         parse_double_quoted_string(s, ctx, line_num, col)
     } else if s.starts_with('\'') {
-        // Single-quoted strings are literal (no escapes except \' and \\)
-        if !s.ends_with('\'') || s.len() < 2 {
-            return Err(
-                ParseError::UnterminatedString(String::new()).with_location(ctx, line_num, col)
-            );
-        }
-        Ok(parse_single_quoted_content(&s[1..s.len() - 1]))
+        parse_single_quoted_string(s, ctx, line_num, col)
     } else {
         Ok(s.to_string())
     }
 }
 
-/// Parse content of a single-quoted string, handling \' and \\ escapes.
-fn parse_single_quoted_content(s: &str) -> String {
+/// Read a single-quoted string, the whole of `s`. Its only escapes are `\'`
+/// and `\\`; any other backslash is literal.
+fn parse_single_quoted_string(
+    s: &str,
+    ctx: &ParseContext,
+    line_num: usize,
+    col: usize,
+) -> Result<String> {
     let mut result = String::new();
-    let mut chars = s.chars().peekable();
-
-    while let Some(c) = chars.next() {
-        if c == '\\' {
-            match chars.peek() {
-                Some('\'') => {
-                    result.push('\'');
-                    chars.next();
-                }
-                Some('\\') => {
-                    result.push('\\');
-                    chars.next();
-                }
-                _ => {
-                    result.push('\\');
-                }
+    let mut chars = s.char_indices().skip(1).peekable();
+    while let Some((k, c)) = chars.next() {
+        if c == '\\' && matches!(chars.peek(), Some((_, '\'')) | Some((_, '\\'))) {
+            result.push(chars.next().map(|(_, e)| e).unwrap_or(c));
+        } else if c == '\'' {
+            if k + 1 != s.len() {
+                return Err(ParseError::UnexpectedChar('\'', String::new())
+                    .with_location(ctx, line_num, col));
             }
+            return Ok(result);
         } else {
             result.push(c);
         }
     }
-
-    result
+    Err(ParseError::UnterminatedString(String::new()).with_location(
+        ctx,
+        line_num,
+        col + s.chars().count() - 1,
+    ))
 }
 
 /// Parse a JSON-style double-quoted string.
@@ -812,34 +783,6 @@ fn build_block_string_result(first_line: &str, trimmed: &[String]) -> String {
 // Inline Array Parsing
 // ============================================================================
 
-/// Parse an inline array from a text token.
-fn parse_inline_array_value(
-    s: &str,
-    t: &Token,
-    i: usize,
-    ctx: &ParseContext,
-) -> Result<(Value, usize)> {
-    if let Some(end) = find_matching_bracket(s) {
-        if s[end + 1..].starts_with(':') {
-            return Err(
-                ParseError::UnexpectedChar(':', String::new()).with_location(
-                    ctx,
-                    t.line_num,
-                    t.col + end + 1,
-                ),
-            );
-        }
-    }
-    if !s.contains(']') {
-        return Err(
-            ParseError::UnexpectedNewline("array".to_string(), String::new())
-                .with_location(ctx, t.line_num, t.col),
-        );
-    }
-    let arr = parse_inline_array(s, ctx, t.line_num, t.col)?;
-    Ok((Value::Array(arr), i + 1))
-}
-
 /// Validate inline array/object whitespace rules.
 fn validate_inline_syntax(
     s: &str,
@@ -1052,23 +995,6 @@ fn parse_inline_array(
     }
 
     Ok(result)
-}
-
-/// Parse an inline object from a text token.
-fn parse_inline_object_value(
-    s: &str,
-    t: &Token,
-    i: usize,
-    ctx: &ParseContext,
-) -> Result<(Value, usize)> {
-    if !s.contains('}') {
-        return Err(
-            ParseError::UnexpectedNewline("object".to_string(), String::new())
-                .with_location(ctx, t.line_num, t.col),
-        );
-    }
-    let obj = parse_inline_object(s, ctx, t.line_num, t.col)?;
-    Ok((Value::Object(obj), i + 1))
 }
 
 /// Parse an inline object in brace notation.
@@ -1629,12 +1555,30 @@ fn parse_angle_bytes(s: &str, ctx: &ParseContext, line_num: usize, col: usize) -
 // The "< hex" syntax (without closing ">") is invalid - inline byte arrays must be closed on the same line.
 
 /// Remove a # comment from a line.
-fn strip_comment(line: &str) -> &str {
-    if let Some(idx) = line.find('#') {
-        &line[..idx]
-    } else {
-        line
+/// Read one line of block bytes: hex, then an optional comment after two
+/// spaces, or a comment alone. Returns the hex without its spaces, refusing
+/// uppercase digits.
+fn block_hex_line(text: &str, ctx: &ParseContext, line_num: usize, col: usize) -> Result<String> {
+    if text.starts_with('#') {
+        return Ok(String::new());
     }
+    let mut body = text;
+    if let Some(hash) = text.find('#') {
+        check_comment_spacing(text, hash, ctx, line_num, col)?;
+        if text[..hash].ends_with(' ') {
+            body = text[..hash].trim_end();
+        }
+    }
+    for (j, c) in body.chars().enumerate() {
+        if c.is_ascii_uppercase() && c.is_ascii_hexdigit() {
+            return Err(ParseError::UppercaseHex(String::new()).with_location(
+                ctx,
+                line_num,
+                col + j,
+            ));
+        }
+    }
+    Ok(body.chars().filter(|c| !c.is_whitespace()).collect())
 }
 
 /// Parse block bytes starting with > (e.g., "> b0b5" or "> " followed by indented hex)
@@ -1656,42 +1600,13 @@ fn parse_block_bytes(tokens: &[Token], mut i: usize, ctx: &ParseContext) -> Resu
         return Err(ParseError::ExpectedHexInBlock);
     }
 
-    let hex_part = strip_comment(hex_part);
-
-    // Check for uppercase hex digits
-    for (j, c) in hex_part.chars().enumerate() {
-        if c.is_ascii_uppercase() && c.is_ascii_hexdigit() {
-            return Err(ParseError::UppercaseHex(String::new()).with_location(
-                ctx,
-                first.line_num,
-                first.col + 2 + j,
-            ));
-        }
-    }
-
-    let hex_part: String = hex_part.chars().filter(|c| !c.is_whitespace()).collect();
-
-    let mut hex_str = hex_part;
+    let mut hex_str = block_hex_line(hex_part, ctx, first.line_num, first.col + 2)?;
     i += 1;
 
     // Collect continuation lines
     while i < tokens.len() && tokens[i].typ == TokenType::Text && tokens[i].indent > base_indent {
         let t = &tokens[i];
-        let line = strip_comment(&t.text);
-
-        // Check for uppercase hex digits
-        for (j, c) in line.chars().enumerate() {
-            if c.is_ascii_uppercase() && c.is_ascii_hexdigit() {
-                return Err(ParseError::UppercaseHex(String::new()).with_location(
-                    ctx,
-                    t.line_num,
-                    t.col + j,
-                ));
-            }
-        }
-
-        let line: String = line.chars().filter(|c| !c.is_whitespace()).collect();
-        hex_str.push_str(&line);
+        hex_str.push_str(&block_hex_line(&t.text, ctx, t.line_num, t.col)?);
         i += 1;
     }
 
@@ -1727,21 +1642,7 @@ fn parse_block_bytes_from_property(
     let mut hex_str = String::new();
     while i < tokens.len() && tokens[i].typ == TokenType::Text && tokens[i].indent > key_indent {
         let t = &tokens[i];
-        let line = strip_comment(&t.text);
-
-        // Check for uppercase hex digits
-        for (j, c) in line.chars().enumerate() {
-            if c.is_ascii_uppercase() && c.is_ascii_hexdigit() {
-                return Err(ParseError::UppercaseHex(String::new()).with_location(
-                    ctx,
-                    t.line_num,
-                    t.col + j,
-                ));
-            }
-        }
-
-        let line: String = line.chars().filter(|c| !c.is_whitespace()).collect();
-        hex_str.push_str(&line);
+        hex_str.push_str(&block_hex_line(&t.text, ctx, t.line_num, t.col)?);
         i += 1;
     }
 
@@ -1827,9 +1728,12 @@ fn parse_block_string_from_property(
 
     // Join with newlines and add trailing newline
     let mut result = lines.join("\n");
-    if !result.is_empty() {
-        result.push('\n');
+    if result.is_empty() {
+        return Err(ParseError::Generic(
+            "Empty block string not allowed (use \"\" or \"\\n\" explicitly)".to_string(),
+        ));
     }
+    result.push('\n');
 
     Ok((Value::String(result), i))
 }
@@ -2035,7 +1939,7 @@ fn parse_nested_inline_bullet(
         return Ok(Value::Array(vec![inner_value]));
     }
     // Otherwise, parse as a scalar (strip inline comments first)
-    let text_no_comment = strip_inline_comment(text);
+    let text_no_comment = strip_inline_comment(text, ctx, line_num, col)?;
     parse_scalar(text_no_comment, ctx, line_num, col)
 }
 
@@ -2268,10 +2172,15 @@ fn parse_key_value_pair(
         return Ok((Value::Object(obj), next));
     }
 
+    // The backtick stands alone after the key
+    if value_part.starts_with('`') && has_key {
+        return Err(ParseError::ExpectedNewlineAfterBlockLeader);
+    }
+
     // Note: "key: <" without closing ">" is invalid - inline byte arrays must be closed on the same line
 
     // Inline value (strip inline comments first)
-    let value_part_no_comment = strip_inline_comment(value_part);
+    let value_part_no_comment = strip_inline_comment(value_part, ctx, t.line_num, value_col)?;
     if has_key {
         let value = if !value_part_no_comment.is_empty() {
             parse_scalar(value_part_no_comment, ctx, t.line_num, value_col)?
@@ -2362,7 +2271,7 @@ fn parse_key_name(s: &str, ctx: &ParseContext, line_num: usize, col: usize) -> R
 
     // Single-quoted key
     if s.starts_with('\'') && s.ends_with('\'') && s.len() >= 2 {
-        return Ok(s[1..s.len() - 1].to_string());
+        return parse_single_quoted_string(s, ctx, line_num, col);
     }
 
     // Bytes or a reference is a value, never a key: the colon is stray
@@ -2554,14 +2463,18 @@ fn parse_object_property_value(
         return Ok((bytes, next));
     }
 
-    // Block string
+    // Block string, the backtick alone after the key
     if v_part == "`" {
         let (body, next) = parse_block_string_from_property(tokens, i, key_column(tokens, i))?;
         return Ok((body, next));
     }
+    if v_part.starts_with('`') {
+        return Err(ParseError::ExpectedNewlineAfterBlockLeader);
+    }
 
     // Inline value (strip inline comments first)
-    let v_part_no_comment = strip_inline_comment(v_part);
+    let v_col = t.col + t.text[..t.text.len() - v_part.len()].chars().count();
+    let v_part_no_comment = strip_inline_comment(v_part, ctx, t.line_num, v_col)?;
     if !v_part_no_comment.is_empty() {
         let scalar = parse_scalar(v_part_no_comment, ctx, t.line_num, t.col)?;
         return Ok((scalar, i + 1));
@@ -2731,11 +2644,8 @@ fn parse_root_object_property(
 
     // Check for block leader followed by non-comment content on same line (invalid in property context)
     // Block string: ` followed by content (not a comment)
-    if v_part.starts_with('`') && v_part.len() > 1 && v_part.chars().nth(1) == Some(' ') {
-        let after_backtick = v_part[2..].trim();
-        if !after_backtick.is_empty() && !after_backtick.starts_with('#') {
-            return Err(ParseError::ExpectedNewlineAfterBlockLeader);
-        }
+    if v_part.starts_with('`') && v_part != "`" {
+        return Err(ParseError::ExpectedNewlineAfterBlockLeader);
     }
     // Block bytes: > followed by any non-comment content on same line (in property context)
     if v_part.starts_with('>') && v_part.len() > 1 && v_part.chars().nth(1) == Some(' ') {
@@ -2766,7 +2676,7 @@ fn parse_root_object_property(
     }
 
     // Strip inline comments
-    let v_part_no_comment = strip_inline_comment(v_part);
+    let v_part_no_comment = strip_inline_comment(v_part, ctx, t.line_num, value_col)?;
 
     // Nested content
     if v_part_no_comment.is_empty() {
@@ -2942,25 +2852,48 @@ fn parse_scalar_atom(s: &str, ctx: &ParseContext, line_num: usize, col: usize) -
         return Ok(num);
     }
 
-    // Double-quoted string
-    if s.starts_with('"') && s.ends_with('"') {
+    // Double-quoted string: closed early, with more after it, or never closed
+    if s.starts_with('"') {
+        if s.len() < 2 || !s.ends_with('"') {
+            let b = s.as_bytes();
+            let mut k = 1;
+            while k < b.len() && b[k] != b'"' {
+                k += if b[k] == b'\\' { 2 } else { 1 };
+            }
+            if k < b.len() {
+                return Err(ParseError::UnexpectedChar('"', String::new())
+                    .with_location(ctx, line_num, col));
+            }
+        }
         return Ok(Value::String(parse_quoted_string(s, ctx, line_num, col)?));
     }
 
     // Single-quoted string
-    if s.starts_with('\'') && s.ends_with('\'') {
-        return Ok(Value::String(parse_single_quoted_content(
-            &s[1..s.len() - 1],
-        )));
+    if s.starts_with('\'') {
+        return Ok(Value::String(parse_single_quoted_string(
+            s, ctx, line_num, col,
+        )?));
     }
 
-    // Inline array
+    // Inline array, closed on its line
     if s.starts_with('[') {
+        if !s.ends_with(']') {
+            return Err(
+                ParseError::UnexpectedNewline("array".to_string(), String::new())
+                    .with_location(ctx, line_num, col),
+            );
+        }
         return Ok(Value::Array(parse_inline_array(s, ctx, line_num, col)?));
     }
 
-    // Inline object
+    // Inline object, closed on its line
     if s.starts_with('{') {
+        if !s.contains('}') {
+            return Err(
+                ParseError::UnexpectedNewline("object".to_string(), String::new())
+                    .with_location(ctx, line_num, col),
+            );
+        }
         return Ok(Value::Object(parse_inline_object(s, ctx, line_num, col)?));
     }
 

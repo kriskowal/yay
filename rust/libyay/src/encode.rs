@@ -370,11 +370,14 @@ fn encode_js_inner(value: &Value, indent: usize, is_top_level: bool) -> String {
                 let items: Vec<String> = keys
                     .iter()
                     .map(|k| {
-                        format!(
-                            "{}: {}",
-                            encode_js_string(k),
-                            encode_js_inner(&obj[*k], indent + 1, false)
-                        )
+                        // A "__proto__" key would set the prototype; a
+                        // computed key makes an own property
+                        let key = if k.as_str() == "__proto__" {
+                            format!("[{}]", encode_js_string(k))
+                        } else {
+                            encode_js_string(k)
+                        };
+                        format!("{}: {}", key, encode_js_inner(&obj[*k], indent + 1, false))
                     })
                     .collect();
                 let joined = items.join(", ");
