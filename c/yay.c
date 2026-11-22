@@ -563,6 +563,57 @@ static yay_error_t *make_error(parse_ctx_t *ctx, int line, int col,
     return err;
 }
 
+/* Where each key of an object first appears, as a zero-based line and
+ * column. Each key keeps its first position, not only its name, so that the
+ * error can say where the first one is. */
+typedef struct {
+    char **keys;
+    int *lines;
+    int *cols;
+    size_t length;
+    size_t capacity;
+} seen_keys_t;
+
+static void seen_keys_free(seen_keys_t *seen) {
+    for (size_t i = 0; i < seen->length; i++) free(seen->keys[i]);
+    free(seen->keys);
+    free(seen->lines);
+    free(seen->cols);
+}
+
+/* Record where a key first appears in an object, and refuse it the second
+ * time: false, with ctx->error set. */
+static bool claim_key(parse_ctx_t *ctx, seen_keys_t *seen, const char *key,
+                      int line, int col) {
+    for (size_t i = 0; i < seen->length; i++) {
+        if (strcmp(seen->keys[i], key) == 0) {
+            ctx->error = make_error(ctx, line, col,
+                                    "Duplicate key \"%s\" (first at %d:%d)",
+                                    key, seen->lines[i] + 1, seen->cols[i] + 1);
+            return false;
+        }
+    }
+    if (seen->length == seen->capacity) {
+        size_t cap = seen->capacity ? seen->capacity * 2 : 8;
+        char **keys = realloc(seen->keys, cap * sizeof(char *));
+        if (keys) seen->keys = keys;
+        int *lines = realloc(seen->lines, cap * sizeof(int));
+        if (lines) seen->lines = lines;
+        int *cols = realloc(seen->cols, cap * sizeof(int));
+        if (cols) seen->cols = cols;
+        if (!keys || !lines || !cols) {
+            ctx->error = make_error(ctx, line, col, "Out of memory");
+            return false;
+        }
+        seen->capacity = cap;
+    }
+    seen->keys[seen->length] = str_dup(key);
+    seen->lines[seen->length] = line;
+    seen->cols[seen->length] = col;
+    seen->length++;
+    return true;
+}
+
 /* ============================================================================
  * Phase 1: Scanner
  * ============================================================================ */
@@ -2689,6 +2740,7 @@ static yay_value_t *parse_inline_atom_body(parse_ctx_t *ctx, const char *s,
         if (end < 0) return NULL;
         
         yay_value_t *obj = yay_object();
+        seen_keys_t seen = {0};
         const char *inner = s + 1;
         int inner_col = col + 1;
         
@@ -2697,6 +2749,7 @@ static yay_value_t *parse_inline_atom_body(parse_ctx_t *ctx, const char *s,
             if (*inner == '}') break;
             
             /* Parse key */
+            int key_col = inner_col;
             char *key = NULL;
             if (*inner == '"' || *inner == '\'') {
                 size_t key_consumed;
@@ -2704,6 +2757,7 @@ static yay_value_t *parse_inline_atom_body(parse_ctx_t *ctx, const char *s,
                                                            line_num, inner_col);
                 if (!key_val) {
                     yay_free(obj);
+                    seen_keys_free(&seen);
                     return NULL;
                 }
                 key = str_dup(key_val->data.string);
@@ -2717,6 +2771,7 @@ static yay_value_t *parse_inline_atom_body(parse_ctx_t *ctx, const char *s,
                     /* Invalid key character at start */
                     ctx->error = make_error(ctx, line_num, col, "Invalid key");
                     yay_free(obj);
+                    seen_keys_free(&seen);
                     return NULL;
                 }
                 while (*inner && (isalnum(*inner) || *inner == '_' || *inner == '-')) { inner++; inner_col++; }
@@ -2729,6 +2784,13 @@ static yay_value_t *parse_inline_atom_body(parse_ctx_t *ctx, const char *s,
                 ctx->error = make_error(ctx, line_num, col, "Expected colon after key");
                 free(key);
                 yay_free(obj);
+                seen_keys_free(&seen);
+                return NULL;
+            }
+            if (!claim_key(ctx, &seen, key, line_num, key_col)) {
+                free(key);
+                yay_free(obj);
+                seen_keys_free(&seen);
                 return NULL;
             }
             inner++; inner_col++;
@@ -2741,6 +2803,7 @@ static yay_value_t *parse_inline_atom_body(parse_ctx_t *ctx, const char *s,
             if (!val) {
                 free(key);
                 yay_free(obj);
+                seen_keys_free(&seen);
                 return NULL;
             }
             
@@ -2750,6 +2813,7 @@ static yay_value_t *parse_inline_atom_body(parse_ctx_t *ctx, const char *s,
             inner_col += val_consumed;
         }
         
+        seen_keys_free(&seen);
         *consumed = end + 1;
         return obj;
     }
@@ -3342,6 +3406,7 @@ static bool validate_object_property(parse_ctx_t *ctx, const char *text,
 static yay_value_t *parse_nested_object(parse_ctx_t *ctx, size_t *idx, 
                                          int base_indent, int item_line) {
     yay_value_t *obj = yay_object();
+    seen_keys_t seen = {0};
     
     while (*idx < ctx->token_count) {
         token_t *t = &ctx->tokens[*idx];
@@ -3367,6 +3432,7 @@ static yay_value_t *parse_nested_object(parse_ctx_t *ctx, size_t *idx,
         /* Validate object property syntax */
         if (!validate_object_property(ctx, t->text, colon_idx, t->line_num, t->col)) {
             yay_free(obj);
+            seen_keys_free(&seen);
             return NULL;
         }
         
@@ -3385,11 +3451,18 @@ static yay_value_t *parse_nested_object(parse_ctx_t *ctx, size_t *idx,
             (*idx)++;
             continue;
         }
+        if (!claim_key(ctx, &seen, key, t->line_num, t->col)) {
+            free(key);
+            yay_free(obj);
+            seen_keys_free(&seen);
+            return NULL;
+        }
         
         yay_value_t *value = parse_object_property_value(ctx, idx, t, v_part, v_col);
         if (ctx->error) {
             free(key);
             yay_free(obj);
+            seen_keys_free(&seen);
             return NULL;
         }
         
@@ -3397,6 +3470,7 @@ static yay_value_t *parse_nested_object(parse_ctx_t *ctx, size_t *idx,
         free(key);
     }
     
+    seen_keys_free(&seen);
     return obj;
 }
 
@@ -3738,6 +3812,7 @@ static yay_value_t *parse_value(parse_ctx_t *ctx, size_t *idx) {
 
 static yay_value_t *parse_root_object(parse_ctx_t *ctx, size_t *idx) {
     yay_value_t *obj = yay_object();
+    seen_keys_t seen = {0};
     
     while (*idx < ctx->token_count) {
         token_t *t = &ctx->tokens[*idx];
@@ -3753,6 +3828,7 @@ static yay_value_t *parse_root_object(parse_ctx_t *ctx, size_t *idx) {
                 ctx->error = make_error(ctx, t->line_num, 0,
                                         "Unexpected indent");
                 yay_free(obj);
+                seen_keys_free(&seen);
                 return NULL;
             }
             (*idx)++;
@@ -3768,6 +3844,7 @@ static yay_value_t *parse_root_object(parse_ctx_t *ctx, size_t *idx) {
         /* Validate object property syntax */
         if (!validate_object_property(ctx, t->text, colon_idx, t->line_num, t->col)) {
             yay_free(obj);
+            seen_keys_free(&seen);
             return NULL;
         }
         
@@ -3779,10 +3856,17 @@ static yay_value_t *parse_root_object(parse_ctx_t *ctx, size_t *idx) {
         int v_col = t->col + colon_idx + 1;
         while (*v_part == ' ') { v_part++; v_col++; }
         
+        if (!claim_key(ctx, &seen, key, t->line_num, t->col)) {
+            free(key);
+            yay_free(obj);
+            seen_keys_free(&seen);
+            return NULL;
+        }
         yay_value_t *value = parse_object_property_value(ctx, idx, t, v_part, v_col);
         if (ctx->error) {
             free(key);
             yay_free(obj);
+            seen_keys_free(&seen);
             return NULL;
         }
         
@@ -3790,6 +3874,7 @@ static yay_value_t *parse_root_object(parse_ctx_t *ctx, size_t *idx) {
         free(key);
     }
     
+    seen_keys_free(&seen);
     return obj;
 }
 
