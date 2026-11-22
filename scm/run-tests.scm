@@ -474,6 +474,8 @@
   ;; These are the tests that have both .nay and .error files
   (let ((error-test-names
          '("array-inline-invalid-multiline"
+           "array-inline-nesting-too-deep"
+           "object-inline-nesting-too-deep"
            "array-inline-invalid-space-after-comma"
            "array-inline-invalid-space-after-open"
            "array-inline-invalid-space-before-close"
