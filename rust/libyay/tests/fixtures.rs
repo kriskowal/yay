@@ -1017,3 +1017,12 @@ fn test_meh_reformat_fixtures() {
 
     assert!(failed == 0, "{} MEH reformat tests failed", failed);
 }
+
+#[test]
+fn an_inline_object_value_is_located_at_the_value() {
+    let err = parse_with_filename("x: {a: {b: <ab>(t)}}\n", Some("v.yay")).unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "Expected one space before a tag at 1:16 of <v.yay>"
+    );
+}

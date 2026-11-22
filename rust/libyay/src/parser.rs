@@ -1039,7 +1039,8 @@ fn parse_inline_object(
         remaining = remaining.trim_start();
 
         // Parse value
-        let (value, consumed) = parse_inline_value(remaining, ctx, line_num, col)?;
+        let value_col = col + 1 + inner[..inner.len() - remaining.len()].chars().count();
+        let (value, consumed) = parse_inline_value(remaining, ctx, line_num, value_col)?;
         result.insert(key, value);
         remaining = &remaining[consumed..];
         remaining = remaining.trim_start();
