@@ -68,6 +68,33 @@ func Marshal(v any) ([]byte, error) {
 // parseContext carries filename for error reporting through the parse phases.
 type parseContext struct {
 	filename string
+	depth    int // inline arrays and objects enclosing the one being read
+}
+
+// maxInlineDepth is the deepest inline arrays and objects may nest, one in
+// another, counted together. Deeper nesting is refused rather than
+// recursing without bound.
+const maxInlineDepth = 256
+
+// enterInline counts one more level of inline nesting at the bracket at
+// lineNum and col, refusing more than maxInlineDepth levels. Each success
+// is paired with leaveInline.
+func (ctx *parseContext) enterInline(lineNum, col int) error {
+	if ctx == nil {
+		return nil
+	}
+	if ctx.depth >= maxInlineDepth {
+		return fmt.Errorf("Inline nesting deeper than %d levels%s", maxInlineDepth, locSuffix(ctx, lineNum, col))
+	}
+	ctx.depth++
+	return nil
+}
+
+// leaveInline counts off a level enterInline counted.
+func (ctx *parseContext) leaveInline() {
+	if ctx != nil {
+		ctx.depth--
+	}
 }
 
 // scanLine represents a single line after the scanning phase.
@@ -1050,6 +1077,10 @@ func buildBlockStringResult(firstLine string, lines []string, inPropertyContext 
 
 // parseInlineArrayStrict parses an inline array with strict whitespace validation.
 func parseInlineArrayStrict(s string, ctx *parseContext, lineNum, col int) ([]any, error) {
+	if err := ctx.enterInline(lineNum, col); err != nil {
+		return nil, err
+	}
+	defer ctx.leaveInline()
 	s = strings.TrimSpace(s)
 	if !strings.HasPrefix(s, "[") {
 		return nil, fmt.Errorf("Expected array%s", locSuffix(ctx, lineNum, col))
@@ -1489,6 +1520,10 @@ func findMatchingBrace(s string) int {
 
 // parseInlineObjectStrict parses an inline object with strict whitespace validation.
 func parseInlineObjectStrict(s string, ctx *parseContext, lineNum, col int) (map[string]any, error) {
+	if err := ctx.enterInline(lineNum, col); err != nil {
+		return nil, err
+	}
+	defer ctx.leaveInline()
 	s = strings.TrimSpace(s)
 	if !strings.HasPrefix(s, "{") {
 		return nil, fmt.Errorf("Expected object%s", locSuffix(ctx, lineNum, col))

@@ -162,3 +162,28 @@ func deepEqual(a, b any) bool {
 
 	return reflect.DeepEqual(a, b)
 }
+
+func TestInlineNestingLimit(t *testing.T) {
+	for _, c := range []struct{ open, close string }{{"[", "]"}, {"{a: ", "}"}, {"[{a: ", "}]"}} {
+		n := 256 / (strings.Count(c.open, "[") + strings.Count(c.open, "{"))
+		src := "x: " + strings.Repeat(c.open, n) + "1" + strings.Repeat(c.close, n) + "\n"
+		if _, err := Unmarshal([]byte(src)); err != nil {
+			t.Errorf("%d levels of %q: %v", n, c.open, err)
+		}
+	}
+	for _, c := range []struct {
+		open, close string
+		n           int
+		want        string
+	}{
+		{"[", "]", 100000, "Inline nesting deeper than 256 levels at 1:260 of <deep.yay>"},
+		{"{a: ", "}", 100000, "Inline nesting deeper than 256 levels at 1:1028 of <deep.yay>"},
+		{"[{a: ", "}]", 129, "Inline nesting deeper than 256 levels at 1:644 of <deep.yay>"},
+	} {
+		src := "x: " + strings.Repeat(c.open, c.n) + "1" + strings.Repeat(c.close, c.n) + "\n"
+		_, err := UnmarshalFile([]byte(src), "deep.yay")
+		if err == nil || err.Error() != c.want {
+			t.Errorf("%d levels of %q: got %v, want %q", c.n, c.open, err, c.want)
+		}
+	}
+}
