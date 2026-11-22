@@ -13,6 +13,14 @@ Runs the references prototype (desugar.py) over the 3.0.0 corpus and its cases.
    is refused as YAY and as MEH.
 
 Usage: check.py <binyay 3.0.0>
+
+This is the design's evidence, and it holds only on the design's tree: a
+corpus, a Python port and a binyay without references. The cases have since
+moved into the corpus (test/yay, test/meh and test/nay, each named
+reference-*, with each port's expected value) and cases/ is gone, so run
+this from a checkout of the design's commit, the one that added cases/:
+
+    git log --diff-filter=A --format=%H -- doc/design/references/cases | tail -1
 """
 
 import glob
@@ -30,6 +38,12 @@ from libyay.tagged import Tagged
 from desugar import desugar, RSyntaxError, PROTO_TAG
 
 BINYAY = sys.argv[1]
+
+if not os.path.isdir(os.path.join(here, "cases")):
+    sys.exit(
+        "check.py: cases/ moved into the corpus; run this from a checkout of "
+        "the design's commit (see the docstring)"
+    )
 
 
 def read(path):

@@ -252,6 +252,9 @@ scheme is deferred until the dev editor's schema checking is built.
   port accepts it today, and raises `NameError: block_mode` on
   `a: < https://x>` and `a: <1a:b>` (lexer.py, `read_bytes`), which the
   prototype met.
+  Done; once every case was in the corpus, `references/cases/` was
+  removed, and the prototype runs from the design's commit
+  ([references/README.md](references/README.md)).
 - Round trips: YAY → YSON → YAY; YSON → CapData → YSON with a repeated URI
   sharing one slot; YAY → JSON gives `"$uri"`, read back as a string.
 - An Endo test beside `smallcaps.test.js`: marshal a document with an
