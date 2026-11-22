@@ -25,6 +25,17 @@ in C and a record `tagged` in Scheme, and `yay -t js`, `-t go`, `-t python`,
 the same shared cases and refuse the same malformed tags. The Rust and Python
 ports also write tags; only Rust has a SHON reader and a YSON codec.
 
+**Breaking: JavaScript tagged values match Endo's `makeTagged`.** A tagged
+value is no longer an instance of the exported `Tagged` class, and that class
+is no longer exported. Its direct prototype is `Object.prototype`; its tag is
+the non-enumerable `Symbol.toStringTag` property; its registered
+`Symbol.for("passStyle")` property is `"tagged"`; and `payload` is its only
+enumerable property. The outer record is frozen but its payload is not
+implicitly hardened, so a hardened environment can harden it and, when its
+payload is pass data, accept it under Endo. Use `tagged(tag, payload)` to
+construct one and `isTagged(value)` to recognize this shape, including values
+made by Endo's `makeTagged`.
+
 **References.** YAY gains a tenth kind of value: a reference, a URI or IRI
 in angle brackets with its scheme (`<https://example.com/cat.png>`,
 `<ocapn://…>`, `<urn:ietf:rfc:3986>`), held as written and never

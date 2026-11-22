@@ -166,7 +166,10 @@ describe("YSON is smallcaps: live binyay output", { skip }, () => {
     const value = parseYay(yay);
     assert.ok(isTagged(value));
     const decoded = fromCapData({ body: `#${toYson(yay)}`, slots: [] });
-    assert.strictEqual(decoded[Symbol.toStringTag], value.tag);
+    assert.strictEqual(
+      decoded[Symbol.toStringTag],
+      value[Symbol.toStringTag],
+    );
     assert.deepStrictEqual(decoded.payload, value.payload);
   });
 

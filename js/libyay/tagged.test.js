@@ -9,6 +9,9 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "node:url";
 
+import "@endo/init";
+import { makeTagged, passStyleOf } from "@endo/pass-style";
+
 import { parseYay, tagged, isTagged } from "./yay.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -32,7 +35,10 @@ function cases(ext) {
 /** The value as the cases' JSON spells it. */
 function desugar(value) {
   if (isTagged(value)) {
-    return { "#tag": value.tag, payload: desugar(value.payload) };
+    return {
+      "#tag": value[Symbol.toStringTag],
+      payload: desugar(value.payload),
+    };
   }
   if (value instanceof Uint8Array) {
     return (
@@ -81,12 +87,44 @@ describe("tagged values: the design's refused cases", () => {
 });
 
 describe("tagged values: the model", () => {
-  it("is frozen", () => {
-    const t = tagged("s", 10n);
-    assert.ok(Object.isFrozen(t));
-    assert.strictEqual(t.tag, "s");
-    assert.strictEqual(t.payload, 10n);
-    assert.deepStrictEqual(Object.keys(t), ["tag", "payload"]);
+  it("has the pre-hardened shape of Endo's makeTagged", () => {
+    const actual = parseYay("(answer)\nvalue: 42\n");
+    const expected = makeTagged("answer", { value: 42n });
+
+    assert.strictEqual(
+      Object.getPrototypeOf(actual),
+      Object.getPrototypeOf(expected),
+    );
+    assert.deepStrictEqual(
+      Object.getOwnPropertyDescriptors(actual),
+      Object.getOwnPropertyDescriptors(expected),
+    );
+    assert.deepStrictEqual(Reflect.ownKeys(actual), Reflect.ownKeys(expected));
+    assert.ok(Object.isFrozen(actual));
+    assert.ok(!Object.isFrozen(actual.payload));
+    assert.deepStrictEqual(Object.keys(actual), ["payload"]);
+    assert.ok(isTagged(expected));
+
+    harden(actual);
+    assert.strictEqual(passStyleOf(actual), "tagged");
+  });
+  it("becomes pass data for scalars, records, arrays, and tags", () => {
+    const value = parseYay(`
+array:
+  - 42
+  - 1.5
+  - "text"
+  - true
+  - null
+  - "payload" (tag)
+`);
+    harden(value);
+    assert.strictEqual(passStyleOf(value), "copyRecord");
+    assert.strictEqual(passStyleOf(value.array), "copyArray");
+    assert.deepStrictEqual(
+      value.array.map((item) => passStyleOf(item)),
+      ["bigint", "number", "string", "boolean", "null", "tagged"],
+    );
   });
   it("requires a string tag", () => {
     assert.throws(() => tagged(1, null), TypeError);
@@ -98,7 +136,7 @@ describe("tagged values: the model", () => {
   });
   it("never equals its payload or a plain object", () => {
     assert.notDeepStrictEqual(tagged("a", 1n), 1n);
-    assert.notDeepStrictEqual(tagged("a", 1n), { tag: "a", payload: 1n });
+    assert.notDeepStrictEqual(tagged("a", 1n), { payload: 1n });
     assert.ok(!isTagged({ tag: "a", payload: 1n }));
   });
   it("nests innermost first", () => {

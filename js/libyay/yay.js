@@ -2484,42 +2484,62 @@ function parseRootObject(tokens, i, ctx = {}) {
 
 // --- Tagged values ---
 
-/**
- * A tagged value: a tag, any string, and one payload, any YAY value.
- * Instances are frozen. Two are equal when their tags and payloads are, and
- * a tagged value never equals its payload or a plain object.
- */
-class Tagged {
-  /**
-   * @param {string} tag
-   * @param {unknown} payload
-   */
-  constructor(tag, payload) {
-    if (typeof tag !== "string") {
-      throw new TypeError("A tag must be a string");
-    }
-    this.tag = tag;
-    this.payload = payload;
-    Object.freeze(this);
-  }
-}
+const PASS_STYLE = Symbol.for("passStyle");
 
 /**
- * Make a tagged value, as the YAY parser does and as `yay -t js` writes it.
+ * A tagged value: a tag, any string, and one payload, any YAY value.
+ * The outer record is frozen, ready for a hardened environment to harden its
+ * payload and accept it as Endo pass data.
  * @param {string} tag
  * @param {unknown} payload
- * @returns {Tagged}
+ * @returns {object}
  */
 function tagged(tag, payload) {
-  return new Tagged(tag, payload);
+  if (typeof tag !== "string") {
+    throw new TypeError("A tag must be a string");
+  }
+  return Object.freeze(
+    Object.create(Object.prototype, {
+      [PASS_STYLE]: { value: "tagged" },
+      [Symbol.toStringTag]: { value: tag },
+      payload: { value: payload, enumerable: true },
+    }),
+  );
 }
 
 /**
  * @param {unknown} value
- * @returns {value is Tagged}
+ * @returns {boolean}
  */
 function isTagged(value) {
-  return value instanceof Tagged;
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    Object.getPrototypeOf(value) !== Object.prototype ||
+    !Object.isFrozen(value)
+  ) {
+    return false;
+  }
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const passStyle = descriptors[PASS_STYLE];
+  const tag = descriptors[Symbol.toStringTag];
+  const payload = descriptors.payload;
+  return (
+    Reflect.ownKeys(descriptors).length === 3 &&
+    passStyle?.value === "tagged" &&
+    passStyle.enumerable === false &&
+    passStyle.writable === false &&
+    passStyle.configurable === false &&
+    typeof tag?.value === "string" &&
+    tag.enumerable === false &&
+    tag.writable === false &&
+    tag.configurable === false &&
+    payload !== undefined &&
+    "value" in payload &&
+    payload.enumerable === true &&
+    payload.writable === false &&
+    payload.configurable === false
+  );
 }
 
 /**
@@ -3044,7 +3064,6 @@ export {
   parseYay,
   tagged,
   isTagged,
-  Tagged,
   reference,
   isReference,
   Reference,

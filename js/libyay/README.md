@@ -43,15 +43,15 @@ Parses a YAY document string and returns the corresponding JavaScript value.
 
 **Throws:** `Error` with line:column location if parsing fails.
 
-### `tagged(tag, payload)`, `isTagged(value)`, `Tagged`
+### `tagged(tag, payload)`, `isTagged(value)`
 
 A tagged value is a tag, any string, and one payload, any YAY value. The
-parser makes them with `tagged`, which returns a frozen `Tagged` instance
-with `tag` and `payload` properties, the name `yay -t js` writes. Two tagged
-values are equal (`assert.deepStrictEqual`) when their tags and payloads are,
-and a tagged value never equals its payload or a plain `{tag, payload}`
-object. `isTagged` tells them apart. A caller that wants Endo's passable
-wraps one with `makeTagged(t.tag, t.payload)`.
+parser makes them with `tagged`, which returns a frozen record with the exact
+shape of Endo's `makeTagged`: `Symbol.for("passStyle")` is `"tagged"`,
+`Symbol.toStringTag` is the tag, and `payload` is its only enumerable
+property. The record is shallowly frozen, ready for a hardened environment to
+harden the payload and accept the result as pass data. `isTagged` recognizes
+this shape, including a value made by Endo's `makeTagged`.
 
 ```js
 import { parseYay, tagged } from 'libyay';
@@ -113,7 +113,7 @@ fromCapData(ysonToCapData('["$ocapn://a.tcp", "$ocapn://a.tcp"]'));
 | array | `Array` |
 | object | `Object` |
 | bytes | `Uint8Array` |
-| tagged | `Tagged`, from `tagged(tag, payload)` |
+| tagged | Endo-shaped record from `tagged(tag, payload)` |
 | reference | `Reference`, from `reference(uri)` |
 
 # YAY Format
