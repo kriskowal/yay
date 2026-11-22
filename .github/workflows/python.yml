@@ -7,7 +7,6 @@ on:
       - 'python/**'
       - 'test/**'
       - 'doc/design/tagged-values-g/cases/**'
-      - 'doc/design/references/cases/**'
       - '.github/workflows/python.yml'
   pull_request:
     branches: [main]
@@ -15,7 +14,6 @@ on:
       - 'python/**'
       - 'test/**'
       - 'doc/design/tagged-values-g/cases/**'
-      - 'doc/design/references/cases/**'
       - '.github/workflows/python.yml'
 
 permissions:

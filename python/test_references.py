@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """
-References, against the cases of the design
-(doc/design/references/cases/): each .yay parses to its .yson, with a
-reference as "$uri", and each .nay and .meh is refused, MEH's leniency not
-being YAY's. Then the model, and the inline bytes references sit beside.
+References: MEH's leniency is not YAY's, so the corpus's MEH reference cases
+are refused as YAY; and the corpus's reference documents survive the writer.
+Then the messages, the model, and the inline bytes references sit beside.
+The corpus reference cases in test/yay and test/nay are read with the rest
+of the corpus by test_yay.py.
 """
 
-import json
-import math
 import os
 import sys
 import unittest
@@ -16,76 +15,32 @@ sys.path.insert(0, os.path.dirname(__file__))
 import libyay as yay
 from libyay import Reference, Tagged
 
-CASES = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "..",
-    "doc",
-    "design",
-    "references",
-    "cases",
-)
+TEST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "test")
 
 
-def cases(ext: str) -> list[str]:
-    return sorted(f for f in os.listdir(CASES) if f.endswith("." + ext))
+def cases(kind: str, ext: str) -> list[str]:
+    """The corpus's reference cases in test/<kind>, as paths."""
+    folder = os.path.join(TEST, kind)
+    return sorted(
+        os.path.join(folder, f)
+        for f in os.listdir(folder)
+        if f.startswith("reference-") and f.endswith("." + ext)
+    )
 
 
-def read(name: str) -> str:
-    with open(os.path.join(CASES, name), encoding="utf-8") as fp:
+def read(path: str) -> str:
+    with open(path, encoding="utf-8") as fp:
         return fp.read()
 
 
-def yson_string(s: str) -> str:
-    """A string as YSON writes it: escaped when it begins with ! through /."""
-    return "!" + s if s and "!" <= s[0] <= "/" else s
-
-
-def to_yson(value):
-    """The value as the cases' YSON spells it."""
-    if isinstance(value, Reference):
-        return "$" + value.uri
-    if isinstance(value, Tagged):
-        return {"#tag": yson_string(value.tag), "payload": to_yson(value.payload)}
-    if isinstance(value, bytes):
-        return "*" + value.hex()
-    if isinstance(value, bool) or value is None:
-        return value
-    if isinstance(value, int):
-        return str(value) if value < 0 else f"+{value}"
-    if isinstance(value, float):
-        if math.isnan(value):
-            return "#nan"
-        if math.isinf(value):
-            return "#+inf" if value > 0 else "#-inf"
-        return value
-    if isinstance(value, str):
-        return yson_string(value)
-    if isinstance(value, list):
-        return [to_yson(v) for v in value]
-    if isinstance(value, dict):
-        return {
-            ("!" + k if k[:1] in ("#", "*", "!") else k): to_yson(v)
-            for k, v in value.items()
-        }
-    raise TypeError(type(value))
-
-
-class Cases(unittest.TestCase):
-    def test_accepted(self):
-        names = cases("yay")
-        self.assertTrue(names)
-        for name in names:
-            with self.subTest(name):
-                expected = json.loads(read(name[: -len(".yay")] + ".yson"))
-                self.assertEqual(to_yson(yay.loads(read(name))), expected)
-
+class Meh(unittest.TestCase):
     def test_refused(self):
-        names = cases("nay") + cases("meh")
-        self.assertTrue(names)
-        for name in names:
-            with self.subTest(name):
+        paths = cases("meh", "meh")
+        self.assertGreaterEqual(len(paths), 2)
+        for path in paths:
+            with self.subTest(os.path.basename(path)):
                 with self.assertRaises(yay.YaySyntaxError):
-                    yay.loads(read(name))
+                    yay.loads(read(path))
 
 
 class Errors(unittest.TestCase):
@@ -181,9 +136,11 @@ class Writer(unittest.TestCase):
                     yay.dumps(Reference(uri))
 
     def test_round_trip(self):
-        for name in cases("yay"):
-            value = yay.loads(read(name))
-            with self.subTest(name):
+        paths = cases("yay", "yay")
+        self.assertGreaterEqual(len(paths), 15)
+        for path in paths:
+            value = yay.loads(read(path))
+            with self.subTest(os.path.basename(path)):
                 self.assertEqual(yay.loads(yay.dumps(value) + "\n"), value)
                 self.assertEqual(
                     yay.loads(yay.dumps(value, indent=False) + "\n"), value
