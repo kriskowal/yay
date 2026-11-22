@@ -328,4 +328,31 @@ public class YayTest {
     }
     return sb.toString();
   }
+
+  private static String nest(String open, String close, int n) {
+    return "x: " + open.repeat(n) + "1" + close.repeat(n) + "\n";
+  }
+
+  @Test
+  void testInlineNestingIsReadTo256Levels() {
+    assertDoesNotThrow(() -> Yay.parse(nest("[", "]", 256)));
+    assertDoesNotThrow(() -> Yay.parse(nest("{a: ", "}", 256)));
+    assertDoesNotThrow(() -> Yay.parse(nest("[{a: ", "}]", 128)));
+  }
+
+  @Test
+  void testInlineNestingDeeperThan256LevelsIsRefused() {
+    String[][] cases = {
+      {"[", "]", "100000", "1:260"},
+      {"{a: ", "}", "100000", "1:1028"},
+      {"[{a: ", "}]", "129", "1:644"},
+    };
+    for (String[] c : cases) {
+      String src = nest(c[0], c[1], Integer.parseInt(c[2]));
+      Yay.YayException e =
+          assertThrows(Yay.YayException.class, () -> Yay.parse(src, "deep.yay"), c[0]);
+      assertEquals(
+          "Inline nesting deeper than 256 levels at " + c[3] + " of <deep.yay>", e.getMessage());
+    }
+  }
 }

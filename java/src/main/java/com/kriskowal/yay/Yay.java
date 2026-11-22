@@ -313,6 +313,32 @@ public class Yay {
     private final String filename;
     private int pos;
 
+    /** Inline arrays and objects enclosing the one being read. */
+    private int inlineDepth;
+
+    /**
+     * The deepest inline arrays and objects may nest, one in another, counted together. Deeper
+     * nesting is refused rather than overflowing the stack.
+     */
+    private static final int MAX_INLINE_DEPTH = 256;
+
+    /** Read one level of inline nesting, refusing more than MAX_INLINE_DEPTH levels. */
+    private <T> T nested(int lineNum, int col, java.util.function.Supplier<T> read) {
+      if (inlineDepth >= MAX_INLINE_DEPTH) {
+        throw new YayException(
+            "Inline nesting deeper than " + MAX_INLINE_DEPTH + " levels",
+            filename,
+            lineNum + 1,
+            col + 1);
+      }
+      inlineDepth++;
+      try {
+        return read.get();
+      } finally {
+        inlineDepth--;
+      }
+    }
+
     Parser(String source, String filename) {
       this.filename = filename;
 
@@ -1345,6 +1371,10 @@ public class Yay {
     }
 
     private List<Object> parseInlineArray(String s, int lineNum, int col) {
+      return nested(lineNum, col, () -> parseInlineArrayBody(s, lineNum, col));
+    }
+
+    private List<Object> parseInlineArrayBody(String s, int lineNum, int col) {
       // Check for multiline array (no closing bracket)
       if (!s.contains("]")) {
         throw new YayException(
@@ -1834,6 +1864,10 @@ public class Yay {
     }
 
     private Map<String, Object> parseInlineObject(String s, int lineNum, int col) {
+      return nested(lineNum, col, () -> parseInlineObjectBody(s, lineNum, col));
+    }
+
+    private Map<String, Object> parseInlineObjectBody(String s, int lineNum, int col) {
       // Check for multiline object (no closing brace)
       if (!s.contains("}")) {
         throw new YayException(
