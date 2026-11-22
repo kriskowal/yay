@@ -942,8 +942,9 @@ Files with `.js` extension contain expected JavaScript output.
 decodes the YSON with Endo's smallcaps encoding (`@endo/marshal`), then
 encodes it back. It skips, and says why, when the dev dependencies
 (`npm install`) or binyay are missing; with `YAY_REQUIRE_SMALLCAPS=1`, as
-CI sets it, it fails instead. `references.test.js` reads the design's reference cases, in
-`../../doc/design/references/cases/`, and checks the CapData bridge;
+CI sets it, it fails instead. `yay.test.js` reads the shared corpus in `../../test/`, `test/meh` among
+it: YAY reads each MEH document as MEH does, or refuses it.
+`references.test.js` checks the references model and the CapData bridge;
 `capdata.test.js` takes the bridge through `@endo/marshal` and skips as
 `smallcaps.test.js` does.
 
