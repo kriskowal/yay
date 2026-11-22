@@ -1026,3 +1026,38 @@ fn an_inline_object_value_is_located_at_the_value() {
         "Expected one space before a tag at 1:16 of <v.yay>"
     );
 }
+
+#[test]
+fn inline_nesting_is_read_to_256_levels() {
+    for (open, close) in [("[", "]"), ("{a: ", "}"), ("[{a: ", "}]")] {
+        let n = 256 / open.matches(['[', '{']).count();
+        let src = format!("x: {}1{}\n", open.repeat(n), close.repeat(n));
+        assert!(parse(&src).is_ok(), "{} levels of {:?}", n, open);
+        assert!(libyay::format_yay(&src).is_ok(), "MEH: {:?}", open);
+    }
+}
+
+#[test]
+fn inline_nesting_deeper_than_256_levels_is_refused() {
+    for (open, close, col) in [("[", "]", 260), ("{a: ", "}", 1028)] {
+        let src = format!("x: {}1{}\n", open.repeat(100_000), close.repeat(100_000));
+        let err = parse_with_filename(&src, Some("deep.yay")).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            format!(
+                "Inline nesting deeper than 256 levels at 1:{} of <deep.yay>",
+                col
+            )
+        );
+        assert_eq!(
+            libyay::format_yay(&src).unwrap_err(),
+            "Inline nesting deeper than 256 levels"
+        );
+    }
+    let src = format!("x: {}1{}\n", "[{a: ".repeat(129), "}]".repeat(129));
+    let err = parse_with_filename(&src, Some("deep.yay")).unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "Inline nesting deeper than 256 levels at 1:644 of <deep.yay>"
+    );
+}

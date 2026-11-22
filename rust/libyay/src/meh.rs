@@ -11,6 +11,7 @@
 //! 2. MEH-to-YAY Transform - Normalizes the CST to canonical form
 //! 3. MEH Formatter - Serializes the CST back to text
 
+use crate::error::MAX_INLINE_DEPTH;
 use std::env;
 
 /// Default line wrap length
@@ -199,6 +200,8 @@ pub struct MehParser<'a> {
     lines: Vec<&'a str>,
     line_idx: usize,
     col: usize,
+    /// How many inline arrays and objects enclose the one being read.
+    inline_depth: std::cell::Cell<usize>,
 }
 
 impl<'a> MehParser<'a> {
@@ -208,6 +211,7 @@ impl<'a> MehParser<'a> {
             lines,
             line_idx: 0,
             col: 0,
+            inline_depth: std::cell::Cell::new(0),
         }
     }
 
@@ -907,7 +911,28 @@ impl<'a> MehParser<'a> {
         ))))
     }
 
+    /// Read one level of inline nesting with `read`, refusing more than
+    /// [`MAX_INLINE_DEPTH`] levels rather than overflowing the stack, as the
+    /// YAY parser does.
+    fn nested(&self, read: impl FnOnce() -> Result<CstValue, String>) -> Result<CstValue, String> {
+        let depth = self.inline_depth.get() + 1;
+        if depth > MAX_INLINE_DEPTH {
+            return Err(format!(
+                "Inline nesting deeper than {} levels",
+                MAX_INLINE_DEPTH
+            ));
+        }
+        self.inline_depth.set(depth);
+        let result = read();
+        self.inline_depth.set(depth - 1);
+        result
+    }
+
     fn parse_inline_array(&self, s: &str) -> Result<CstValue, String> {
+        self.nested(|| self.parse_inline_array_body(s))
+    }
+
+    fn parse_inline_array_body(&self, s: &str) -> Result<CstValue, String> {
         let inner = &s[1..s.len() - 1];
         let trimmed = inner.trim();
 
@@ -935,6 +960,10 @@ impl<'a> MehParser<'a> {
     }
 
     fn parse_inline_object(&self, s: &str) -> Result<CstValue, String> {
+        self.nested(|| self.parse_inline_object_body(s))
+    }
+
+    fn parse_inline_object_body(&self, s: &str) -> Result<CstValue, String> {
         let inner = &s[1..s.len() - 1];
         let trimmed = inner.trim();
 

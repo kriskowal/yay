@@ -964,6 +964,7 @@ fn parse_inline_array(
     line_num: usize,
     col: usize,
 ) -> Result<Vec<Value>> {
+    let _level = ctx.enter_inline(line_num, col)?;
     let s = s.trim();
     if !s.starts_with('[') || !s.ends_with(']') {
         return Err(ParseError::UnmatchedBracket(String::new()).with_location(ctx, line_num, col));
@@ -1006,6 +1007,7 @@ fn parse_inline_object(
     line_num: usize,
     col: usize,
 ) -> Result<HashMap<String, Value>> {
+    let _level = ctx.enter_inline(line_num, col)?;
     let s = s.trim();
     if !s.starts_with('{') || !s.ends_with('}') {
         return Err(ParseError::UnmatchedBrace(String::new()).with_location(ctx, line_num, col));
