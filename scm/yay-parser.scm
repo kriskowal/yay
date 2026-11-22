@@ -139,7 +139,7 @@
 ;; YAY never dereferences one. Two references are equal when their texts are;
 ;; a reference never equals a string.
 (define-record-type reference
-  (make-reference uri)
+  (%make-reference uri)
   reference?
   (uri reference-uri))
 
@@ -208,7 +208,7 @@
       (let ((c (string-ref s i)))
         (cond
          ((char=? c #\>)
-          (values (make-reference (substring s (+ start 1) i)) (+ i 1)))
+          (values (%make-reference (substring s (+ start 1) i)) (+ i 1)))
          ((char=? c #\%)
           (unless (and (< (+ i 2) len)
                        (hex-digit? (string-ref s (+ i 1)))
@@ -225,6 +225,36 @@
           (yay-error (string-append "Unexpected character \"" (string c)
                                     "\" in reference")))
          (else (loop (+ i 1))))))))
+
+;; Make a reference, refusing text that is not a reference's by the
+;; parser's own rule: a lowercase scheme, a colon, URI or IRI characters and
+;; well-formed percent-encodings, with nothing after. The error names the
+;; text and the rule it breaks.
+(define (make-reference uri)
+  (unless (string? uri)
+    (yay-error "A reference must be a string"))
+  (let* ((text (string-append "<" uri ">"))
+         (why
+          (if (not (reference-start? text 0))
+              "A reference needs a scheme"
+              (catch #t
+                (lambda ()
+                  (receive (ref end) (parse-reference text 0)
+                    (and (not (= end (string-length text)))
+                         "Unexpected character \">\" in reference")))
+                (lambda (key . args)
+                  (let ((message
+                         (if (and (pair? args) (pair? (cdr args)) (pair? (cddr args))
+                                  (pair? (caddr args)))
+                             (car (caddr args))
+                             (format #f "~a" args))))
+                    (if (equal? message "Unmatched angle bracket")
+                        "Unexpected line break in reference"
+                        message)))))))
+    (when why
+      (yay-error (string-append "Not a reference: " (format #f "~s" uri)
+                                " (" why ")")))
+    (%make-reference uri)))
 
 ;; Read a reference that must be all of s
 (define (parse-whole-reference s)

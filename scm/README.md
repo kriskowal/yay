@@ -55,7 +55,9 @@ A reference, `<https://example.com/>`: a record `reference` with the URI
 or IRI, held as written, without its angle brackets, read with
 `reference-uri` and recognized by `reference?`. YAY never dereferences it.
 `yay-equal?` holds for references with the same text; a reference never
-equals a string.
+equals a string. `make-reference` raises an error for text that is not a
+reference's (a lowercase scheme, a colon, URI or IRI characters and
+well-formed percent-encodings).
 
 ```scheme
 (parse-yay "<ocapn://a.tcp> (Counter)\n")

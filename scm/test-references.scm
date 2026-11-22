@@ -214,6 +214,31 @@
                      (list (cons "a" (make-tagged "u" (list (cons "b" (make-reference "x:(t)")))))))
          "punctuation in an inline object"))
 
+;; A reference is made only from a reference's text
+(define (test-constructor)
+  (for-each
+   (lambda (uri)
+     (let ((got (catch #t
+                  (lambda () (make-reference uri) #f)
+                  (lambda (key . args)
+                    (if (and (pair? args) (pair? (cdr args)) (pair? (cddr args))
+                             (pair? (caddr args)))
+                        (car (caddr args))
+                        (format #f "~a" args))))))
+       (check (and got (string-prefix? "Not a reference: " got))
+              (string-append "make-reference " (format #f "~s" uri) ": "
+                             (if got got "made")))))
+   '("" "not a uri" "HTTPS://x" "urn:a b" "https://a>b" "https://x/%zz" "./a.yay"))
+  (for-each
+   (lambda (uri)
+     (check (and (string=? (reference-uri (make-reference uri)) uri)
+                 (yay-equal? (parse-yay (string-append "<" uri ">\n"))
+                             (make-reference uri)))
+            (string-append "make-reference " uri)))
+   (list "urn:x" "https://example.com/a?b=c#d" "urn:%C3%A9"
+         (string-append "urn:" (string (integer->char #xE9))))))
+
+(test-constructor)
 (test-model)
 (test-refused)
 (test-parse)
