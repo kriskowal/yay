@@ -20,4 +20,5 @@ fi
 cd "$DIR"
 
 echo "Building and running tests..."
-make test
+# make exits 2 when a target fails, which test.sh would read as a skip
+make test || exit 1
