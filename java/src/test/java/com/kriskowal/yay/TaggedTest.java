@@ -83,7 +83,7 @@ class TaggedTest {
 
     want = new LinkedHashMap<>();
     want.put("a", new Tagged("t", BigInteger.ONE));
-    assertEquals(want, Yay.parse("a: 1 (t) # note\n"));
+    assertEquals(want, Yay.parse("a: 1 (t)  # note\n"));
 
     Map<String, Object> inner = new LinkedHashMap<>();
     inner.put("k", "v");

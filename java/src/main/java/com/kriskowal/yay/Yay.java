@@ -461,123 +461,42 @@ public class Yay {
         throw new YayException("Unexpected leading space", filename, t.lineNum + 1, t.col + 1);
       }
 
-      // A tagged inline value: tags after it, and no property's colon before them
-      int tagAt = findTopLevelTag(s);
-      if (tagAt > 0 && !s.startsWith("`") && !s.startsWith(">")) {
-        int colonAt = findColonOutsideQuotes(s);
-        if (s.startsWith("[") || s.startsWith("{") || colonAt < 0 || colonAt > tagAt) {
-          pos++;
-          return parseScalar(s, t.lineNum, t.col);
-        }
-      }
-
-      // Keywords
-      if (s.equals("null")) {
-        pos++;
-        return null;
-      }
-      if (s.equals("true")) {
-        pos++;
-        return Boolean.TRUE;
-      }
-      if (s.equals("false")) {
-        pos++;
-        return Boolean.FALSE;
-      }
-      if (s.equals("infinity")) {
-        pos++;
-        return Double.POSITIVE_INFINITY;
-      }
-      if (s.equals("-infinity")) {
-        pos++;
-        return Double.NEGATIVE_INFINITY;
-      }
-      if (s.equals("nan")) {
-        pos++;
-        return Double.NaN;
-      }
-
-      // Block string (backtick)
+      // The block forms, which read the lines below
       if (s.equals("`") || (s.startsWith("`") && s.length() >= 2 && s.charAt(1) == ' ')) {
         String firstLine = s.length() > 2 ? s.substring(2) : "";
         // The block ends at a line indented no deeper than the opener's line.
         return parseBlockString(firstLine, t.lineIndent, false);
       }
-
-      // Block bytes (>)
       if (s.startsWith(">") && !s.contains("<")) {
         return parseBlockBytes(s, -1);
       }
 
-      // Quoted string
-      if (s.startsWith("\"") && s.endsWith("\"") && s.length() >= 2) {
-        pos++;
-        return parseDoubleQuotedString(s, t.lineNum, t.col);
-      }
-      if (s.startsWith("\"") && !s.endsWith("\"")) {
-        // Unterminated double-quoted string
-        throw new YayException("Unterminated string", filename, t.lineNum + 1, t.col + s.length());
-      }
-      if (s.startsWith("'") && s.endsWith("'") && s.length() >= 2) {
-        pos++;
-        return parseSingleQuotedString(s);
-      }
-      if (s.startsWith("'") && !s.endsWith("'")) {
-        // Unterminated single-quoted string
-        throw new YayException("Unterminated string", filename, t.lineNum + 1, t.col + s.length());
-      }
-
-      // Inline array
+      // An inline array taken for a key
       if (s.startsWith("[")) {
         int close = findMatchingBracket(s, 0, '[', ']');
         if (close + 1 < s.length() && s.charAt(close + 1) == ':') {
           throw new YayException(
               "Unexpected character \":\"", filename, t.lineNum + 1, t.col + close + 2);
         }
-        pos++;
-        return parseInlineArray(s, t.lineNum, t.col);
       }
 
-      // Inline object
-      if (s.startsWith("{")) {
-        pos++;
-        return parseInlineObject(s, t.lineNum, t.col);
-      }
-
-      // A reference
-      if (isReferenceStart(s, 0)) {
-        pos++;
-        return parseWholeReference(stripInlineComment(s), t.lineNum, t.col);
-      }
-
-      // Inline bytes
-      if (s.startsWith("<") && s.contains(">")) {
-        pos++;
-        return parseInlineBytes(s, t.lineNum, t.col);
-      }
-
-      // Unclosed angle bracket is invalid
-      if (s.startsWith("<")) {
-        throw new YayException("Unmatched angle bracket", filename, t.lineNum + 1, t.col + 1);
-      }
-
-      // Key:value pair
-      int colonIdx = findColonOutsideQuotes(s);
-      if (colonIdx > 0) {
+      // A property on this line: "key: value" or "key:" over a block. An inline value with tags
+      // after it, an inline container, a reference and bytes never take a key here.
+      String bare = stripInlineComment(s, t.lineNum, t.col);
+      int tagAt = findTopLevelTag(bare);
+      int colonIdx = findColonOutsideQuotes(bare);
+      boolean tagged = tagAt > 0 && (colonIdx < 0 || colonIdx > tagAt);
+      if (!tagged
+          && !bare.startsWith("[")
+          && !bare.startsWith("{")
+          && !bare.startsWith("<")
+          && colonIdx > 0) {
         return parseKeyValuePair(t, colonIdx);
       }
 
-      // Number
-      Object num = parseNumber(s, t.lineNum, t.col);
-      if (num != null) {
-        pos++;
-        return num;
-      }
-
-      // Bare words are not valid - strings must be quoted
-      char firstChar = s.isEmpty() ? '?' : s.charAt(0);
-      throw new YayException(
-          "Unexpected character \"" + firstChar + "\"", filename, t.lineNum + 1, t.col + 1);
+      // Every inline value reads as a property's does
+      pos++;
+      return parseScalar(bare, t.lineNum, t.col);
     }
 
     // ====================================================================
@@ -878,6 +797,30 @@ public class Yay {
       return out.toString();
     }
 
+    /**
+     * Read a single-quoted string, the whole of s. Its only escapes are \' and \\; any other
+     * backslash is literal.
+     */
+    private String parseSingleQuotedString(String s, int lineNum, int col) {
+      StringBuilder out = new StringBuilder();
+      for (int k = 1; k < s.length(); k++) {
+        char c = s.charAt(k);
+        char next = k + 1 < s.length() ? s.charAt(k + 1) : 0;
+        if (c == '\\' && (next == '\'' || next == '\\')) {
+          out.append(s.charAt(++k));
+        } else if (c == '\'') {
+          if (k != s.length() - 1) {
+            throw new YayException("Unexpected character \"'\"", filename, lineNum + 1, col + 1);
+          }
+          return out.toString();
+        } else {
+          out.append(c);
+        }
+      }
+      throw new YayException(
+          "Unterminated string", filename, lineNum + 1, col + s.codePointCount(0, s.length()));
+    }
+
     private String parseSingleQuotedString(String s) {
       StringBuilder out = new StringBuilder();
       String inner = s.substring(1, s.length() - 1);
@@ -1040,9 +983,13 @@ public class Yay {
 
       String hexStart =
           firstLine.startsWith("> ") ? firstLine.substring(2) : firstLine.substring(1);
-      int hashIdx = hexStart.indexOf('#');
-      if (hashIdx >= 0) {
-        hexStart = hexStart.substring(0, hashIdx);
+      if (isProperty) {
+        // Only a comment may follow ">" on the key's line
+        int hashIdx = hexStart.indexOf('#');
+        hexStart = hashIdx >= 0 ? hexStart.substring(0, hashIdx) : hexStart;
+      } else {
+        hexStart =
+            blockHexLine(hexStart, firstLineNum, firstCol + firstLine.length() - hexStart.length());
       }
 
       // Check for empty leader (just ">")
@@ -1050,7 +997,7 @@ public class Yay {
         throw new YayException("Expected hex or comment in hex block", filename);
       }
 
-      StringBuilder hex = new StringBuilder(hexStart.replaceAll("\\s", "").toLowerCase());
+      StringBuilder hex = new StringBuilder(hexStart.replaceAll("\\s", ""));
 
       while (pos < tokens.size()) {
         Token t = tokens.get(pos);
@@ -1058,12 +1005,7 @@ public class Yay {
           if (isProperty && t.indent <= baseIndent) {
             break;
           }
-          String line = t.text;
-          int h = line.indexOf('#');
-          if (h >= 0) {
-            line = line.substring(0, h);
-          }
-          hex.append(line.replaceAll("\\s", "").toLowerCase());
+          hex.append(blockHexLine(t.text, t.lineNum, t.col));
           pos++;
         } else if (itemIndent >= 0
             && t.type == TokenType.STOP
@@ -2143,6 +2085,14 @@ public class Yay {
     }
 
     private String stripInlineComment(String s) {
+      return stripInlineComment(s, -1, -1);
+    }
+
+    /**
+     * Strip an inline comment from a value. A comment after a value takes two spaces before its
+     * "#"; one space is refused.
+     */
+    private String stripInlineComment(String s, int lineNum, int col) {
       boolean inDouble = false;
       boolean inSingle = false;
       boolean escape = false;
@@ -2168,15 +2118,54 @@ public class Yay {
         } else if (c == '\'' && !inDouble) {
           inSingle = !inSingle;
         } else if (c == '#' && !inDouble && !inSingle) {
+          checkCommentSpacing(s, i, lineNum, col);
           return s.substring(0, i).stripTrailing();
         }
       }
       return s;
     }
 
+    /** Refuse a comment, at s[hash], that has one space before it rather than two. */
+    private void checkCommentSpacing(String s, int hash, int lineNum, int col) {
+      if (lineNum >= 0
+          && hash >= 1
+          && s.charAt(hash - 1) == ' '
+          && (hash < 2 || s.charAt(hash - 2) != ' ')) {
+        throw new YayException(
+            "Expected two spaces before a comment",
+            filename,
+            lineNum + 1,
+            col + s.codePointCount(0, hash) + 1);
+      }
+    }
+
+    /**
+     * Read one line of block bytes: hex, then an optional comment after two spaces, or a comment
+     * alone. Returns the hex without its spaces, refusing uppercase digits.
+     */
+    private String blockHexLine(String text, int lineNum, int col) {
+      if (text.startsWith("#")) return "";
+      String body = text;
+      int hash = text.indexOf('#');
+      if (hash >= 0) {
+        checkCommentSpacing(text, hash, lineNum, col);
+        if (hash > 0 && text.charAt(hash - 1) == ' ') {
+          body = text.substring(0, hash).stripTrailing();
+        }
+      }
+      for (int i = 0; i < body.length(); i++) {
+        char c = body.charAt(i);
+        if (c >= 'A' && c <= 'F') {
+          throw new YayException(
+              "Uppercase hex digit (use lowercase)", filename, lineNum + 1, col + i + 1);
+        }
+      }
+      return body.replace(" ", "");
+    }
+
     private Object parseScalar(String s, int lineNum, int col) {
       // Strip inline comments first
-      s = stripInlineComment(s);
+      s = stripInlineComment(s, lineNum, col);
 
       int tagAt = findTopLevelTag(s);
       if (tagAt >= 0) {
@@ -2190,12 +2179,21 @@ public class Yay {
       if (s.equals("-infinity")) return Double.NEGATIVE_INFINITY;
       if (s.equals("nan")) return Double.NaN;
 
-      // Quoted string
-      if (s.startsWith("\"") && s.endsWith("\"")) {
+      // Quoted string: closed early, with more after it, or never closed
+      if (s.startsWith("\"")) {
+        if (s.length() < 2 || !s.endsWith("\"")) {
+          int k = 1;
+          while (k < s.length() && s.charAt(k) != '"') k += s.charAt(k) == '\\' ? 2 : 1;
+          if (k < s.length()) {
+            throw new YayException("Unexpected character \"\"\"", filename, lineNum + 1, col + 1);
+          }
+          throw new YayException(
+              "Unterminated string", filename, lineNum + 1, col + s.codePointCount(0, s.length()));
+        }
         return parseDoubleQuotedString(s, lineNum, col);
       }
-      if (s.startsWith("'") && s.endsWith("'")) {
-        return parseSingleQuotedString(s);
+      if (s.startsWith("'")) {
+        return parseSingleQuotedString(s, lineNum, col);
       }
 
       // A reference
@@ -2211,13 +2209,21 @@ public class Yay {
         return parseInlineBytes(s, lineNum, col);
       }
 
-      // Inline array
-      if (s.startsWith("[") && s.endsWith("]")) {
+      // Inline array, closed on its line
+      if (s.startsWith("[")) {
+        if (!s.endsWith("]")) {
+          throw new YayException(
+              "Unexpected newline in inline array", filename, lineNum + 1, col + 1);
+        }
         return parseInlineArray(s, lineNum, col);
       }
 
-      // Inline object
-      if (s.startsWith("{") && s.endsWith("}")) {
+      // Inline object, closed on its line
+      if (s.startsWith("{")) {
+        if (!s.contains("}")) {
+          throw new YayException(
+              "Unexpected newline in inline object", filename, lineNum + 1, col + 1);
+        }
         return parseInlineObject(s, lineNum, col);
       }
 
