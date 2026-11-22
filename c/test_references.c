@@ -312,7 +312,40 @@ static void test_parse(void) {
     yay_free(want);
 }
 
+/* A reference is made only from a reference's text */
+static void test_constructor(void) {
+    const char *bad[] = {"", "not a uri", "HTTPS://x", "urn:a b",
+                         "https://a>b", "https://x/%zz", "./a.yay"};
+    for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        char what[64];
+        snprintf(what, sizeof(what), "yay_reference(\"%s\") refused", bad[i]);
+        yay_value_t *r = yay_reference(bad[i]);
+        check(r == NULL, what);
+        yay_free(r);
+        r = yay_reference_len(bad[i], strlen(bad[i]));
+        check(r == NULL, what);
+        yay_free(r);
+    }
+    /* A NUL inside the text, and text cut short of its percent-encoding */
+    yay_value_t *r = yay_reference_len("a:b\0c", 5);
+    check(r == NULL, "a NUL in a reference refused");
+    yay_free(r);
+    r = yay_reference_len("a:%2f", 4);
+    check(r == NULL, "a percent-encoding cut short refused");
+    yay_free(r);
+    const char *good[] = {"urn:x", "https://example.com/a?b=c#d", "urn:%C3%A9",
+                          "urn:\xC3\xA9"};
+    for (size_t i = 0; i < sizeof(good) / sizeof(good[0]); i++) {
+        yay_value_t *r = yay_reference(good[i]);
+        check(r && r->type == YAY_REFERENCE &&
+                  strcmp(r->data.reference, good[i]) == 0,
+              good[i]);
+        yay_free(r);
+    }
+}
+
 int main(void) {
+    test_constructor();
     test_model();
     test_refused();
     test_parse();

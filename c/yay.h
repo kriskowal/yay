@@ -151,7 +151,9 @@ yay_value_t *yay_object(void);
 yay_value_t *yay_tagged(const char *tag, yay_value_t *payload);
 
 /* A reference; copies the URI or IRI, which equals another reference's by
- * its text and never equals a string */
+ * its text and never equals a string. Returns NULL if the text is not a
+ * reference's: a lowercase scheme, a colon, URI or IRI characters and
+ * well-formed percent-encodings, with nothing after. */
 yay_value_t *yay_reference(const char *uri);
 yay_value_t *yay_reference_len(const char *uri, size_t len);
 

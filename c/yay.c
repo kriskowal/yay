@@ -152,7 +152,16 @@ yay_value_t *yay_reference(const char *uri) {
     return yay_reference_len(uri, strlen(uri));
 }
 
+static bool is_reference_text(const char *uri, size_t len);
+static yay_value_t *make_reference_len(const char *uri, size_t len);
+
 yay_value_t *yay_reference_len(const char *uri, size_t len) {
+    if (!is_reference_text(uri, len)) return NULL;
+    return make_reference_len(uri, len);
+}
+
+/* A reference whose text the parser has already checked */
+static yay_value_t *make_reference_len(const char *uri, size_t len) {
     yay_value_t *v = calloc(1, sizeof(yay_value_t));
     if (v) {
         v->type = YAY_REFERENCE;
@@ -961,7 +970,7 @@ static yay_value_t *parse_reference(parse_ctx_t *ctx, const char *s,
         unsigned char c = (unsigned char)s[at];
         if (c == '>') {
             *consumed = at + 1;
-            return yay_reference_len(s + 1, at - 1);
+            return make_reference_len(s + 1, at - 1);
         }
         if (c == '%') {
             if (!isxdigit((unsigned char)s[at + 1]) ||
@@ -1007,6 +1016,30 @@ static yay_value_t *parse_reference(parse_ctx_t *ctx, const char *s,
     }
     ctx->error = make_error(ctx, line_num, col, "Unmatched angle bracket");
     return NULL;
+}
+
+/* Whether the len bytes at uri are a reference's text, by the parser's own
+ * rule: a lowercase scheme, a colon, URI or IRI characters and well-formed
+ * percent-encodings, with nothing after (no ">" and no NUL) */
+static bool is_reference_text(const char *uri, size_t len) {
+    if (!uri || memchr(uri, '\0', len)) return false;
+    char *text = malloc(len + 3);
+    if (!text) return false;
+    text[0] = '<';
+    memcpy(text + 1, uri, len);
+    text[len + 1] = '>';
+    text[len + 2] = '\0';
+    bool ok = false;
+    if (is_reference_start(text)) {
+        parse_ctx_t ctx = {0};
+        size_t n = 0;
+        yay_value_t *ref = parse_reference(&ctx, text, &n, 0, 0);
+        ok = ref && n == len + 2;
+        yay_free(ref);
+        yay_error_free(ctx.error);
+    }
+    free(text);
+    return ok;
 }
 
 /* Read a reference that must be all of s */

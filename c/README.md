@@ -156,8 +156,10 @@ yay_value_t *count = r.value->data.object.pairs[0].value;
 A reference, `<https://example.com/>`, a URI or IRI held as written, has
 type `YAY_REFERENCE`, its text, without the angle brackets, in
 `data.reference`. YAY never dereferences it. `yay_reference(uri)` makes one,
-copying the text. References are equal when their texts are; a reference
-never equals a string.
+copying the text, and returns `NULL` if the text is not a reference's (a
+lowercase scheme, a colon, URI or IRI characters and well-formed
+percent-encodings). References are equal when their texts are; a
+reference never equals a string.
 
 ```c
 yay_result_t r = yay_parse("<ocapn://a.tcp> (Counter)\n", 0, NULL);
