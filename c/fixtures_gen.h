@@ -686,7 +686,9 @@ static yay_value_t *make_expected_object_nested_quoted_key_first(void) {
 }
 
 static yay_value_t *make_expected_object_proto_key_inline(void) {
-    return YAY_OBJECT("a", YAY_OBJECT("__proto__", YAY_OBJECT("polluted", yay_bool(true))));
+    return YAY_OBJECT(
+    "a", YAY_OBJECT("__proto__", YAY_OBJECT("polluted", yay_bool(true)))
+);
 }
 
 static yay_value_t *make_expected_object_proto_key_quoted(void) {
@@ -1019,7 +1021,12 @@ static yay_value_t *make_expected_string_singlequote_escapes_in_key(void) {
 }
 
 static yay_value_t *make_expected_string_singlequote_escapes(void) {
-    return YAY_OBJECT("backslash", yay_string("a\\b"), "end", yay_string("a\\"), "other", yay_string("a\\nb\\u{41}\\\"c\\t"), "quote", yay_string("a'b"));
+    return YAY_OBJECT(
+    "backslash", yay_string("a\\b"),
+    "end", yay_string("a\\"),
+    "other", yay_string("a\\nb\\u{41}\\\"c\\t"),
+    "quote", yay_string("a'b")
+);
 }
 
 static yay_value_t *make_expected_tagged_block_bytes_item_same_line(void) {

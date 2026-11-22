@@ -300,8 +300,10 @@ var fixtures = map[string]any{
 	"object-nested-quoted-key-first": map[string]any{
 		"meta": map[string]any{"A quoted key": "first in its object", "b": big.NewInt(2)},
 	},
-	"object-proto-key":        map[string]any{"__proto__": map[string]any{"polluted": true}},
-	"object-proto-key-inline": map[string]any{"a": map[string]any{"__proto__": map[string]any{"polluted": true}}},
+	"object-proto-key": map[string]any{"__proto__": map[string]any{"polluted": true}},
+	"object-proto-key-inline": map[string]any{
+		"a": map[string]any{"__proto__": map[string]any{"polluted": true}},
+	},
 	"object-proto-key-quoted": map[string]any{"__proto__": big.NewInt(1)},
 	"object-quoted-key-escapes": map[string]any{
 		"":            "the empty key",
@@ -448,9 +450,18 @@ var fixtures = map[string]any{
 	"string-inline-singlequote-basic":                  "Are you suggesting coconuts migrate?",
 	"string-inline-singlequote-doublequote":            "He said \"yay.\" and left.",
 	"string-multiline-concat":                          map[string]any{"confession": "I'm not dead yet. I feel happy!"},
-	"string-singlequote-escapes":                       map[string]any{"backslash": "a\\b", "end": "a\\", "other": "a\\nb\\u{41}\\\"c\\t", "quote": "a'b"},
-	"string-singlequote-escapes-in-array":              []any{"a'b", "a\\b", "a\\nb"},
-	"string-singlequote-escapes-in-key":                map[string]any{"a'b": big.NewInt(1), "a\\b": big.NewInt(2), "a\\nb": big.NewInt(3)},
+	"string-singlequote-escapes": map[string]any{
+		"backslash": "a\\b",
+		"end":       "a\\",
+		"other":     "a\\nb\\u{41}\\\"c\\t",
+		"quote":     "a'b",
+	},
+	"string-singlequote-escapes-in-array": []any{"a'b", "a\\b", "a\\nb"},
+	"string-singlequote-escapes-in-key": map[string]any{
+		"a'b":   big.NewInt(1),
+		"a\\b":  big.NewInt(2),
+		"a\\nb": big.NewInt(3),
+	},
 	"tagged-block-bytes-item-same-line": []any{
 		Tagged{Tag: "sha256", Payload: []byte{0x89, 0x50, 0x4e, 0x47}},
 	},
