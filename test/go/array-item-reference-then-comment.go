@@ -1,1 +1,1 @@
-[]any{yay.Reference("https://example.com/")}
+[]any{yay.MustReference("https://example.com/")}

@@ -1,1 +1,1 @@
-map[string]any{"page": yay.Reference("https://例え.jp/パス?q=é")}
+map[string]any{"page": yay.MustReference("https://例え.jp/パス?q=é")}

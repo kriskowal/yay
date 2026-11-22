@@ -213,7 +213,7 @@ scheme; `-r` refuses one without. A bare token is never a reference.
 | Target | Reference as |
 |---|---|
 | `js` | a frozen `{reference: "…"}` from a small `reference(uri)` helper, beside `tagged`; not a `URL`, which normalizes |
-| `go` | `yay.Reference` (a named `string` type, distinct from `string`) |
+| `go` | `yay.Reference`, a type of its own made only by `NewReference(uri)` or `MustReference(uri)`, which refuse text that is not a reference's |
 | `python` | a frozen dataclass `Reference(uri: str)`, beside `Tagged`; not a `str` subclass, which would equal the string |
 | `rust` | `Value::Reference(Reference)`, a `Reference` made only by `Reference::new(uri)` or `Value::reference(uri)`, which refuse text that is not a reference's |
 | `c` | `YAY_REFERENCE`, with the text in the value union |

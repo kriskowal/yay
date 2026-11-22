@@ -67,7 +67,7 @@ var fixtures = map[string]any{
 			map[string]any{"born": big.NewInt(1906), "full name": "Grace Hopper"},
 		},
 	},
-	"array-item-reference-then-comment":   []any{Reference("https://example.com/")},
+	"array-item-reference-then-comment":   []any{MustReference("https://example.com/")},
 	"array-item-singlequote-then-comment": []any{"abc"},
 	"array-item-tagged-then-comment":      []any{Tagged{Tag: "t", Payload: big.NewInt(1)}},
 	"array-multiline":                     []any{big.NewInt(5), big.NewInt(3)},
@@ -313,51 +313,51 @@ var fixtures = map[string]any{
 		"line\nbreak": "an escaped newline",
 	},
 	"reference-block-array": []any{
-		Reference("https://a.example/x"),
-		Reference("urn:isbn:0451450523"),
+		MustReference("https://a.example/x"),
+		MustReference("urn:isbn:0451450523"),
 	},
 	"reference-delimiters-inside": map[string]any{
 		"q": []any{
-			Reference("https://x.example/a,b]c?e=(f)&g='h'"),
+			MustReference("https://x.example/a,b]c?e=(f)&g='h'"),
 			big.NewInt(1),
 		},
 	},
 	"reference-inline-array": map[string]any{
 		"mirrors": []any{
-			Reference("https://a.example/x"),
-			Reference("https://b.example/x"),
+			MustReference("https://a.example/x"),
+			MustReference("https://b.example/x"),
 			[]byte{0xff},
 			[]byte{},
 		},
 	},
 	"reference-inline-object": map[string]any{
 		"links": map[string]any{
-			"home": Reference("https://kriskowal.com/"),
+			"home": MustReference("https://kriskowal.com/"),
 			"seed": []byte{0xff, 0x88, 0x00},
 		},
 	},
-	"reference-iri":               map[string]any{"page": Reference("https://例え.jp/パス?q=é")},
-	"reference-percent":           map[string]any{"space": Reference("https://example.com/a%20b%2Fc")},
-	"reference-percent-case-kept": map[string]any{"a": Reference("https://x/a%2fb%2F")},
-	"reference-root":              Reference("https://example.com/"),
-	"reference-same-text":         map[string]any{"r": Reference("https://x"), "s": "https://x"},
+	"reference-iri":               map[string]any{"page": MustReference("https://例え.jp/パス?q=é")},
+	"reference-percent":           map[string]any{"space": MustReference("https://example.com/a%20b%2Fc")},
+	"reference-percent-case-kept": map[string]any{"a": MustReference("https://x/a%2fb%2F")},
+	"reference-root":              MustReference("https://example.com/"),
+	"reference-same-text":         map[string]any{"r": MustReference("https://x"), "s": "https://x"},
 	"reference-schemes": map[string]any{
-		"icon": Reference("https://example.com/cat.png"),
-		"mail": Reference("mailto:kris@example.com"),
-		"peer": Reference("ocapn://a2ef69ddd5f8.tcp-testing-only?host=127.0.0.1&port=22046"),
-		"spec": Reference("urn:ietf:rfc:3986"),
+		"icon": MustReference("https://example.com/cat.png"),
+		"mail": MustReference("mailto:kris@example.com"),
+		"peer": MustReference("ocapn://a2ef69ddd5f8.tcp-testing-only?host=127.0.0.1&port=22046"),
+		"spec": MustReference("urn:ietf:rfc:3986"),
 	},
 	"reference-tagged": map[string]any{
-		"home":  Tagged{Tag: "outer", Payload: Tagged{Tag: "com.example.homepage", Payload: Reference("https://kriskowal.com/")}},
-		"thumb": Tagged{Tag: "image/png", Payload: Reference("https://example.com/cat.png")},
+		"home":  Tagged{Tag: "outer", Payload: Tagged{Tag: "com.example.homepage", Payload: MustReference("https://kriskowal.com/")}},
+		"thumb": Tagged{Tag: "image/png", Payload: MustReference("https://example.com/cat.png")},
 	},
 	"reference-tagged-in-array": map[string]any{
 		"peers": []any{
-			Tagged{Tag: "Counter", Payload: Reference("ocapn://a.tcp")},
-			Reference("ocapn://b.tcp"),
+			Tagged{Tag: "Counter", Payload: MustReference("ocapn://a.tcp")},
+			MustReference("ocapn://b.tcp"),
 		},
 	},
-	"reference-then-comment": map[string]any{"a": Reference("https://example.com/#frag")},
+	"reference-then-comment": map[string]any{"a": MustReference("https://example.com/#frag")},
 	"reference-unchanged-in-strings": map[string]any{
 		"a": "<https://x>",
 		"b": "<urn:x>",
@@ -366,8 +366,8 @@ var fixtures = map[string]any{
 	},
 	"reference-under-block-tag": map[string]any{
 		"links": Tagged{Tag: "mirrors", Payload: []any{
-			Reference("https://a.example/x"),
-			Reference("https://b.example/x"),
+			MustReference("https://a.example/x"),
+			MustReference("https://b.example/x"),
 		}},
 	},
 	"string-block-array-in-property": map[string]any{

@@ -451,7 +451,7 @@ fn encode_go(value: &Value, indent: usize) -> String {
             }
         }
         Value::String(s) => encode_json_string(s),
-        Value::Reference(uri) => format!("yay.Reference({})", encode_json_string(uri)),
+        Value::Reference(uri) => format!("yay.MustReference({})", encode_json_string(uri)),
         Value::Tagged(tag, payload) => format!(
             "yay.Tagged{{Tag: {}, Payload: {}}}",
             encode_json_string(tag),

@@ -1,4 +1,4 @@
 []any{
-	yay.Reference("https://a.example/x"),
-	yay.Reference("urn:isbn:0451450523"),
+	yay.MustReference("https://a.example/x"),
+	yay.MustReference("urn:isbn:0451450523"),
 }

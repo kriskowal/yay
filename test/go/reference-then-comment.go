@@ -1,1 +1,1 @@
-map[string]any{"a": yay.Reference("https://example.com/#frag")}
+map[string]any{"a": yay.MustReference("https://example.com/#frag")}

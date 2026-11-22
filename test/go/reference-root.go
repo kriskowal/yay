@@ -1,1 +1,1 @@
-yay.Reference("https://example.com/")
+yay.MustReference("https://example.com/")

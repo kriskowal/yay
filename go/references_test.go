@@ -49,7 +49,7 @@ func ysonString(s string) string {
 func toYSON(v any) any {
 	switch v := v.(type) {
 	case Reference:
-		return "$" + string(v)
+		return "$" + v.URI()
 	case Tagged:
 		return map[string]any{"#tag": ysonString(v.Tag), "payload": toYSON(v.Payload)}
 	case []byte:
@@ -159,16 +159,16 @@ func TestReferenceEquality(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != Reference("https://x") || !reflect.DeepEqual(got, Reference("https://x")) {
+	if got != MustReference("https://x") || !reflect.DeepEqual(got, MustReference("https://x")) {
 		t.Errorf("got %#v, want the reference https://x", got)
 	}
 	for _, c := range [][2]any{
-		{Reference("https://x/"), Reference("https://x")},
+		{MustReference("https://x/"), MustReference("https://x")},
 		// By text, so percent-encodings are not normalized
-		{Reference("a:%2f"), Reference("a:%2F")},
+		{MustReference("a:%2f"), MustReference("a:%2F")},
 		// Never a string, nor a tagged value
 		{got, "https://x"},
-		{Reference("https://x"), Tagged{"https://x", nil}},
+		{MustReference("https://x"), Tagged{"https://x", nil}},
 	} {
 		if c[0] == c[1] || reflect.DeepEqual(c[0], c[1]) || deepEqual(c[0], c[1]) {
 			t.Errorf("%#v should not equal %#v", c[0], c[1])
@@ -181,18 +181,45 @@ func TestReferenceParse(t *testing.T) {
 		in   string
 		want any
 	}{
-		{"<ocapn://a.tcp> (Counter)\n", Tagged{"Counter", Reference("ocapn://a.tcp")}},
+		{"<ocapn://a.tcp> (Counter)\n", Tagged{"Counter", MustReference("ocapn://a.tcp")}},
 		// Unchanged in strings and tags, and bytes without a scheme
 		{"a: '<https://x>' (<b:c>)\nb: <ff>\n", map[string]any{"a": Tagged{"<b:c>", "<https://x>"}, "b": []byte{0xff}}},
 		// A reference's punctuation is its own
-		{"a: [<x:a,b]c#d>, 1]  # c\n", map[string]any{"a": []any{Reference("x:a,b]c#d"), big.NewInt(1)}}},
-		{"a: {b: <x:(t)>} (u)\n", map[string]any{"a": Tagged{"u", map[string]any{"b": Reference("x:(t)")}}}},
+		{"a: [<x:a,b]c#d>, 1]  # c\n", map[string]any{"a": []any{MustReference("x:a,b]c#d"), big.NewInt(1)}}},
+		{"a: {b: <x:(t)>} (u)\n", map[string]any{"a": Tagged{"u", map[string]any{"b": MustReference("x:(t)")}}}},
 	} {
 		got, err := Unmarshal([]byte(c.in))
 		if err != nil {
 			t.Errorf("%q: %v", c.in, err)
 		} else if !deepEqual(got, c.want) {
 			t.Errorf("%q\ngot:  %#v\nwant: %#v", c.in, got, c.want)
+		}
+	}
+}
+
+func TestReferenceMadeOnlyFromReferenceText(t *testing.T) {
+	for _, uri := range []string{"", "not a uri", "HTTPS://x", "urn:a b", "https://a>b", "https://x/%zz", "./a.yay"} {
+		if r, err := NewReference(uri); err == nil {
+			t.Errorf("NewReference(%q) = %v, want an error", uri, r)
+		} else if !strings.HasPrefix(err.Error(), "Not a reference: ") {
+			t.Errorf("NewReference(%q): %v", uri, err)
+		}
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Errorf("MustReference(%q) did not panic", uri)
+				}
+			}()
+			MustReference(uri)
+		}()
+	}
+	for _, uri := range []string{"urn:x", "https://example.com/a?b=c#d", "urn:%C3%A9", "urn:é"} {
+		r, err := NewReference(uri)
+		if err != nil || r.URI() != uri || r.String() != uri {
+			t.Errorf("NewReference(%q) = %v, %v", uri, r, err)
+		}
+		if got, err := Unmarshal([]byte("<" + uri + ">\n")); err != nil || got != r {
+			t.Errorf("%q: got %v, %v, want %v", uri, got, err, r)
 		}
 	}
 }

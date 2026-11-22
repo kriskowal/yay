@@ -3268,7 +3268,65 @@ func prefixWithoutBlock(ctx *parseContext, lineNum, col int) error {
 // written. It designates, and is never dereferenced. Two references are
 // equal when their texts are, character for character; a reference never
 // equals a string.
-type Reference string
+//
+// A Reference is made only by NewReference or MustReference, which refuse
+// text that is not a reference's by the parser's own rule, or by the
+// parser itself.
+type Reference struct {
+	uri string
+}
+
+// NewReference returns a reference to uri, or an error if uri is not a
+// reference's text: a lowercase scheme, a colon, URI or IRI characters and
+// well-formed percent-encodings, with nothing after.
+func NewReference(uri string) (Reference, error) {
+	if err := checkReferenceText(uri); err != nil {
+		return Reference{}, err
+	}
+	return Reference{uri}, nil
+}
+
+// MustReference is like NewReference but panics if uri is not a
+// reference's text. It is what yay -t go writes.
+func MustReference(uri string) Reference {
+	r, err := NewReference(uri)
+	if err != nil {
+		panic(err)
+	}
+	return r
+}
+
+// URI returns the reference's text.
+func (r Reference) URI() string {
+	return r.uri
+}
+
+// String returns the reference's text.
+func (r Reference) String() string {
+	return r.uri
+}
+
+// checkReferenceText refuses a string that is not a reference's text, by
+// the parser's own rule.
+func checkReferenceText(uri string) error {
+	why := "A reference needs a scheme"
+	text := "<" + uri + ">"
+	if isReferenceStart(text) {
+		_, n, err := parseReference(text, nil, 0, 0)
+		switch {
+		case err != nil:
+			why = err.Error()
+			if why == "Unmatched angle bracket" {
+				why = "Unexpected line break in reference"
+			}
+		case n != len(text):
+			why = `Unexpected character ">" in reference`
+		default:
+			return nil
+		}
+	}
+	return fmt.Errorf("Not a reference: %s (%s)", strconv.Quote(uri), why)
+}
 
 // schemeLen returns the length of the scheme, colon included, if s (the
 // text after "<") begins [A-Za-z][A-Za-z0-9+.-]*":", or 0. Uppercase
@@ -3311,38 +3369,38 @@ func isURIChar(r rune) bool {
 func parseReference(s string, ctx *parseContext, lineNum, col int) (Reference, int, error) {
 	n := schemeLen(s[1:]) - 1
 	if scheme := s[1 : 1+n]; strings.ToLower(scheme) != scheme {
-		return "", 0, fmt.Errorf("Uppercase scheme \"%s\" in reference (use lowercase)%s", scheme, locSuffix(ctx, lineNum, col))
+		return Reference{}, 0, fmt.Errorf("Uppercase scheme \"%s\" in reference (use lowercase)%s", scheme, locSuffix(ctx, lineNum, col))
 	}
 	for j, r := range s[1+n:] {
 		at := 1 + n + j
 		switch {
 		case r == '>':
-			return Reference(s[1:at]), at + 1, nil
+			return Reference{s[1:at]}, at + 1, nil
 		case r == '%':
 			if !(at+2 < len(s) && isHexDigit(rune(s[at+1])) && isHexDigit(rune(s[at+2]))) {
-				return "", 0, fmt.Errorf("Bad percent-encoding in reference (use %% and two hex digits)%s", locSuffix(ctx, lineNum, col+at))
+				return Reference{}, 0, fmt.Errorf("Bad percent-encoding in reference (use %% and two hex digits)%s", locSuffix(ctx, lineNum, col+at))
 			}
 		case r == '\n' || r == '\r':
-			return "", 0, fmt.Errorf("Unmatched angle bracket%s", locSuffix(ctx, lineNum, col))
+			return Reference{}, 0, fmt.Errorf("Unmatched angle bracket%s", locSuffix(ctx, lineNum, col))
 		case r == ' ':
-			return "", 0, fmt.Errorf("Unexpected space in reference%s", locSuffix(ctx, lineNum, col+at))
+			return Reference{}, 0, fmt.Errorf("Unexpected space in reference%s", locSuffix(ctx, lineNum, col+at))
 		case r == '\t':
-			return "", 0, fmt.Errorf("Tab not allowed in reference%s", locSuffix(ctx, lineNum, col+at))
+			return Reference{}, 0, fmt.Errorf("Tab not allowed in reference%s", locSuffix(ctx, lineNum, col+at))
 		case !isURIChar(r):
-			return "", 0, fmt.Errorf("Unexpected character \"%c\" in reference%s", r, locSuffix(ctx, lineNum, col+at))
+			return Reference{}, 0, fmt.Errorf("Unexpected character \"%c\" in reference%s", r, locSuffix(ctx, lineNum, col+at))
 		}
 	}
-	return "", 0, fmt.Errorf("Unmatched angle bracket%s", locSuffix(ctx, lineNum, col))
+	return Reference{}, 0, fmt.Errorf("Unmatched angle bracket%s", locSuffix(ctx, lineNum, col))
 }
 
 // parseWholeReference reads a reference that must be all of s.
 func parseWholeReference(s string, ctx *parseContext, lineNum, col int) (Reference, error) {
 	ref, n, err := parseReference(s, ctx, lineNum, col)
 	if err != nil {
-		return "", err
+		return Reference{}, err
 	}
 	if rest := s[n:]; rest != "" {
-		return "", fmt.Errorf("Unexpected character \"%c\"%s", rest[0], locSuffix(ctx, lineNum, col+n))
+		return Reference{}, fmt.Errorf("Unexpected character \"%c\"%s", rest[0], locSuffix(ctx, lineNum, col+n))
 	}
 	return ref, nil
 }
