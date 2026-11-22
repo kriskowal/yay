@@ -171,3 +171,35 @@ describe("references: the CapData bridge", () => {
     assert.throws(() => capDataToYson({ body: '#"$1"', slots: [] }), /slot/);
   });
 });
+
+describe("reference constructor and CapData edges", () => {
+  const bad = [
+    "",
+    "not a uri",
+    "HTTPS://x",
+    "urn:a b",
+    "https://a>b",
+    "https://x/%zz",
+    "./a.yay",
+  ];
+  it("refuses a string that is not a reference's text", () => {
+    for (const uri of bad) {
+      assert.throws(() => reference(uri), TypeError, JSON.stringify(uri));
+      assert.throws(() => new Reference(uri), TypeError, JSON.stringify(uri));
+    }
+  });
+  it("accepts what the parser reads", () => {
+    for (const uri of ["urn:x", "https://example.com/a?b=c#d", "urn:%C3%A9"]) {
+      assert.equal(reference(uri).reference, uri);
+    }
+  });
+  it("refuses a CapData slot that is not a reference", () => {
+    for (const uri of bad) {
+      assert.throws(
+        () => capDataToYson({ body: '#"$0"', slots: [uri] }),
+        TypeError,
+        JSON.stringify(uri),
+      );
+    }
+  });
+});

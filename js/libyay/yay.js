@@ -2771,9 +2771,44 @@ class Reference {
     if (typeof uri !== "string") {
       throw new TypeError("A reference must be a string");
     }
+    checkReferenceText(uri);
     this.reference = uri;
     Object.freeze(this);
   }
+}
+
+/**
+ * Refuse a string that is not a reference's text, by the parser's own rule:
+ * a lowercase scheme, a colon, URI or IRI characters, and well-formed
+ * percent-encodings.
+ * @param {string} uri
+ */
+function checkReferenceText(uri) {
+  const text = "<" + uri + ">";
+  let n = -1;
+  let why = "it needs a scheme and a colon";
+  if (isReferenceStart(text)) {
+    try {
+      [, n] = parseReference(text, {}, 0, 0);
+    } catch (error) {
+      why = /** @type {Error} */ (error).message;
+    }
+  }
+  if (n !== text.length) {
+    if (n >= 0) why = 'Unexpected character ">" in reference';
+    throw new TypeError(`Not a reference: ${JSON.stringify(uri)} (${why})`);
+  }
+}
+
+/**
+ * A reference whose text the parser has already checked.
+ * @param {string} uri
+ * @returns {Reference}
+ */
+function checkedReference(uri) {
+  const ref = Object.create(Reference.prototype);
+  ref.reference = uri;
+  return Object.freeze(ref);
 }
 
 /**
@@ -2855,7 +2890,7 @@ function parseReference(s, ctx, lineNum, col) {
   let i = schemeEnd;
   while (i < s.length) {
     const c = String.fromCodePoint(/** @type {number} */ (s.codePointAt(i)));
-    if (c === ">") return [reference(s.slice(1, i)), i + 1];
+    if (c === ">") return [checkedReference(s.slice(1, i)), i + 1];
     if (c === "%") {
       if (!/^[0-9A-Fa-f]{2}/.test(s.slice(i + 1))) {
         throw new Error(
@@ -2964,6 +2999,8 @@ function capDataToYson({ body, slots }) {
     if (typeof uri !== "string") {
       throw new Error(`No slot for ${JSON.stringify(s)}`);
     }
+    // A slot is a reference's text, as YSON's "$" strings are
+    checkReferenceText(uri);
     return `$${uri}`;
   });
   return JSON.stringify(yson);
