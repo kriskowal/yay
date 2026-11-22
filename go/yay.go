@@ -2439,6 +2439,9 @@ func validateUnquotedKey(s string, ctx *parseContext, lineNum, col int) error {
 
 // parseObjectOrNamedArray parses content after "key:" (no inline value).
 func parseObjectOrNamedArray(tokens []token, i int, key string, ctx *parseContext) (any, int, error) {
+	keyToken := tokens[i]
+	keyCol := keyColumn(tokens, i)
+	colonIdx := findColonOutsideQuotes(keyToken.text)
 	i++
 
 	// Skip to next content
@@ -2450,10 +2453,16 @@ func parseObjectOrNamedArray(tokens []token, i int, key string, ctx *parseContex
 	}
 
 	if i >= len(tokens) {
-		return map[string]any{key: nil}, i, nil
+		return nil, 0, fmt.Errorf("Expected value after property%s", locSuffix(ctx, keyToken.lineNum, keyToken.col+colonIdx+1))
 	}
 
 	first := tokens[i]
+
+	// A block array may stand at the key's column. Every other block value
+	// must be indented deeper, so a sibling item or property is no value.
+	if first.indent < keyCol || (first.indent == keyCol && first.typ != tokenStart) {
+		return nil, 0, fmt.Errorf("Expected value after property%s", locSuffix(ctx, keyToken.lineNum, keyToken.col+colonIdx+1))
+	}
 
 	// Named array - pass baseIndent as minIndent so array stops at object's level
 	if first.typ == tokenStart && first.text == "- " {
@@ -2485,7 +2494,7 @@ func parseObjectOrNamedArray(tokens []token, i int, key string, ctx *parseContex
 	if len(obj) > 0 {
 		return map[string]any{key: obj}, next, nil
 	}
-	return map[string]any{key: nil}, next, nil
+	return nil, 0, fmt.Errorf("Expected value after property%s", locSuffix(ctx, keyToken.lineNum, keyToken.col+colonIdx+1))
 }
 
 // parseNestedObjectContent parses the content of a nested object.

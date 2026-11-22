@@ -3042,6 +3042,7 @@ static yay_value_t *parse_nested_object(parse_ctx_t *ctx, size_t *idx,
 static yay_value_t *parse_object_property_value(parse_ctx_t *ctx, size_t *idx,
                                                  token_t *t, const char *v_part,
                                                  int v_col) {
+    int key_col = key_column(ctx, *idx);
     /* A tagged block: read the property without its tags, then tag the
      * value */
     if (v_part[0] == '(') {
@@ -3061,7 +3062,6 @@ static yay_value_t *parse_object_property_value(parse_ctx_t *ctx, size_t *idx,
         /* Below the root, the block must be indented under the key, or be a
          * list at its column: a sibling item or property after `- a: (t)` is
          * not its block */
-        int key_col = key_column(ctx, *idx);
         if (rest[0] == '\0' && key_col > 0) {
             size_t j = skip_breaks_and_stops(ctx, *idx + 1);
             if (j >= ctx->token_count || ctx->tokens[j].indent < key_col ||
@@ -3142,6 +3142,15 @@ static yay_value_t *parse_object_property_value(parse_ctx_t *ctx, size_t *idx,
     }
     
     token_t *next_t = &ctx->tokens[j];
+
+    /* A block array may stand at the key's column. Every other block value
+     * must be indented deeper, so a sibling item or property is no value. */
+    if (next_t->indent < key_col ||
+        (next_t->indent == key_col && next_t->type != TOKEN_START)) {
+        ctx->error = make_error(ctx, t->line_num, t->col + colon_idx + 1,
+                               "Expected value after property");
+        return NULL;
+    }
     
     /* Named array - pass next_t->indent so array stops at items below this level */
     if (next_t->type == TOKEN_START && strcmp(next_t->text, "- ") == 0) {

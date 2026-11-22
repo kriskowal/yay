@@ -1886,13 +1886,11 @@
                       (cond
                        ((and next (eq? (token-type next) 'start)
                              (string=? (token-text next) "-")
-                             (or (not tagged)
-                                 (>= (token-indent next) sibling-indent)))
+                             (>= (token-indent next) sibling-indent))
                         (let ((arr (parse-list-array-impl p (token-indent next))))
                           (loop (cons (cons key arr) pairs))))
                        ((and next (eq? (token-type next) 'text)
-                             (> (token-indent next)
-                                (if tagged sibling-indent current-indent)))
+                             (> (token-indent next) sibling-indent))
                         (let ((obj (parse-object-block p (token-indent next))))
                           (loop (cons (cons key obj) pairs))))
                        ;; Empty value is always an error

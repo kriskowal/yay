@@ -572,6 +572,8 @@
            "tagged-unknown-escape"
            "tagged-item-property-sibling-item"
            "tagged-item-property-sibling-property"
+           "untagged-item-property-sibling-item"
+           "untagged-item-property-sibling-property"
            "reference-as-key"
            "reference-as-key.e"
            "reference-bad-percent"

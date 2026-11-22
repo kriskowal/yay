@@ -1888,6 +1888,7 @@ function parseBlockBytes(tokens, i, ctx = {}, firstLineRaw, baseIndent) {
  */
 function parseObjectOrNamedArray(tokens, i, key, ctx = {}) {
   const keyToken = tokens[i];
+  const keyCol = keyToken.col ?? keyToken.indent ?? 0;
   const keyValue = splitKeyValue(
     keyToken.text,
     keyToken.col ?? 0,
@@ -1902,24 +1903,18 @@ function parseObjectOrNamedArray(tokens, i, key, ctx = {}) {
     i++;
   const baseIndent = i < tokens.length ? (tokens[i].indent ?? 0) : 0;
   const first = i < tokens.length ? tokens[i] : null;
-  // Check for empty property with no nested content
+  // A block array may stand at the key's column. Every other block value
+  // must be indented deeper, so a sibling item or property is no value.
   if (
     !first ||
-    (first.type === "text" && (first.indent ?? 0) <= (keyToken.indent ?? 0))
+    (first.indent ?? 0) < keyCol ||
+    ((first.indent ?? 0) === keyCol && first.type !== "start")
   ) {
-    // Check if the next token is a sibling property (same indent) or parent (lower indent)
-    // If so, this property has no value which is invalid
-    if (
-      !first ||
-      (first.type === "text" &&
-        splitKeyValue(first.text, first.col ?? 0, ctx, first.lineNum ?? 0))
-    ) {
-      const col = (keyToken.col ?? 0) + key.length + 1;
-      throw new Error(
-        "Expected value after property" +
-          locSuffix(ctx, keyToken.lineNum ?? 0, col),
-      );
-    }
+    const col = (keyToken.col ?? 0) + key.length + 1;
+    throw new Error(
+      "Expected value after property" +
+        locSuffix(ctx, keyToken.lineNum ?? 0, col),
+    );
   }
   if (first && first.type === "start" && first.text === "-") {
     const [arr, next] = parseListArray(tokens, i, ctx);
@@ -2190,6 +2185,26 @@ function parseObjectBlock(tokens, i, baseIndent, ctx = {}, inlineIndent) {
         )
           i++;
         const nextT = tokens[i];
+        // A block array may stand at the key's column. Every other block
+        // value must be indented deeper, so a sibling item or property is no
+        // value.
+        if (
+          !nextT ||
+          (nextT.indent ?? 0) < baseIndent ||
+          ((nextT.indent ?? 0) === baseIndent && nextT.type !== "start")
+        ) {
+          if (tags) {
+            throw prefixWithoutBlock(
+              ctx,
+              t.lineNum ?? 0,
+              keyValue.valueCol,
+            );
+          }
+          throw new Error(
+            "Expected value after property" +
+              locSuffix(ctx, t.lineNum ?? 0, (t.col ?? 0) + k.length + 1),
+          );
+        }
         if (nextT && nextT.type === "start" && nextT.text === "-") {
           // Pass baseIndent as minIndent so nested arrays stop at the object's level
           const [arr, next] = parseListArray(tokens, i, ctx, baseIndent);

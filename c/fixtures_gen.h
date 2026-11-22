@@ -1547,11 +1547,13 @@ static error_fixture_t error_fixtures[] = {
     {"unicode_invalid_nonchar_fdef", "unicode-invalid-nonchar-fdef.nay", "\357\267\257\n", 4, "Forbidden code point U+FDEF at 1:1 of <unicode-invalid-nonchar-fdef.nay>"},
     {"unicode_invalid_nonchar_fffe", "unicode-invalid-nonchar-fffe.nay", "\357\277\276\n", 4, "Forbidden code point U+FFFE at 1:1 of <unicode-invalid-nonchar-fffe.nay>"},
     {"unicode_invalid_nonchar_ffff", "unicode-invalid-nonchar-ffff.nay", "\357\277\277\n", 4, "Forbidden code point U+FFFF at 1:1 of <unicode-invalid-nonchar-ffff.nay>"},
+    {"untagged_item_property_sibling_item", "untagged-item-property-sibling-item.nay", "- a:\n- 1\n", 9, "Expected value after property at 1:5 of <untagged-item-property-sibling-item.nay>"},
+    {"untagged_item_property_sibling_property", "untagged-item-property-sibling-property.nay", "- a:\n  b: 1\n", 12, "Expected value after property at 1:5 of <untagged-item-property-sibling-property.nay>"},
     {"whitespace_invalid_tab", "whitespace-invalid-tab.nay", "\011x\n", 3, "Tab not allowed (use spaces) at 1:1 of <whitespace-invalid-tab.nay>"},
     {"whitespace_invalid_trailing_space", "whitespace-invalid-trailing-space.nay", "key: 1 \n", 8, "Unexpected trailing space at 1:7 of <whitespace-invalid-trailing-space.nay>"},
     {NULL, NULL, NULL, 0, NULL}
 };
 
-#define ERROR_FIXTURE_COUNT 153
+#define ERROR_FIXTURE_COUNT 155
 
 #endif /* FIXTURES_GEN_H */

@@ -435,6 +435,9 @@ impl<'a> MehParser<'a> {
             {
                 return Err("A tag before a value needs a block below it".to_string());
             }
+            if nested_item.value.is_none() && !self.flush_array_follows(indent + 2) {
+                return Err("Expected value after property".to_string());
+            }
             let mut block_items = vec![Item::Property(nested_item)];
             // Parse sibling items at the same level as the property
             let block = self.parse_block(indent)?;
@@ -2795,5 +2798,16 @@ mod tests {
             format_yay("\"日本\":  \"ü\"\n").unwrap(),
             "\"日本\": \"ü\"\n"
         );
+    }
+
+    #[test]
+    fn test_property_in_list_item_needs_a_value() {
+        for source in ["- a:\n- 1\n", "- a:\n  b: 1\n"] {
+            assert_eq!(
+                format_yay(source),
+                Err("Expected value after property".to_string())
+            );
+        }
+        assert_eq!(format_yay("- a:\n  - 1\n").unwrap(), "- a:\n  - 1\n");
     }
 }

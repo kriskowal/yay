@@ -2386,6 +2386,9 @@ fn parse_object_or_named_array(
     key: &str,
     ctx: &ParseContext,
 ) -> Result<(Value, usize)> {
+    let key_token = &tokens[i];
+    let key_col = key_column(tokens, i);
+    let colon_idx = find_colon_outside_quotes(&key_token.text).unwrap_or(key.len());
     i += 1;
 
     // Skip to next content
@@ -2402,13 +2405,27 @@ fn parse_object_or_named_array(
         return Err(
             ParseError::ExpectedValueAfterProperty(String::new()).with_location(
                 ctx,
-                0,
-                key.len() + 1,
+                key_token.line_num,
+                key_token.col + colon_idx + 1,
             ),
         );
     }
 
     let first = &tokens[i];
+
+    // A block array may stand at the key's column. Every other block value
+    // must be indented deeper, so a sibling item or property is no value.
+    if first.indent < key_col
+        || (first.indent == key_col && first.typ != TokenType::Start)
+    {
+        return Err(
+            ParseError::ExpectedValueAfterProperty(String::new()).with_location(
+                ctx,
+                key_token.line_num,
+                key_token.col + colon_idx + 1,
+            ),
+        );
+    }
 
     // Named array
     if first.typ == TokenType::Start && first.text == "- " {

@@ -1713,6 +1713,14 @@ public class Yay {
 
       Token next = tokens.get(pos);
 
+      // A block array may stand at the key's column. Every other block value must be
+      // indented deeper, so a sibling item or property is no value.
+      if (next.indent < t.indent
+          || (next.indent == t.indent && next.type != TokenType.START)) {
+        throw new YayException(
+            "Expected value after property", filename, t.lineNum + 1, t.col + colonIdx + 2);
+      }
+
       // Named array - pass next.indent so array stops at items below this level
       if (next.type == TokenType.START && (next.text.equals("- ") || next.text.equals("-"))) {
         return parseMultilineArrayImpl(next.indent);

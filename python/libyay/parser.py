@@ -841,17 +841,19 @@ class Parser:
 
             next_token = self.peek(1)
 
-            # Under a tag below the root, a sibling item or property is no
-            # block: "- a: (t)" over "- 1" or "  b: 1"
+            # A block array may stand at the key's column. Every other block
+            # value must be indented deeper, so a sibling item or property is
+            # no value.
             if (
-                prefix
-                and key_indent > 0
+                key_indent > 0
                 and (
                     child_indent < key_indent
                     or (child_indent == key_indent and next_token.kind != "DASH")
                 )
             ):
-                raise prefix_without_block()
+                if prefix:
+                    raise prefix_without_block()
+                raise missing_value()
 
             # For named arrays, the array can be at same indent as key
             # e.g., "arrayName:\n- item1\n- item2"
