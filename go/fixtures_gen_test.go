@@ -43,13 +43,19 @@ var fixtures = map[string]any{
 		map[string]any{"a": big.NewInt(1)},
 		map[string]any{"b": "c: d"},
 	},
-	"array-inline-singlequote": []any{"a", "b"},
+	"array-inline-singlequote":              []any{"a", "b"},
+	"array-item-doublequote-then-comment":   []any{"abc"},
+	"array-item-inline-array-then-comment":  []any{[]any{big.NewInt(1), "b"}},
+	"array-item-inline-bytes-then-comment":  []any{[]byte{0xff}},
+	"array-item-inline-object-then-comment": []any{map[string]any{"a": big.NewInt(1)}},
+	"array-item-keyword-then-comment":       []any{true, nil},
 	"array-item-nested-object-then-item": map[string]any{
 		"steps": []any{
 			map[string]any{"run": map[string]any{"command": "make"}},
 			"a plain item after an item holding an object",
 		},
 	},
+	"array-item-number-then-comment": []any{big.NewInt(42), 6.5},
 	"array-item-object-empty-key": map[string]any{
 		"items": []any{
 			map[string]any{"": "the empty key opens this item", "b": big.NewInt(2)},
@@ -61,7 +67,10 @@ var fixtures = map[string]any{
 			map[string]any{"born": big.NewInt(1906), "full name": "Grace Hopper"},
 		},
 	},
-	"array-multiline": []any{big.NewInt(5), big.NewInt(3)},
+	"array-item-reference-then-comment":   []any{Reference("https://example.com/")},
+	"array-item-singlequote-then-comment": []any{"abc"},
+	"array-item-tagged-then-comment":      []any{Tagged{Tag: "t", Payload: big.NewInt(1)}},
+	"array-multiline":                     []any{big.NewInt(5), big.NewInt(3)},
 	"array-multiline-named": map[string]any{
 		"complaints": []any{
 			"I didn't vote for you.",
@@ -291,6 +300,9 @@ var fixtures = map[string]any{
 	"object-nested-quoted-key-first": map[string]any{
 		"meta": map[string]any{"A quoted key": "first in its object", "b": big.NewInt(2)},
 	},
+	"object-proto-key":        map[string]any{"__proto__": map[string]any{"polluted": true}},
+	"object-proto-key-inline": map[string]any{"a": map[string]any{"__proto__": map[string]any{"polluted": true}}},
+	"object-proto-key-quoted": map[string]any{"__proto__": big.NewInt(1)},
 	"object-quoted-key-escapes": map[string]any{
 		"":            "the empty key",
 		"a\"b":        "an escaped quote",
@@ -436,6 +448,9 @@ var fixtures = map[string]any{
 	"string-inline-singlequote-basic":                  "Are you suggesting coconuts migrate?",
 	"string-inline-singlequote-doublequote":            "He said \"yay.\" and left.",
 	"string-multiline-concat":                          map[string]any{"confession": "I'm not dead yet. I feel happy!"},
+	"string-singlequote-escapes":                       map[string]any{"backslash": "a\\b", "end": "a\\", "other": "a\\nb\\u{41}\\\"c\\t", "quote": "a'b"},
+	"string-singlequote-escapes-in-array":              []any{"a'b", "a\\b", "a\\nb"},
+	"string-singlequote-escapes-in-key":                map[string]any{"a'b": big.NewInt(1), "a\\b": big.NewInt(2), "a\\nb": big.NewInt(3)},
 	"tagged-block-bytes-item-same-line": []any{
 		Tagged{Tag: "sha256", Payload: []byte{0x89, 0x50, 0x4e, 0x47}},
 	},

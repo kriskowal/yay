@@ -70,6 +70,26 @@ static yay_value_t *make_expected_array_inline_singlequote(void) {
     return YAY_ARRAY(yay_string("a"), yay_string("b"));
 }
 
+static yay_value_t *make_expected_array_item_doublequote_then_comment(void) {
+    return YAY_ARRAY(yay_string("abc"));
+}
+
+static yay_value_t *make_expected_array_item_inline_array_then_comment(void) {
+    return YAY_ARRAY(YAY_ARRAY(yay_int(1), yay_string("b")));
+}
+
+static yay_value_t *make_expected_array_item_inline_bytes_then_comment(void) {
+    return YAY_ARRAY(yay_bytes_from_hex("ff"));
+}
+
+static yay_value_t *make_expected_array_item_inline_object_then_comment(void) {
+    return YAY_ARRAY(YAY_OBJECT("a", yay_int(1)));
+}
+
+static yay_value_t *make_expected_array_item_keyword_then_comment(void) {
+    return YAY_ARRAY(yay_bool(true), yay_null());
+}
+
 static yay_value_t *make_expected_array_item_nested_object_then_item(void) {
     return YAY_OBJECT(
     "steps", YAY_ARRAY(
@@ -77,6 +97,10 @@ static yay_value_t *make_expected_array_item_nested_object_then_item(void) {
         yay_string("a plain item after an item holding an object")
     )
 );
+}
+
+static yay_value_t *make_expected_array_item_number_then_comment(void) {
+    return YAY_ARRAY(yay_int(42), yay_float(6.5));
 }
 
 static yay_value_t *make_expected_array_item_object_empty_key(void) {
@@ -103,6 +127,18 @@ static yay_value_t *make_expected_array_item_object_quoted_key(void) {
         )
     )
 );
+}
+
+static yay_value_t *make_expected_array_item_reference_then_comment(void) {
+    return YAY_ARRAY(yay_reference("https://example.com/"));
+}
+
+static yay_value_t *make_expected_array_item_singlequote_then_comment(void) {
+    return YAY_ARRAY(yay_string("abc"));
+}
+
+static yay_value_t *make_expected_array_item_tagged_then_comment(void) {
+    return YAY_ARRAY(yay_tagged("t", yay_int(1)));
 }
 
 static yay_value_t *make_expected_array_multiline_named(void) {
@@ -649,6 +685,18 @@ static yay_value_t *make_expected_object_nested_quoted_key_first(void) {
 );
 }
 
+static yay_value_t *make_expected_object_proto_key_inline(void) {
+    return YAY_OBJECT("a", YAY_OBJECT("__proto__", YAY_OBJECT("polluted", yay_bool(true))));
+}
+
+static yay_value_t *make_expected_object_proto_key_quoted(void) {
+    return YAY_OBJECT("__proto__", yay_int(1));
+}
+
+static yay_value_t *make_expected_object_proto_key(void) {
+    return YAY_OBJECT("__proto__", YAY_OBJECT("polluted", yay_bool(true)));
+}
+
 static yay_value_t *make_expected_object_quoted_key_escapes(void) {
     return YAY_OBJECT(
     "", yay_string("the empty key"),
@@ -962,6 +1010,18 @@ static yay_value_t *make_expected_string_multiline_concat(void) {
     return YAY_OBJECT("confession", yay_string("I'm not dead yet. I feel happy!"));
 }
 
+static yay_value_t *make_expected_string_singlequote_escapes_in_array(void) {
+    return YAY_ARRAY(yay_string("a'b"), yay_string("a\\b"), yay_string("a\\nb"));
+}
+
+static yay_value_t *make_expected_string_singlequote_escapes_in_key(void) {
+    return YAY_OBJECT("a'b", yay_int(1), "a\\b", yay_int(2), "a\\nb", yay_int(3));
+}
+
+static yay_value_t *make_expected_string_singlequote_escapes(void) {
+    return YAY_OBJECT("backslash", yay_string("a\\b"), "end", yay_string("a\\"), "other", yay_string("a\\nb\\u{41}\\\"c\\t"), "quote", yay_string("a'b"));
+}
+
 static yay_value_t *make_expected_tagged_block_bytes_item_same_line(void) {
     return YAY_ARRAY(yay_tagged("sha256", yay_bytes_from_hex("89504e47")));
 }
@@ -1211,9 +1271,18 @@ static test_fixture_t test_fixtures[] = {
     {"array_inline_nested", "[[\"I feel happy!\", \"yay.\"], [\"And there was much rejoicing.\", \"yay.\"]]\n", make_expected_array_inline_nested},
     {"array_inline_object_root", "[{a: 1}, {b: 'c: d'}]\n", make_expected_array_inline_object_root},
     {"array_inline_singlequote", "['a', 'b']\n", make_expected_array_inline_singlequote},
+    {"array_item_doublequote_then_comment", "- \"abc\"  # it's\n", make_expected_array_item_doublequote_then_comment},
+    {"array_item_inline_array_then_comment", "- [1, 'b']  # it's\n", make_expected_array_item_inline_array_then_comment},
+    {"array_item_inline_bytes_then_comment", "- <ff>  # it's\n", make_expected_array_item_inline_bytes_then_comment},
+    {"array_item_inline_object_then_comment", "- {a: 1}  # it's\n", make_expected_array_item_inline_object_then_comment},
+    {"array_item_keyword_then_comment", "- true  # it's\n- null  # it's\n", make_expected_array_item_keyword_then_comment},
     {"array_item_nested_object_then_item", "steps:\n  - run:\n      command: \"make\"\n  - \"a plain item after an item holding an object\"\n", make_expected_array_item_nested_object_then_item},
+    {"array_item_number_then_comment", "- 42  # it's\n- 6.5  # it's\n", make_expected_array_item_number_then_comment},
     {"array_item_object_empty_key", "items:\n  - \"\": \"the empty key opens this item\"\n    b: 2\n", make_expected_array_item_object_empty_key},
     {"array_item_object_quoted_key", "people:\n  - \"full name\": \"Ada Lovelace\"\n    born: 1815\n  - born: 1906\n    \"full name\": \"Grace Hopper\"\n", make_expected_array_item_object_quoted_key},
+    {"array_item_reference_then_comment", "- <https://example.com/>  # it's\n", make_expected_array_item_reference_then_comment},
+    {"array_item_singlequote_then_comment", "- 'abc'  # it's\n", make_expected_array_item_singlequote_then_comment},
+    {"array_item_tagged_then_comment", "- 1 (t)  # it's\n", make_expected_array_item_tagged_then_comment},
     {"array_multiline_named", "complaints:\n- \"I didn't vote for you.\"\n- \"Help, help, I'm being repressed!\"\n", make_expected_array_multiline_named},
     {"array_multiline_nested_multiline_object", "- x: 10\n  y: 20\n- x: 30\n  y: 40\n", make_expected_array_multiline_nested_multiline_object},
     {"array_multiline_nested", "- - \"a\"\n  - \"b\"\n- - 1\n  - 2\n", make_expected_array_multiline_nested},
@@ -1227,7 +1296,7 @@ static test_fixture_t test_fixtures[] = {
     {"bytearray_block_basic", "> b0b5\n  c0ff\n", make_expected_bytearray_block_basic},
     {"bytearray_block_comment_only", "> # header comment\n  b0b5 c0ff\n", make_expected_bytearray_block_comment_only},
     {"bytearray_block_deeply_nested", "level1:\n  level2:\n    data: >\n      b0b5 c0ff\n", make_expected_bytearray_block_deeply_nested},
-    {"bytearray_block_hex_and_comment", "> b0b5 # first chunk\n  c0ff # second chunk\n", make_expected_bytearray_block_hex_and_comment},
+    {"bytearray_block_hex_and_comment", "> b0b5  # first chunk\n  c0ff  # second chunk\n", make_expected_bytearray_block_hex_and_comment},
     {"bytearray_block_nested_property", "outer:\n  data: >\n    b0b5 c0ff\n    eefa cade\n", make_expected_bytearray_block_nested_property},
     {"bytearray_block_property_comment", "data: > # raw bytes\n  b0b5 c0ff\n", make_expected_bytearray_block_property_comment},
     {"bytearray_block_property", "data: >\n  b0b5 c0ff\n  eefa cade\n", make_expected_bytearray_block_property},
@@ -1306,6 +1375,9 @@ static test_fixture_t test_fixtures[] = {
     {"object_nested_empty_inline", "outer:\n  inner: {}\n", make_expected_object_nested_empty_inline},
     {"object_nested_empty_property", "outer:\n  inner: {}\n", make_expected_object_nested_empty_property},
     {"object_nested_quoted_key_first", "meta:\n  \"A quoted key\": \"first in its object\"\n  b: 2\n", make_expected_object_nested_quoted_key_first},
+    {"object_proto_key_inline", "a: {__proto__: {polluted: true}}\n", make_expected_object_proto_key_inline},
+    {"object_proto_key_quoted", "\"__proto__\": 1\n", make_expected_object_proto_key_quoted},
+    {"object_proto_key", "__proto__:\n  polluted: true\n", make_expected_object_proto_key},
     {"object_quoted_key_escapes", "\"\": \"the empty key\"\n\"a\\\"b\": \"an escaped quote\"\n\"a\\\\b\": \"an escaped backslash\"\n\"a/b\": \"a slash\"\n\"line\\nbreak\": \"an escaped newline\"\n", make_expected_object_quoted_key_escapes},
     {"reference_block_array", "- <https://a.example/x>\n- <urn:isbn:0451450523>\n", make_expected_reference_block_array},
     {"reference_delimiters_inside", "q: [<https://x.example/a,b]c?e=(f)&g='h'>, 1]\n", make_expected_reference_delimiters_inside},
@@ -1356,6 +1428,9 @@ static test_fixture_t test_fixtures[] = {
     {"string_inline_singlequote_basic", "'Are you suggesting coconuts migrate?'\n", make_expected_string_inline_singlequote_basic},
     {"string_inline_singlequote_doublequote", "'He said \"yay.\" and left.'\n", make_expected_string_inline_singlequote_doublequote},
     {"string_multiline_concat", "confession:\n  \"I'm not dead yet. \"\n  \"I feel happy!\"\n", make_expected_string_multiline_concat},
+    {"string_singlequote_escapes_in_array", "- 'a\\'b'\n- 'a\\\\b'\n- 'a\\nb'\n", make_expected_string_singlequote_escapes_in_array},
+    {"string_singlequote_escapes_in_key", "'a\\'b': 1\n'a\\\\b': 2\n'a\\nb': 3\n", make_expected_string_singlequote_escapes_in_key},
+    {"string_singlequote_escapes", "quote: 'a\\'b'\nbackslash: 'a\\\\b'\nend: 'a\\\\'\nother: 'a\\nb\\u{41}\\\"c\\t'\n", make_expected_string_singlequote_escapes},
     {"tagged_block_bytes_item_same_line", "- (sha256) > 89 50\n  4e 47\n", make_expected_tagged_block_bytes_item_same_line},
     {"tagged_block_bytes_property", "sum: (sha256) >\n  89 50 4e 47\n  0d 0a\n", make_expected_tagged_block_bytes_property},
     {"tagged_block_concatenated_string", "msg: (note)\n  \"Hello, \"\n  'world.'\n", make_expected_tagged_block_concatenated_string},
@@ -1393,7 +1468,7 @@ static test_fixture_t test_fixtures[] = {
     {NULL, NULL, NULL}
 };
 
-#define TEST_FIXTURE_COUNT 187
+#define TEST_FIXTURE_COUNT 202
 
 static error_fixture_t error_fixtures[] = {
     {"array_as_key", "array-as-key.nay", "[1]: 2\n", 7, "Unexpected character \":\" at 1:4 of <array-as-key.nay>"},
@@ -1404,6 +1479,15 @@ static error_fixture_t error_fixtures[] = {
     {"array_inline_invalid_space_before_comma", "array-inline-invalid-space-before-comma.nay", "[1 ,2]\n", 7, "Unexpected space before \",\" at 1:3 of <array-inline-invalid-space-before-comma.nay>"},
     {"array_inline_invalid_tab", "array-inline-invalid-tab.nay", "[1,\0112]\n", 7, "Tab not allowed (use spaces) at 1:4 of <array-inline-invalid-tab.nay>"},
     {"array_inline_property_invalid_next_line", "array-inline-property-invalid-next-line.nay", "i:\n  [1, 2, 3]\n", 15, "Unexpected indent at 2:1 of <array-inline-property-invalid-next-line.nay>"},
+    {"array_item_doublequote_comment_one_space", "array-item-doublequote-comment-one-space.nay", "- \"abc\" # c\n", 12, "Expected two spaces before a comment at 1:9 of <array-item-doublequote-comment-one-space.nay>"},
+    {"array_item_inline_array_comment_one_space", "array-item-inline-array-comment-one-space.nay", "- [1] # c\n", 10, "Expected two spaces before a comment at 1:7 of <array-item-inline-array-comment-one-space.nay>"},
+    {"array_item_inline_bytes_comment_one_space", "array-item-inline-bytes-comment-one-space.nay", "- <ff> # c\n", 11, "Expected two spaces before a comment at 1:8 of <array-item-inline-bytes-comment-one-space.nay>"},
+    {"array_item_inline_object_comment_one_space", "array-item-inline-object-comment-one-space.nay", "- {a: 1} # c\n", 13, "Expected two spaces before a comment at 1:10 of <array-item-inline-object-comment-one-space.nay>"},
+    {"array_item_keyword_comment_one_space", "array-item-keyword-comment-one-space.nay", "- true # c\n", 11, "Expected two spaces before a comment at 1:8 of <array-item-keyword-comment-one-space.nay>"},
+    {"array_item_number_comment_one_space", "array-item-number-comment-one-space.nay", "- 42 # c\n", 9, "Expected two spaces before a comment at 1:6 of <array-item-number-comment-one-space.nay>"},
+    {"array_item_reference_comment_one_space", "array-item-reference-comment-one-space.nay", "- <https://example.com/> # c\n", 29, "Expected two spaces before a comment at 1:26 of <array-item-reference-comment-one-space.nay>"},
+    {"array_item_singlequote_comment_one_space", "array-item-singlequote-comment-one-space.nay", "- 'abc' # c\n", 12, "Expected two spaces before a comment at 1:9 of <array-item-singlequote-comment-one-space.nay>"},
+    {"array_item_tagged_comment_one_space", "array-item-tagged-comment-one-space.nay", "- 1 (t) # c\n", 12, "Expected two spaces before a comment at 1:9 of <array-item-tagged-comment-one-space.nay>"},
     {"array_multiline_invalid_compact", "array-multiline-invalid-compact.nay", "-a\n-b\n-c\n", 9, "Expected space after \"-\" at 1:2 of <array-multiline-invalid-compact.nay>"},
     {"array_multiline_invalid_leading_space", "array-multiline-invalid-leading-space.nay", "-  1\n", 5, "Unexpected leading space at 1:3 of <array-multiline-invalid-leading-space.nay>"},
     {"array_multiline_invalid_nested_space", "array-multiline-invalid-nested-space.nay", "- -  a\n  - b\n", 13, "Unexpected space after \"-\" at 1:5 of <array-multiline-invalid-nested-space.nay>"},
@@ -1414,9 +1498,13 @@ static error_fixture_t error_fixtures[] = {
     {"bytearray_as_key_in_list", "bytearray-as-key-in-list.nay", "- <ff>: 1\n", 10, "Unexpected character \":\" at 1:7 of <bytearray-as-key-in-list.nay>"},
     {"bytearray_as_key_in_object_in_array", "bytearray-as-key-in-object-in-array.nay", "[{<ff>: 1}]\n", 12, "Invalid key at 1:2 of <bytearray-as-key-in-object-in-array.nay>"},
     {"bytearray_as_key", "bytearray-as-key.nay", "<ff>: 1\n", 8, "Unexpected character \":\" at 1:5 of <bytearray-as-key.nay>"},
+    {"bytearray_block_comment_one_space", "bytearray-block-comment-one-space.nay", "> ff # c\n", 9, "Expected two spaces before a comment at 1:6 of <bytearray-block-comment-one-space.nay>"},
     {"bytearray_block_invalid_empty_leader", "bytearray-block-invalid-empty-leader.nay", ">\n  b0b5\n", 9, "Expected hex or comment in hex block"},
+    {"bytearray_block_invalid_uppercase_hex", "bytearray-block-invalid-uppercase-hex.nay", "> FF\n", 5, "Uppercase hex digit (use lowercase) at 1:3 of <bytearray-block-invalid-uppercase-hex.nay>"},
+    {"bytearray_block_property_comment_one_space", "bytearray-block-property-comment-one-space.nay", "x: >\n  ff # c\n", 14, "Expected two spaces before a comment at 2:6 of <bytearray-block-property-comment-one-space.nay>"},
     {"bytearray_block_property_invalid_leader_next_line", "bytearray-block-property-invalid-leader-next-line.nay", "i:\n  >\n    cafe\n    babe\n", 25, "Unexpected indent at 2:1 of <bytearray-block-property-invalid-leader-next-line.nay>"},
     {"bytearray_block_property_invalid_same_line", "bytearray-block-property-invalid-same-line.nay", "data: > b0b5\n  c0ff\n", 20, "Expected newline after block leader in property"},
+    {"bytearray_block_property_invalid_uppercase_hex", "bytearray-block-property-invalid-uppercase-hex.nay", "x: >\n  FF\n", 10, "Uppercase hex digit (use lowercase) at 2:3 of <bytearray-block-property-invalid-uppercase-hex.nay>"},
     {"bytearray_inline_in_array_space_after_open", "bytearray-inline-in-array-space-after-open.nay", "[< ff>]\n", 8, "Unexpected space after \"<\" at 1:3 of <bytearray-inline-in-array-space-after-open.nay>"},
     {"bytearray_inline_in_item_space_after_open", "bytearray-inline-in-item-space-after-open.nay", "- < ff>\n", 8, "Unexpected space after \"<\" at 1:4 of <bytearray-inline-in-item-space-after-open.nay>"},
     {"bytearray_inline_in_nested_item_space_after_open", "bytearray-inline-in-nested-item-space-after-open.nay", "a:\n  - - < ff>\n", 15, "Unexpected space after \"<\" at 2:8 of <bytearray-inline-in-nested-item-space-after-open.nay>"},
@@ -1465,6 +1553,7 @@ static error_fixture_t error_fixtures[] = {
     {"object_multiline_invalid_value_space", "object-multiline-invalid-value-space.nay", "key:  1\n", 8, "Unexpected space after \":\" at 1:6 of <object-multiline-invalid-value-space.nay>"},
     {"object_nested_key_space_after_colon", "object-nested-key-space-after-colon.nay", "a:\n  b:  1\n", 11, "Unexpected space after \":\" at 2:6 of <object-nested-key-space-after-colon.nay>"},
     {"object_nested_key_space_before_colon", "object-nested-key-space-before-colon.nay", "a:\n  b : 1\n", 11, "Unexpected space before \":\" at 2:4 of <object-nested-key-space-before-colon.nay>"},
+    {"object_property_comment_one_space", "object-property-comment-one-space.nay", "a: 1 # c\n", 9, "Expected two spaces before a comment at 1:6 of <object-property-comment-one-space.nay>"},
     {"reference_as_key", "reference-as-key.nay", "<https://x>: 1\n", 15, "Unexpected character \":\" at 1:12 of <reference-as-key.nay>"},
     {"reference_bad_percent", "reference-bad-percent.nay", "a: <https://x/%zz>\n", 19, "Bad percent-encoding in reference (use % and two hex digits) at 1:15 of <reference-bad-percent.nay>"},
     {"reference_block_form", "reference-block-form.nay", "a: >\n  https://x\n", 17, "Odd number of hex digits in byte literal at 1:1 of <reference-block-form.nay>"},
@@ -1484,8 +1573,15 @@ static error_fixture_t error_fixtures[] = {
     {"string_block_invalid_empty", "string-block-invalid-empty.nay", "name: `\n`\n", 10, "Empty block string not allowed (use \"\" or \"\\n\" explicitly)"},
     {"string_block_invalid_tab", "string-block-invalid-tab.nay", "message: `\n  hello\011world\n", 25, "Tab not allowed (use spaces) at 2:8 of <string-block-invalid-tab.nay>"},
     {"string_block_invalid_trailing_space", "string-block-invalid-trailing-space.nay", "message: `\n  hello world \n", 26, "Unexpected trailing space at 2:14 of <string-block-invalid-trailing-space.nay>"},
+    {"string_block_property_comment_after_backtick", "string-block-property-comment-after-backtick.nay", "a: `  # c\n  text\n", 17, "Expected newline after block leader in property"},
+    {"string_block_property_empty_at_end", "string-block-property-empty-at-end.nay", "a: `\n", 5, "Empty block string not allowed (use \"\" or \"\\n\" explicitly)"},
+    {"string_block_property_empty_in_item", "string-block-property-empty-in-item.nay", "- a: `\n", 7, "Empty block string not allowed (use \"\" or \"\\n\" explicitly)"},
+    {"string_block_property_empty_nested", "string-block-property-empty-nested.nay", "x:\n  a: `\n  b: 1\n", 17, "Empty block string not allowed (use \"\" or \"\\n\" explicitly)"},
+    {"string_block_property_empty_then_property", "string-block-property-empty-then-property.nay", "a: `\nb: 1\n", 10, "Empty block string not allowed (use \"\" or \"\\n\" explicitly)"},
+    {"string_block_property_in_item_comment_after_backtick", "string-block-property-in-item-comment-after-backtick.nay", "- a: `  # c\n    text\n", 21, "Expected newline after block leader in property"},
     {"string_block_property_invalid_leader_next_line", "string-block-property-invalid-leader-next-line.nay", "i:\n  `\n    Should\n    not\n    be.\n", 34, "Unexpected indent at 2:1 of <string-block-property-invalid-leader-next-line.nay>"},
     {"string_block_property_invalid_same_line", "string-block-property-invalid-same-line.nay", "message: ` Hello\n  World\n", 25, "Expected newline after block leader in property"},
+    {"string_block_property_nested_comment_after_backtick", "string-block-property-nested-comment-after-backtick.nay", "x:\n  a: `  # c\n    text\n", 24, "Expected newline after block leader in property"},
     {"string_inline_doublequote_invalid_escape_x", "string-inline-doublequote-invalid-escape-x.nay", "\"\\x\"\n", 5, "Bad escaped character at 1:3 of <string-inline-doublequote-invalid-escape-x.nay>"},
     {"string_inline_doublequote_invalid_unicode_empty", "string-inline-doublequote-invalid-unicode-empty.nay", "\"\\u{}\"\n", 7, "Bad Unicode escape at 1:4 of <string-inline-doublequote-invalid-unicode-empty.nay>"},
     {"string_inline_doublequote_invalid_unicode_hex", "string-inline-doublequote-invalid-unicode-hex.nay", "\"\\u{ZZZZ}\"\n", 11, "Bad Unicode escape at 1:4 of <string-inline-doublequote-invalid-unicode-hex.nay>"},
@@ -1496,6 +1592,9 @@ static error_fixture_t error_fixtures[] = {
     {"string_inline_invalid_control_char", "string-inline-invalid-control-char.nay", "\"hello\007world\"\n", 14, "Forbidden code point U+0007 at 1:7 of <string-inline-invalid-control-char.nay>"},
     {"string_inline_invalid_multiline", "string-inline-invalid-multiline.nay", "\"hello\nworld\"\n", 14, "Unterminated string at 1:6 of <string-inline-invalid-multiline.nay>"},
     {"string_inline_property_invalid_next_line", "string-inline-property-invalid-next-line.nay", "i:\n  \"hello\"\n", 13, "Unexpected indent at 2:1 of <string-inline-property-invalid-next-line.nay>"},
+    {"string_lone_doublequote_under_key", "string-lone-doublequote-under-key.nay", "a:\n  \"\n", 7, "Unexpected indent at 2:1 of <string-lone-doublequote-under-key.nay>"},
+    {"string_singlequote_unclosed_in_array", "string-singlequote-unclosed-in-array.nay", "- 'abc\n", 7, "Unterminated string at 1:6 of <string-singlequote-unclosed-in-array.nay>"},
+    {"string_singlequote_unclosed_property", "string-singlequote-unclosed-property.nay", "a: 'abc\n", 8, "Unterminated string at 1:7 of <string-singlequote-unclosed-property.nay>"},
     {"tagged_bang_is_not_a_sigil", "tagged-bang-is-not-a-sigil.nay", "a: 1 !rgb\n", 10, "Unexpected character \"1\" at 1:4 of <tagged-bang-is-not-a-sigil.nay>"},
     {"tagged_bare_word_over_block", "tagged-bare-word-over-block.nay", "a: rgb\n  - 1\n", 13, "Unexpected character \"r\" at 1:4 of <tagged-bare-word-over-block.nay>"},
     {"tagged_bare_word_tag", "tagged-bare-word-tag.nay", "a: 1 rgb\n", 9, "Unexpected character \"1\" at 1:4 of <tagged-bare-word-tag.nay>"},
@@ -1554,6 +1653,6 @@ static error_fixture_t error_fixtures[] = {
     {NULL, NULL, NULL, 0, NULL}
 };
 
-#define ERROR_FIXTURE_COUNT 155
+#define ERROR_FIXTURE_COUNT 179
 
 #endif /* FIXTURES_GEN_H */

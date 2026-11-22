@@ -826,8 +826,8 @@ Hex and comments on the same lines for inline documentation of byte sequences.
 
 [bytearray-block-hex-and-comment.yay](test/yay/bytearray-block-hex-and-comment.yay)
 ```yay
-> b0b5 # first chunk
-  c0ff # second chunk
+> b0b5  # first chunk
+  c0ff  # second chunk
 ```
 
 [bytearray-block-hex-and-comment.js](test/js/bytearray-block-hex-and-comment.js)

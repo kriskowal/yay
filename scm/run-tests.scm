@@ -436,7 +436,22 @@
            "reference-tagged-in-array"
            "reference-then-comment"
            "reference-unchanged-in-strings"
-           "reference-under-block-tag")))
+           "reference-under-block-tag"
+           "array-item-doublequote-then-comment"
+           "array-item-inline-array-then-comment"
+           "array-item-inline-bytes-then-comment"
+           "array-item-inline-object-then-comment"
+           "array-item-keyword-then-comment"
+           "array-item-number-then-comment"
+           "array-item-reference-then-comment"
+           "array-item-singlequote-then-comment"
+           "array-item-tagged-then-comment"
+           "object-proto-key-inline"
+           "object-proto-key-quoted"
+           "object-proto-key"
+           "string-singlequote-escapes-in-array"
+           "string-singlequote-escapes-in-key"
+           "string-singlequote-escapes")))
     (for-each
      (lambda (name)
        (let ((yay-path (string-append test-dir "/yay/" name ".yay"))
@@ -619,7 +634,31 @@
            "object-inline-in-list-space-before-close"
            "bytearray-as-key-in-object-in-array"
            "object-in-array-space-before-close"
-           "array-as-key")))
+           "array-as-key"
+           "array-item-doublequote-comment-one-space"
+           "array-item-inline-array-comment-one-space"
+           "array-item-inline-bytes-comment-one-space"
+           "array-item-inline-object-comment-one-space"
+           "array-item-keyword-comment-one-space"
+           "array-item-number-comment-one-space"
+           "array-item-reference-comment-one-space"
+           "array-item-singlequote-comment-one-space"
+           "array-item-tagged-comment-one-space"
+           "bytearray-block-comment-one-space"
+           "bytearray-block-invalid-uppercase-hex"
+           "bytearray-block-property-comment-one-space"
+           "bytearray-block-property-invalid-uppercase-hex"
+           "object-property-comment-one-space"
+           "string-block-property-comment-after-backtick"
+           "string-block-property-empty-at-end"
+           "string-block-property-empty-in-item"
+           "string-block-property-empty-nested"
+           "string-block-property-empty-then-property"
+           "string-block-property-in-item-comment-after-backtick"
+           "string-block-property-nested-comment-after-backtick"
+           "string-lone-doublequote-under-key"
+           "string-singlequote-unclosed-in-array"
+           "string-singlequote-unclosed-property")))
     (for-each
      (lambda (name)
        (let ((nay-path (string-append test-dir "/nay/" name ".nay")))

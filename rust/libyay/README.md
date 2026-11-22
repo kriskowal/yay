@@ -788,8 +788,8 @@ Value::Bytes(vec![0xb0, 0xb5, 0xc0, 0xff])
 
 [bytearray-block-hex-and-comment.yay](https://github.com/kriskowal/yay/blob/main/test/yay/bytearray-block-hex-and-comment.yay)
 ```yay
-> b0b5 # first chunk
-  c0ff # second chunk
+> b0b5  # first chunk
+  c0ff  # second chunk
 ```
 
 [bytearray-block-hex-and-comment.rs](https://github.com/kriskowal/yay/blob/main/test/rs/bytearray-block-hex-and-comment.rs)

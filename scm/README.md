@@ -783,8 +783,8 @@ At root level, hex may appear on the same line after `> `.
 
 [bytearray-block-hex-and-comment.yay](https://github.com/kriskowal/yay/blob/main/test/yay/bytearray-block-hex-and-comment.yay)
 ```yay
-> b0b5 # first chunk
-  c0ff # second chunk
+> b0b5  # first chunk
+  c0ff  # second chunk
 ```
 
 [bytearray-block-hex-and-comment.scm](https://github.com/kriskowal/yay/blob/main/test/scm/bytearray-block-hex-and-comment.scm)
