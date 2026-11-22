@@ -159,7 +159,7 @@
   (check (yay-equal? (parse-yay "- (a)\n  - (b)\n    k: 'v'\n")
                      (vector (make-tagged "a" (vector (make-tagged "b" (list (cons "k" "v")))))))
          "tagged blocks within tagged blocks")
-  (check (yay-equal? (parse-yay "a: 1 (t) # note\n")
+  (check (yay-equal? (parse-yay "a: 1 (t)  # note\n")
                      (list (cons "a" (make-tagged "t" 1))))
          "a comment after a tag")
   (for-each

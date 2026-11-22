@@ -739,13 +739,26 @@
                 (cond
                  ((and (char=? ch #\\)
                        (< (+ i 1) (string-length inner))
-                       (char=? (string-ref inner (+ i 1)) #\'))
-                  (loop (+ i 2) (cons #\' acc)))
+                       (memv (string-ref inner (+ i 1)) '(#\' #\\)))
+                  (loop (+ i 2) (cons (string-ref inner (+ i 1)) acc)))
                  ;; The string ends here, and something follows it
                  ((char=? ch #\')
                   (yay-error "Unexpected character after string"))
                  (else
                   (loop (+ i 1) (cons ch acc))))))))))
+
+;; The hex of one block-bytes line, before any comment. A comment after
+;; hex takes two spaces before its "#"; one is refused.
+(define (hex-line-body line)
+  (let ((hash-idx (string-index line #\#)))
+    (cond
+     ((not hash-idx) line)
+     ((and (> hash-idx 0)
+           (char=? (string-ref line (- hash-idx 1)) #\space)
+           (or (< hash-idx 2)
+               (not (char=? (string-ref line (- hash-idx 2)) #\space))))
+      (yay-error "Expected two spaces before a comment"))
+     (else (substring line 0 hash-idx)))))
 
 ;; Parse hex bytes - returns a tagged bytevector
 (define (parse-hex-bytes hex-str)
@@ -1220,6 +1233,9 @@
            ;; Nor is a reference's
            ((skip-reference s i) => (lambda (end) (loop end #f)))
            ((and (char=? c #\#) (> i 0) (char=? (string-ref s (- i 1)) #\space))
+            ;; Two spaces before the "#"; one is refused
+            (when (or (< i 2) (not (char=? (string-ref s (- i 2)) #\space)))
+              (yay-error "Expected two spaces before a comment"))
             (let trim ((j (- i 1)))
               (if (and (> j 0) (char=? (string-ref s (- j 1)) #\space))
                   (trim (- j 1))
@@ -1487,10 +1503,7 @@
                        (substring first-line 2 (string-length first-line))
                        (substring first-line 1 (string-length first-line)))))
     ;; Remove comment if present
-    (let ((hex-clean (let ((hash-idx (string-index hex-start #\#)))
-                       (if hash-idx
-                           (substring hex-start 0 hash-idx)
-                           hex-start))))
+    (let ((hex-clean (hex-line-body hex-start)))
       ;; Validate: empty leader (just >) without comment is error
       (when (and (string=? (string-trim hex-clean) "")
                  (not (string-index hex-start #\#)))
@@ -1502,10 +1515,7 @@
                    (eq? (token-type t) 'text)
                    (> (token-indent t) base-indent))
               (let* ((line (token-text t))
-                     (line-clean (let ((hash-idx (string-index line #\#)))
-                                   (if hash-idx
-                                       (substring line 0 hash-idx)
-                                       line))))
+                     (line-clean (hex-line-body line)))
                 (parser-advance! p)
                 (loop (string-append hex line-clean) base-indent))
               (parse-hex-bytes hex)))))))
@@ -1563,10 +1573,7 @@
                        (substring first-line 2 (string-length first-line))
                        (substring first-line 1 (string-length first-line)))))
     ;; Remove comment if present
-    (let ((hex-clean (let ((hash-idx (string-index hex-start #\#)))
-                       (if hash-idx
-                           (substring hex-start 0 hash-idx)
-                           hex-start))))
+    (let ((hex-clean (hex-line-body hex-start)))
       ;; Validate: no hex content on same line as property (must be on next line)
       (when (> (string-length (string-trim hex-clean)) 0)
         (yay-error "Expected newline after block leader in property"))
@@ -1577,10 +1584,7 @@
                    (eq? (token-type t) 'text)
                    (> (token-indent t) base-indent))
               (let* ((line (token-text t))
-                     (line-clean (let ((hash-idx (string-index line #\#)))
-                                   (if hash-idx
-                                       (substring line 0 hash-idx)
-                                       line))))
+                     (line-clean (hex-line-body line)))
                 (parser-advance! p)
                 (loop (string-append hex line-clean)))
               (parse-hex-bytes hex)))))))
@@ -1591,10 +1595,7 @@
                        (substring first-line 2 (string-length first-line))
                        (substring first-line 1 (string-length first-line)))))
     ;; Remove comment if present
-    (let ((hex-clean (let ((hash-idx (string-index hex-start #\#)))
-                       (if hash-idx
-                           (substring hex-start 0 hash-idx)
-                           hex-start))))
+    (let ((hex-clean (hex-line-body hex-start)))
       (parser-advance! p)
       (let loop ((hex hex-clean))
         (let ((t (parser-peek p)))
@@ -1602,10 +1603,7 @@
                    (eq? (token-type t) 'text)
                    (> (token-indent t) base-indent))
               (let* ((line (token-text t))
-                     (line-clean (let ((hash-idx (string-index line #\#)))
-                                   (if hash-idx
-                                       (substring line 0 hash-idx)
-                                       line))))
+                     (line-clean (hex-line-body line)))
                 (parser-advance! p)
                 (loop (string-append hex line-clean)))
               (parse-hex-bytes hex)))))))
@@ -1690,10 +1688,10 @@
               ((and (string-starts-with? s "'") (string-ends-with? s "'"))
                (parser-advance! p)
                (parse-single-quoted-string s))
-              ;; Inline array
+              ;; Inline array, read as a property's value is
               ((string-starts-with? s "[")
                (parser-advance! p)
-               (parse-inline-array s))
+               (parse-scalar s))
               ;; A reference
               ((reference-start? s 0)
                (parser-advance! p)
@@ -1703,12 +1701,12 @@
                (if (string-contains? s ">")
                    (begin
                      (parser-advance! p)
-                     (parse-angle-bytes s))
+                     (parse-scalar s))
                    (yay-error "Unmatched angle bracket")))
               ;; Inline object
               ((string-starts-with? s "{")
                (parser-advance! p)
-               (parse-inline-object s))
+               (parse-scalar s))
               ;; Key:value
               ((string-index s #\:)
                (let ((kv (split-key-value s)))
@@ -1989,6 +1987,9 @@
                       ;; line with a colon outside its quotes is a property with
                       ;; a quoted key, which opens a nested object.
                       (let ((trimmed (string-trim (token-text next))))
+                        ;; A lone quote is no value, as one quoted line is none
+                        (when (string=? trimmed "\"")
+                          (yay-error "Unexpected indent"))
                         (if (and (>= (string-length trimmed) 2)
                                  (or (and (char=? (string-ref trimmed 0) #\")
                                           (char=? (string-ref trimmed (- (string-length trimmed) 1)) #\"))
