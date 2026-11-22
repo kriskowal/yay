@@ -131,3 +131,121 @@ pub(crate) fn skip_reference(s: &str) -> Option<usize> {
     }
     s.find('>').map(|i| i + 1)
 }
+
+/// A reference: a URI or IRI that YAY can read, held as written. It
+/// designates, and is never dereferenced. Two references are equal when
+/// their texts are, character for character.
+///
+/// The only way to make one is [`Reference::new`] (or `TryFrom`), which
+/// refuses text that is not a reference's by the reader's own rule, so
+/// every reference can be written as YAY and YSON and read back.
+#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Reference(String);
+
+/// Why a string is not a reference's text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InvalidReference {
+    text: String,
+    reason: String,
+}
+
+impl InvalidReference {
+    /// The string that was refused.
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
+    /// The rule it breaks.
+    pub fn reason(&self) -> &str {
+        &self.reason
+    }
+}
+
+impl std::fmt::Display for InvalidReference {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Not a reference: {:?} ({})", self.text, self.reason)
+    }
+}
+
+impl std::error::Error for InvalidReference {}
+
+/// Why `uri` cannot be a reference's text, or `Ok` if it can: a lowercase
+/// scheme, a colon, URI or IRI characters and well-formed percent-encodings,
+/// with nothing after.
+pub(crate) fn check_reference_text(uri: &str) -> std::result::Result<(), String> {
+    let bracketed = format!("<{}>", uri);
+    if !is_reference_start(&bracketed) {
+        return Err("A reference needs a scheme".to_string());
+    }
+    match scan_reference(&bracketed, false) {
+        Ok((_, n)) if n == bracketed.len() => Ok(()),
+        Ok(_) => Err("Unexpected character \">\" in reference".to_string()),
+        Err(ReferenceError::Unclosed) => Err("Unexpected line break in reference".to_string()),
+        Err(e) => Err(e.message()),
+    }
+}
+
+impl Reference {
+    /// Makes a reference, refusing text that is not a reference's.
+    pub fn new(uri: impl Into<String>) -> std::result::Result<Self, InvalidReference> {
+        let text = uri.into();
+        match check_reference_text(&text) {
+            Ok(()) => Ok(Reference(text)),
+            Err(reason) => Err(InvalidReference { text, reason }),
+        }
+    }
+
+    /// A reference whose text a reader has already checked.
+    pub(crate) fn checked(uri: String) -> Self {
+        Reference(uri)
+    }
+
+    /// The reference's text, the URI or IRI.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// The reference's text, as an owned string.
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
+impl std::ops::Deref for Reference {
+    type Target = str;
+    fn deref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl AsRef<str> for Reference {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for Reference {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::fmt::Debug for Reference {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<{}>", self.0)
+    }
+}
+
+impl TryFrom<&str> for Reference {
+    type Error = InvalidReference;
+    fn try_from(uri: &str) -> std::result::Result<Self, InvalidReference> {
+        Reference::new(uri)
+    }
+}
+
+impl TryFrom<String> for Reference {
+    type Error = InvalidReference;
+    fn try_from(uri: String) -> std::result::Result<Self, InvalidReference> {
+        Reference::new(uri)
+    }
+}

@@ -1,4 +1,4 @@
 Value::Array(vec![
-    Value::Reference("https://a.example/x".into()),
-    Value::Reference("urn:isbn:0451450523".into()),
+    Value::reference("https://a.example/x").unwrap(),
+    Value::reference("urn:isbn:0451450523").unwrap(),
 ])

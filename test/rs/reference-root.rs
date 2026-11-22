@@ -1,1 +1,1 @@
-Value::Reference("https://example.com/".into())
+Value::reference("https://example.com/").unwrap()

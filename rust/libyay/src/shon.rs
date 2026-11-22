@@ -421,7 +421,7 @@ fn parse_value(args: &[String], pos: &mut usize, files: &mut Files) -> Result<Va
             }
             let uri = parse_reference_token(&args[*pos])?;
             *pos += 1;
-            Ok(Value::Reference(uri))
+            Ok(Value::Reference(crate::reference::Reference::checked(uri)))
         }
         // File → bytes
         "-b" => {

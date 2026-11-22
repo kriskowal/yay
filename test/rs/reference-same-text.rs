@@ -1,4 +1,4 @@
 Value::Object(HashMap::from([
-    ("r".into(), Value::Reference("https://x".into())),
+    ("r".into(), Value::reference("https://x").unwrap()),
     ("s".into(), Value::String("https://x".into())),
 ]))

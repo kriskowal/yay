@@ -4,7 +4,9 @@
 //! refused as YAY, and MEH reads it, if at all, with no reference in it, as
 //! 3.0.0 did.
 
-use libyay::{encode, format_yay, parse, parse_json, parse_shon, parse_yson, Format, Value};
+use libyay::{
+    encode, format_yay, parse, parse_json, parse_shon, parse_yson, Format, Reference, Value,
+};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -110,7 +112,7 @@ fn nay_cases_are_refused() {
 #[test]
 fn a_reference_is_not_its_text() {
     let r = parse("<https://x>").unwrap();
-    assert_eq!(r, Value::Reference("https://x".to_string()));
+    assert_eq!(r, Value::reference("https://x").unwrap());
     assert_ne!(r, Value::String("https://x".to_string()));
     assert_ne!(parse("<https://x/>").unwrap(), r);
 }
@@ -143,7 +145,7 @@ fn scheme_is_lowercase_in_yay_and_lowercased_by_meh() {
 
 #[test]
 fn yson_and_json_spell_a_reference_with_a_dollar() {
-    let r = Value::Reference("https://x".to_string());
+    let r = Value::reference("https://x").unwrap();
     assert_eq!(encode(&r, Format::Yson), "\"$https://x\"");
     assert_eq!(encode(&r, Format::Json), "\"$https://x\"");
     assert_eq!(parse_yson("\"$https://x\"").unwrap(), r);
@@ -166,10 +168,10 @@ fn shon_r_takes_a_reference() {
     assert_eq!(
         v,
         Value::Array(vec![
-            Value::Reference("https://x".to_string()),
+            Value::reference("https://x").unwrap(),
             Value::Tagged(
                 "t".to_string(),
-                Box::new(Value::Reference("urn:a".to_string()))
+                Box::new(Value::reference("urn:a").unwrap())
             ),
         ])
     );
@@ -180,4 +182,44 @@ fn shon_r_takes_a_reference() {
         v,
         Value::Array(vec![Value::String("https://x".to_string())])
     );
+}
+
+const NOT_REFERENCES: [&str; 7] = [
+    "",
+    "not a uri",
+    "HTTPS://x",
+    "urn:a b",
+    "https://a>b",
+    "https://x/%zz",
+    "./a.yay",
+];
+
+#[test]
+fn a_reference_is_made_only_from_a_reference_text() {
+    for uri in NOT_REFERENCES {
+        let err = Reference::new(uri).unwrap_err();
+        assert_eq!(err.text(), uri);
+        assert!(err.to_string().starts_with("Not a reference: "), "{}", err);
+        assert!(Value::reference(uri).is_err(), "{:?}", uri);
+        assert!(Reference::try_from(uri).is_err(), "{:?}", uri);
+        assert!(Reference::try_from(uri.to_string()).is_err(), "{:?}", uri);
+    }
+    for uri in [
+        "urn:x",
+        "https://example.com/a?b=c#d",
+        "urn:%C3%A9",
+        "urn:é",
+    ] {
+        let r = Reference::new(uri).unwrap();
+        assert_eq!(r.as_str(), uri);
+        assert_eq!(parse(&format!("<{}>", uri)).unwrap(), Value::Reference(r));
+    }
+}
+
+#[test]
+fn yson_refuses_a_reference_that_is_not_one() {
+    for uri in NOT_REFERENCES {
+        let yson = encode(&Value::String(format!("${}", uri)), Format::Json);
+        assert!(parse_yson(&yson).is_err(), "{}", yson);
+    }
 }

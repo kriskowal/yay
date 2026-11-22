@@ -666,7 +666,7 @@ fn encode_rust(value: &Value, indent: usize) -> String {
             }
         }
         Value::String(s) => format!("Value::String({}.into())", encode_json_string(s)),
-        Value::Reference(uri) => format!("Value::Reference({}.into())", encode_json_string(uri)),
+        Value::Reference(uri) => format!("Value::reference({}).unwrap()", encode_json_string(uri)),
         Value::Tagged(tag, payload) => format!(
             "Value::Tagged({}.into(), Box::new({}))",
             encode_json_string(tag),

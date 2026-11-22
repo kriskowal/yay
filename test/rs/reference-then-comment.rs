@@ -1,3 +1,3 @@
 Value::Object(HashMap::from([
-    ("a".into(), Value::Reference("https://example.com/#frag".into())),
+    ("a".into(), Value::reference("https://example.com/#frag").unwrap()),
 ]))

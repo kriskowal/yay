@@ -4,6 +4,8 @@ use num_bigint::BigInt;
 use std::collections::HashMap;
 use std::fmt;
 
+use crate::reference::{InvalidReference, Reference};
+
 /// A YAY value.
 #[derive(Clone, PartialEq)]
 pub enum Value {
@@ -26,8 +28,10 @@ pub enum Value {
     /// Tagged value: a tag (any string) and one payload (any value).
     Tagged(String, Box<Value>),
     /// Reference: a URI or IRI, held as written; designates, never
-    /// dereferenced. Never equal to a string.
-    Reference(String),
+    /// dereferenced. Never equal to a string. Made with
+    /// [`Value::reference`] or [`Reference::new`], which refuse text that is
+    /// not a reference's.
+    Reference(Reference),
 }
 
 impl Value {
@@ -98,6 +102,13 @@ impl Value {
             Value::Tagged(tag, payload) => Some((tag, payload)),
             _ => None,
         }
+    }
+
+    /// Makes a reference, refusing text that is not a reference's by the
+    /// reader's own rule: a lowercase scheme, a colon, URI or IRI characters
+    /// and well-formed percent-encodings, with nothing after.
+    pub fn reference(uri: impl Into<String>) -> std::result::Result<Value, InvalidReference> {
+        Reference::new(uri).map(Value::Reference)
     }
 
     /// Returns the URI if this is a `Reference`.

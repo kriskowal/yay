@@ -137,19 +137,10 @@ fn parse_string(input: &str, yson: bool) -> Result<(Value, &str), String> {
             '$' => {
                 // Reference: a scheme, a colon, and the rest of the URI,
                 // held to the rules of YAY's angle brackets
-                let bracketed = format!("<{}>", &s[1..]);
-                if crate::reference::is_reference_start(&bracketed) {
-                    match crate::reference::scan_reference(&bracketed, false) {
-                        Ok((uri, n)) if n == bracketed.len() => {
-                            return Ok((Value::Reference(uri), rest))
-                        }
-                        Ok(_) => {
-                            return Err(format!("Unexpected character \">\" in reference: {:?}", s))
-                        }
-                        Err(e) => return Err(format!("{}: {:?}", e.message(), s)),
-                    }
-                }
-                return Err(format!("A reference needs a scheme: {:?}", s));
+                return match crate::reference::Reference::new(&s[1..]) {
+                    Ok(r) => Ok((Value::Reference(r), rest)),
+                    Err(e) => Err(format!("{}: {:?}", e.reason(), s)),
+                };
             }
             '!' => {
                 // Escaped string - remove the escape prefix

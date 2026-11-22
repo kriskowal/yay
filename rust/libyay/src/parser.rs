@@ -9,7 +9,9 @@
 
 use crate::error::{ParseContext, ParseError, Result};
 use crate::lexer::{Token, TokenType};
-use crate::reference::{is_reference_start, scan_reference, skip_reference, ReferenceError};
+use crate::reference::{
+    is_reference_start, scan_reference, skip_reference, Reference, ReferenceError,
+};
 use crate::value::Value;
 use num_bigint::BigInt;
 use std::collections::HashMap;
@@ -3027,7 +3029,7 @@ fn parse_reference(
     col: usize,
 ) -> Result<(Value, usize)> {
     match scan_reference(s, false) {
-        Ok((uri, n)) => Ok((Value::Reference(uri), n)),
+        Ok((uri, n)) => Ok((Value::Reference(Reference::checked(uri)), n)),
         Err(ReferenceError::Unclosed) => {
             Err(ParseError::UnmatchedAngle(String::new()).with_location(ctx, line_num, col))
         }
