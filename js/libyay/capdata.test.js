@@ -1,11 +1,12 @@
 // References through Endo: the bridge turns binyay's YSON into CapData,
 // each distinct URI a slot, and @endo/marshal's makeMarshal decodes it with
-// a convertSlotToVal that makes a remotable for each URI. Skipped when the
-// dev dependencies (@endo/init, @endo/marshal) are not installed, and
-// failed instead with YAY_REQUIRE_SMALLCAPS=1, as CI sets it.
+// a convertSlotToVal that makes a remotable for each URI.
 
 import { describe, it } from "node:test";
 import assert from "node:assert";
+
+import "@endo/init";
+import { makeTagged, passStyleOf, Far } from "@endo/marshal";
 
 import {
   parseYay,
@@ -14,17 +15,7 @@ import {
   ysonToCapData,
   capDataToYson,
 } from "./yay.js";
-
-let endo;
-try {
-  await import("@endo/init");
-  const { makeMarshal, makeTagged, passStyleOf, Far } =
-    await import("@endo/marshal");
-  endo = { makeMarshal, makeTagged, passStyleOf, Far };
-} catch (error) {
-  if (process.env.YAY_REQUIRE_SMALLCAPS === "1") throw error;
-  endo = undefined;
-}
+import { makeSmallcapsMarshal } from "./endo-test-helper.js";
 
 // A YAY document, and the YSON `yay -f yay -t yson` writes for it.
 const yay = `\
@@ -46,7 +37,6 @@ const yson = `{
 
 /** A marshal whose slots are URIs, recording each URI it is asked for. */
 function makeUriMarshal() {
-  const { makeMarshal, Far } = endo;
   const requested = [];
   const byUri = new Map();
   const uriOf = new Map();
@@ -60,15 +50,12 @@ function makeUriMarshal() {
     return byUri.get(uri);
   };
   const convertValToSlot = (val) => uriOf.get(val);
-  const marshal = makeMarshal(convertValToSlot, convertSlotToVal, {
-    serializeBodyFormat: "smallcaps",
-  });
+  const marshal = makeSmallcapsMarshal(convertValToSlot, convertSlotToVal);
   return { ...marshal, requested };
 }
 
-describe("references: a CapData round trip", { skip: !endo }, () => {
+describe("references: a CapData round trip", () => {
   it("decodes each URI to a remotable, and back", () => {
-    const { makeTagged, passStyleOf } = endo;
     const { fromCapData, toCapData, requested } = makeUriMarshal();
     const capData = ysonToCapData(yson);
 

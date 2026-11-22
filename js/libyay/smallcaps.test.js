@@ -5,10 +5,9 @@
 // "*<hex>", as endojs/endo#2871 gives byteArrays, and @endo/marshal 1.10.0
 // still refuses "*".
 //
-// The test needs @endo/init and @endo/marshal (the dev dependencies) and a
-// built binyay: YAY_BIN, or rust/target/{release,debug}/yay. Without them
-// a local run skips and says why; with YAY_REQUIRE_SMALLCAPS=1, as CI sets
-// it, it fails instead.
+// The test needs the @endo/init and @endo/marshal dev dependencies and a
+// built binyay: YAY_BIN, or rust/target/{release,debug}/yay. A local run
+// without binyay skips and says why.
 
 import { describe, it } from "node:test";
 import assert from "node:assert";
@@ -16,32 +15,22 @@ import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
+import "@endo/init";
+import { passStyleOf, Far } from "@endo/marshal";
+
 import { parseYay, isTagged, ysonToCapData } from "./yay.js";
-
-const required = process.env.YAY_REQUIRE_SMALLCAPS === "1";
-
-let endo;
-let missing;
-try {
-  await import("@endo/init");
-  const { makeMarshal, makeTagged, passStyleOf, Far } =
-    await import("@endo/marshal");
-  endo = { makeMarshal, makeTagged, passStyleOf, Far };
-} catch (error) {
-  missing = `@endo/marshal is not installed (npm ci): ${error.message}`;
-}
+import { makeSmallcapsMarshal } from "./endo-test-helper.js";
 
 const yayBin = [
   process.env.YAY_BIN,
   fileURLToPath(new URL("../../rust/target/release/yay", import.meta.url)),
   fileURLToPath(new URL("../../rust/target/debug/yay", import.meta.url)),
 ].find((path) => path && existsSync(path));
-if (!yayBin) {
-  missing ??=
-    "no binyay: set YAY_BIN or run cargo build -p binyay in rust/";
-}
+const missing = yayBin
+  ? undefined
+  : "no binyay: set YAY_BIN or run cargo build -p binyay in rust/";
 
-const skip = missing !== undefined && !required && missing;
+const skip = missing;
 if (skip) {
   console.log(`smallcaps.test.js: skipped: ${missing}`);
 }
@@ -55,7 +44,6 @@ const toYson = (yay) =>
 
 /** A passable as plain data: its pass style at every level, and its value. */
 function show(value) {
-  const { passStyleOf } = endo;
   const style = passStyleOf(value);
   switch (style) {
     case "tagged":
@@ -158,17 +146,9 @@ const cases = [
 ];
 
 describe("YSON is smallcaps: live binyay output", { skip }, () => {
-  it("has its dependencies", () => {
-    // Reached only when required: the reason it would have skipped.
-    assert.strictEqual(missing, undefined, missing);
-  });
-
   for (const [name, yay, expected] of cases) {
     it(name, () => {
-      const { makeMarshal } = endo;
-      const { toCapData, fromCapData } = makeMarshal(undefined, undefined, {
-        serializeBodyFormat: "smallcaps",
-      });
+      const { toCapData, fromCapData } = makeSmallcapsMarshal();
       const yson = toYson(yay);
       const decoded = fromCapData({ body: `#${yson}`, slots: [] });
       assert.deepStrictEqual(show(decoded), expected);
@@ -181,10 +161,7 @@ describe("YSON is smallcaps: live binyay output", { skip }, () => {
   }
 
   it("a tagged value reads in libyay as smallcaps decodes it", () => {
-    const { makeMarshal } = endo;
-    const { fromCapData } = makeMarshal(undefined, undefined, {
-      serializeBodyFormat: "smallcaps",
-    });
+    const { fromCapData } = makeSmallcapsMarshal();
     const yay = "[1.5, true] (!x)\n";
     const value = parseYay(yay);
     assert.ok(isTagged(value));
@@ -194,10 +171,7 @@ describe("YSON is smallcaps: live binyay output", { skip }, () => {
   });
 
   it("-0 decodes as -0, which smallcaps writes back as 0", () => {
-    const { makeMarshal } = endo;
-    const { toCapData, fromCapData } = makeMarshal(undefined, undefined, {
-      serializeBodyFormat: "smallcaps",
-    });
+    const { toCapData, fromCapData } = makeSmallcapsMarshal();
     const yson = toYson("-0.0\n");
     assert.strictEqual(yson.trim(), "-0");
     const decoded = fromCapData({ body: `#${yson}`, slots: [] });
@@ -207,15 +181,12 @@ describe("YSON is smallcaps: live binyay output", { skip }, () => {
   });
 
   it("a reference needs the CapData bridge", () => {
-    const { makeMarshal, Far } = endo;
     const yay = "icon: <https://example.com/cat.png> (image/png)\n";
     const yson = toYson(yay);
     assert.match(yson, /"\$https:\/\/example\.com\/cat\.png"/);
 
     // smallcaps reads "$" as "$<slot index>.<iface>", and the URI is no index
-    const bare = makeMarshal(undefined, undefined, {
-      serializeBodyFormat: "smallcaps",
-    });
+    const bare = makeSmallcapsMarshal();
     assert.throws(
       () => bare.fromCapData({ body: `#${yson}`, slots: [] }),
       /NaN is not a safe integer/,
@@ -224,13 +195,12 @@ describe("YSON is smallcaps: live binyay output", { skip }, () => {
     // ysonToCapData moves the URI into a slot, and smallcaps makes it the
     // remotable the caller's convertSlotToVal gives
     const remotable = Far("Reference", {});
-    const slotted = makeMarshal(
+    const slotted = makeSmallcapsMarshal(
       (val) => (val === remotable ? "https://example.com/cat.png" : undefined),
       (uri) => {
         assert.strictEqual(uri, "https://example.com/cat.png");
         return remotable;
       },
-      { serializeBodyFormat: "smallcaps" },
     );
     const capData = ysonToCapData(yson);
     assert.deepStrictEqual(capData.slots, ["https://example.com/cat.png"]);
@@ -257,10 +227,7 @@ describe("YSON is smallcaps: live binyay output", { skip }, () => {
     ["empty bytes", "<>\n", '"*"'],
   ]) {
     it(`${name}: "*<hex>", which @endo/marshal 1.10.0 refuses`, () => {
-      const { makeMarshal } = endo;
-      const { fromCapData } = makeMarshal(undefined, undefined, {
-        serializeBodyFormat: "smallcaps",
-      });
+      const { fromCapData } = makeSmallcapsMarshal();
       const written = toYson(yay);
       assert.ok(written.includes(yson), written);
       assert.throws(

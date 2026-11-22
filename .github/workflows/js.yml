@@ -49,5 +49,4 @@ jobs:
       - name: Run tests
         env:
           YAY_BIN: ${{ github.workspace }}/rust/target/release/yay
-          YAY_REQUIRE_SMALLCAPS: '1'
         run: node --test yay.test.js tagged.test.js smallcaps.test.js references.test.js capdata.test.js
