@@ -72,6 +72,13 @@ class Lexer:
     def error(self, message: str) -> YaySyntaxError:
         return YaySyntaxError(message, self.line, self.col)
 
+    def check_comment_spacing(self) -> None:
+        """Refuse a comment, at the current "#", with one space before it
+        rather than two."""
+        before = self.source[max(0, self.pos - 2) : self.pos]
+        if before.endswith(" ") and before != "  ":
+            raise self.error("Expected two spaces before a comment")
+
     @staticmethod
     def _is_allowed_code_point(cp: int) -> bool:
         """Check whether a code point is allowed in a YAY document."""
@@ -335,6 +342,7 @@ class Lexer:
         while self.peek() and self.peek() not in "\n":
             ch = self.peek()
             if ch == "#":
+                self.check_comment_spacing()
                 self.skip_to_eol()
                 break
             if ch == " ":
@@ -388,6 +396,7 @@ class Lexer:
             while self.peek() and self.peek() not in "\n":
                 ch = self.peek()
                 if ch == "#":
+                    self.check_comment_spacing()
                     self.skip_to_eol()
                     break
                 if ch == " ":
@@ -505,20 +514,20 @@ class Lexer:
         return Token("STRING", "".join(chars), start_line, start_col)
 
     def _read_single_quoted_string(self, start_line: int, start_col: int) -> Token:
-        """Read a single-quoted string (literal, no escape sequences except '')."""
+        """Read a single-quoted string: literal but for the escapes \\' and
+        \\\\; any other backslash is content."""
         chars = []
         while True:
             ch = self.peek()
             if ch == "":
-                raise self.error("Unterminated string")
+                raise YaySyntaxError("Unterminated string", self.line, self.col - 1)
+            if ch == "\\" and self.peek(1) in ("'", "\\"):
+                self.advance()
+                chars.append(self.advance())
+                continue
             if ch == "'":
                 self.advance()
-                if self.peek() == "'":
-                    # Escaped single quote ''
-                    chars.append("'")
-                    self.advance()
-                else:
-                    break
+                break
             elif ord(ch) < 0x20:
                 # Newline means unterminated string, at the line's last
                 # character; other control chars are bad
@@ -876,6 +885,10 @@ class Lexer:
                     continue
                 if ch == "":
                     break
+                # A lone quote on an indented line is no value, as an
+                # inline value under a key is none
+                if indent > 0 and ch == '"' and self.peek(1) in ("\n", ""):
+                    raise YaySyntaxError("Unexpected indent", self.line, 1)
 
                 # Emit indent/dedent tokens
                 self.current_line_indent = indent
@@ -897,6 +910,7 @@ class Lexer:
                 continue
 
             if ch == "#":
+                self.check_comment_spacing()
                 self.skip_to_eol()
                 continue
 
