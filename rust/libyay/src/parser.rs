@@ -457,7 +457,12 @@ fn extract_block_string_first_line(s: &str) -> &str {
 }
 
 /// Parse a quoted string value.
-fn parse_quoted_string(s: &str, ctx: &ParseContext, line_num: usize, col: usize) -> Result<String> {
+pub(crate) fn parse_quoted_string(
+    s: &str,
+    ctx: &ParseContext,
+    line_num: usize,
+    col: usize,
+) -> Result<String> {
     if s.starts_with('"') {
         parse_double_quoted_string(s, ctx, line_num, col)
     } else if s.starts_with('\'') {

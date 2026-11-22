@@ -11,7 +11,9 @@
 //! 2. MEH-to-YAY Transform - Normalizes the CST to canonical form
 //! 3. MEH Formatter - Serializes the CST back to text
 
-use crate::error::MAX_INLINE_DEPTH;
+use crate::error::{ParseContext, MAX_INLINE_DEPTH};
+use crate::parser::parse_quoted_string;
+use std::collections::HashMap;
 use std::env;
 
 /// Default line wrap length
@@ -65,6 +67,9 @@ pub struct Comment {
 #[derive(Debug, Clone)]
 pub struct Property {
     pub key: Key,
+    /// Where the key stands in the source, as a zero-based line and column,
+    /// for a property the parser read
+    pub pos: Option<(usize, usize)>,
     pub tags: Vec<String>, // Tags before a block value, outermost first
     pub value: Option<PropertyValue>,
     pub inline_comment: Option<Comment>,
@@ -189,6 +194,9 @@ pub struct CstObject {
 #[derive(Debug, Clone)]
 pub struct CstObjectEntry {
     pub key: Key,
+    /// Where the key stands in the source, as a zero-based line and column,
+    /// for an entry the parser read
+    pub pos: Option<(usize, usize)>,
     pub value: CstValue,
 }
 
@@ -197,6 +205,7 @@ pub struct CstObjectEntry {
 // =============================================================================
 
 pub struct MehParser<'a> {
+    input: &'a str,
     lines: Vec<&'a str>,
     line_idx: usize,
     col: usize,
@@ -208,6 +217,7 @@ impl<'a> MehParser<'a> {
     pub fn new(input: &'a str) -> Self {
         let lines: Vec<&str> = input.lines().collect();
         Self {
+            input,
             lines,
             line_idx: 0,
             col: 0,
@@ -238,6 +248,22 @@ impl<'a> MehParser<'a> {
             items,
             trailing_comments: Vec::new(),
         })
+    }
+
+    /// The zero-based line and column where `part`, a slice of the input,
+    /// begins.
+    fn position_of(&self, part: &str) -> Option<(usize, usize)> {
+        let start = self.input.as_ptr() as usize;
+        let at = part.as_ptr() as usize;
+        if at < start || at > start + self.input.len() {
+            return None;
+        }
+        let before = &self.input[..at - start];
+        let line_start = before.rfind('\n').map_or(0, |i| i + 1);
+        Some((
+            before.matches('\n').count(),
+            before[line_start..].chars().count(),
+        ))
     }
 
     fn current_line(&self) -> Option<&'a str> {
@@ -466,6 +492,7 @@ impl<'a> MehParser<'a> {
         let after_colon = &content[colon_idx + 1..];
 
         // Parse key
+        let pos = self.position_of(key_str.trim_start());
         let key = parse_key(key_str.trim());
 
         let value_part = after_colon.trim_start();
@@ -566,6 +593,7 @@ impl<'a> MehParser<'a> {
 
         Ok(Some(Item::Property(Property {
             key,
+            pos,
             tags,
             value,
             inline_comment,
@@ -666,6 +694,7 @@ impl<'a> MehParser<'a> {
         let key_str = &content[..colon_idx];
         let after_colon = &content[colon_idx + 1..];
 
+        let pos = self.position_of(key_str.trim_start());
         let key = parse_key(key_str.trim());
         let value_part = after_colon.trim_start();
         let (value_str, inline_comment) = split_inline_comment(value_part);
@@ -685,6 +714,7 @@ impl<'a> MehParser<'a> {
 
         Ok(Property {
             key,
+            pos,
             tags,
             value,
             inline_comment,
@@ -983,10 +1013,11 @@ impl<'a> MehParser<'a> {
                 let key_str = &entry_str[..colon_idx];
                 let value_str = &entry_str[colon_idx + 1..];
 
+                let pos = self.position_of(key_str.trim_start());
                 let key = parse_key(key_str.trim());
                 let value = self.parse_inline_value(value_str.trim())?;
 
-                entries.push(CstObjectEntry { key, value });
+                entries.push(CstObjectEntry { key, pos, value });
             }
 
             remaining = rest.trim_start();
@@ -1060,6 +1091,85 @@ fn find_colon_outside_quotes_raw(s: &str) -> Option<usize> {
         }
     }
     None
+}
+
+/// Where each key of an object first appears, as a zero-based line and
+/// column. Each key keeps its first position, not only its name, so that the
+/// error can say where the first one is.
+type SeenKeys = HashMap<String, (usize, usize)>;
+
+/// A key's text, its quotes and escapes read as the YAY parser reads them.
+fn key_text(key: &Key) -> String {
+    let raw = match key {
+        Key::Bare(s) | Key::SingleQuoted(s) | Key::DoubleQuoted(s) => s,
+    };
+    parse_quoted_string(raw, &ParseContext::new(None), 0, 0).unwrap_or_else(|_| raw.clone())
+}
+
+/// Record where a key first appears in an object, and refuse it the second
+/// time, as the YAY parser does.
+fn claim_key(seen: &mut SeenKeys, key: &Key, pos: Option<(usize, usize)>) -> Result<(), String> {
+    let text = key_text(key);
+    let (line, col) = pos.unwrap_or((0, 0));
+    if let Some(&(first_line, first_col)) = seen.get(&text) {
+        return Err(format!(
+            "Duplicate key \"{}\" (first at {}:{}) at {}:{}",
+            text,
+            first_line + 1,
+            first_col + 1,
+            line + 1,
+            col + 1
+        ));
+    }
+    seen.insert(text, (line, col));
+    Ok(())
+}
+
+/// Refuse a key that its object already has, anywhere in these items, in
+/// the order the keys appear. MEH is lenient about spacing, never about
+/// which of two values to keep.
+fn check_duplicate_keys(items: &[Item]) -> Result<(), String> {
+    let mut seen = SeenKeys::new();
+    for item in items {
+        match item {
+            Item::Property(p) => {
+                claim_key(&mut seen, &p.key, p.pos)?;
+                match &p.value {
+                    Some(PropertyValue::Inline(v)) => check_duplicate_keys_in_value(v)?,
+                    Some(PropertyValue::Block(b)) => check_duplicate_keys(&b.items)?,
+                    None => {}
+                }
+            }
+            Item::ArrayItem(a) => match &a.value {
+                Some(ArrayItemValue::Inline(v)) => check_duplicate_keys_in_value(v)?,
+                Some(ArrayItemValue::Block(b)) => check_duplicate_keys(&b.items)?,
+                None => {}
+            },
+            Item::Value(v) => check_duplicate_keys_in_value(v)?,
+            Item::BlankLine | Item::Comment(_) | Item::Tags(..) => {}
+        }
+    }
+    Ok(())
+}
+
+fn check_duplicate_keys_in_value(value: &CstValue) -> Result<(), String> {
+    match value {
+        CstValue::Array(arr) => {
+            for item in &arr.items {
+                check_duplicate_keys_in_value(&item.value)?;
+            }
+        }
+        CstValue::Object(obj) => {
+            let mut seen = SeenKeys::new();
+            for entry in &obj.entries {
+                claim_key(&mut seen, &entry.key, entry.pos)?;
+                check_duplicate_keys_in_value(&entry.value)?;
+            }
+        }
+        CstValue::Tagged(inner, _) => check_duplicate_keys_in_value(inner)?,
+        _ => {}
+    }
+    Ok(())
 }
 
 fn parse_key(s: &str) -> Key {
@@ -1277,6 +1387,7 @@ impl Transformer {
                         // Array items are siblings at the same indent level
                         let mut items = vec![Item::Property(Property {
                             key: prop.key.clone(),
+                            pos: prop.pos,
                             tags: prop.tags.clone(),
                             value: None,
                             inline_comment: prop.inline_comment.clone(),
@@ -1306,6 +1417,7 @@ impl Transformer {
                             .map(|entry| {
                                 Item::Property(Property {
                                     key: entry.key.clone(),
+                                    pos: entry.pos,
                                     tags: Vec::new(),
                                     value: Some(PropertyValue::Inline(
                                         self.transform_value(&entry.value, indent + 1),
@@ -1317,6 +1429,7 @@ impl Transformer {
 
                         return vec![Item::Property(Property {
                             key: prop.key.clone(),
+                            pos: prop.pos,
                             tags: prop.tags.clone(),
                             value: Some(PropertyValue::Block(Block {
                                 items: nested_items,
@@ -1556,6 +1669,7 @@ impl Transformer {
     fn transform_property(&self, prop: &Property, indent: usize) -> Property {
         Property {
             key: prop.key.clone(),
+            pos: prop.pos,
             tags: prop.tags.clone(),
             value: prop
                 .value
@@ -1898,6 +2012,7 @@ impl Transformer {
             .iter()
             .map(|entry| CstObjectEntry {
                 key: entry.key.clone(),
+                pos: entry.pos,
                 value: self.transform_value(&entry.value, indent),
             })
             .collect();
@@ -2749,6 +2864,7 @@ impl Formatter {
 pub fn format_yay(input: &str) -> Result<String, String> {
     let mut parser = MehParser::new(input);
     let doc = parser.parse()?;
+    check_duplicate_keys(&doc.items)?;
     let canonical = transform_to_canonical(&doc);
     Ok(format_document(&canonical))
 }
