@@ -198,6 +198,12 @@ pub enum ParseError {
     #[error("Expected value after property{0}")]
     ExpectedValueAfterProperty(String),
 
+    /// A key that its object already has: the key, then the line and
+    /// column (one-based) where it first appears, boxed so that the error
+    /// stays as small as the others.
+    #[error("Duplicate key \"{}\" (first at {}:{}){}", .0.0, .0.1, .0.2, .1)]
+    DuplicateKey(Box<(String, usize, usize)>, String),
+
     /// Generic parse error.
     #[error("{0}")]
     Generic(String),
@@ -246,6 +252,7 @@ impl ParseError {
             ParseError::ExpectedValueAfterProperty(_) => {
                 ParseError::ExpectedValueAfterProperty(suffix)
             }
+            ParseError::DuplicateKey(key, _) => ParseError::DuplicateKey(key, suffix),
             ParseError::Generic(msg) => ParseError::Generic(format!("{}{}", msg, suffix)),
         }
     }

@@ -1023,12 +1023,14 @@ fn parse_inline_object(
     }
 
     let mut result = HashMap::new();
+    let mut seen = SeenKeys::new();
     let mut remaining = inner;
 
     while !remaining.is_empty() {
         remaining = remaining.trim_start();
 
         // Parse key
+        let key_col = col + 1 + inner[..inner.len() - remaining.len()].chars().count();
         let (key, key_len) = parse_inline_key(remaining, ctx, line_num, col)?;
         remaining = &remaining[key_len..];
         remaining = remaining.trim_start();
@@ -1037,6 +1039,7 @@ fn parse_inline_object(
         if !remaining.starts_with(':') {
             return Err(ParseError::ExpectedColon(String::new()).with_location(ctx, line_num, col));
         }
+        claim_key(&mut seen, &key, ctx, line_num, key_col)?;
         remaining = &remaining[1..];
         remaining = remaining.trim_start();
 
@@ -1054,6 +1057,31 @@ fn parse_inline_object(
     }
 
     Ok(result)
+}
+
+/// Where each key of an object first appears, as a zero-based line and
+/// column. Each key keeps its first position, not only its name, so that the
+/// error can say where the first one is.
+type SeenKeys = HashMap<String, (usize, usize)>;
+
+/// Record where a key first appears in an object, and refuse it the second
+/// time.
+fn claim_key(
+    seen: &mut SeenKeys,
+    key: &str,
+    ctx: &ParseContext,
+    line_num: usize,
+    col: usize,
+) -> Result<()> {
+    if let Some(&(first_line, first_col)) = seen.get(key) {
+        return Err(ParseError::DuplicateKey(
+            Box::new((key.to_string(), first_line + 1, first_col + 1)),
+            String::new(),
+        )
+        .with_location(ctx, line_num, col));
+    }
+    seen.insert(key.to_string(), (line_num, col));
+    Ok(())
 }
 
 /// Parse an object key (unquoted identifier or quoted string).
@@ -2014,7 +2042,7 @@ fn parse_array_item_value(
 
     // If value is an object, check for additional properties at the same level
     if let Value::Object(ref mut obj) = value {
-        j = merge_additional_object_properties(tokens, j, list_indent, obj, ctx)?;
+        j = merge_additional_object_properties(tokens, i, j, list_indent, obj, ctx)?;
     }
 
     // Check for nested list items after this value
@@ -2035,11 +2063,17 @@ fn parse_array_item_value(
 /// Merge additional properties into an object.
 fn merge_additional_object_properties(
     tokens: &[Token],
+    i: usize,
     mut j: usize,
     list_indent: usize,
     obj: &mut HashMap<String, Value>,
     ctx: &ParseContext,
 ) -> Result<usize> {
+    // The object so far was read from the item's first line
+    let mut seen: SeenKeys = obj
+        .keys()
+        .map(|k| (k.clone(), (tokens[i].line_num, tokens[i].col)))
+        .collect();
     loop {
         j = skip_breaks(tokens, j);
         if j >= tokens.len() {
@@ -2054,6 +2088,7 @@ fn merge_additional_object_properties(
             let (prop_val, next_j) = parse_value(tokens, j, ctx)?;
             if let Value::Object(prop_obj) = prop_val {
                 for (k, v) in prop_obj {
+                    claim_key(&mut seen, &k, ctx, t.line_num, t.col)?;
                     obj.insert(k, v);
                 }
             }
@@ -2384,6 +2419,7 @@ fn parse_nested_object_content(
     ctx: &ParseContext,
 ) -> Result<(HashMap<String, Value>, usize)> {
     let mut obj = HashMap::new();
+    let mut seen = SeenKeys::new();
 
     while i < tokens.len() {
         let t = &tokens[i];
@@ -2420,6 +2456,7 @@ fn parse_nested_object_content(
                 i += 1;
                 continue;
             }
+            claim_key(&mut seen, &k, ctx, t.line_num, t.col)?;
 
             let (value, next_i) = parse_object_property_value(tokens, i, t, v_part, ctx)?;
             obj.insert(k, value);
@@ -2532,6 +2569,7 @@ fn parse_object_property_value(
 /// Parse an object at the document root level.
 fn parse_root_object(tokens: &[Token], mut i: usize, ctx: &ParseContext) -> Result<(Value, usize)> {
     let mut obj = HashMap::new();
+    let mut seen = SeenKeys::new();
 
     while i < tokens.len() {
         let t = &tokens[i];
@@ -2619,6 +2657,7 @@ fn parse_root_object(tokens: &[Token], mut i: usize, ctx: &ParseContext) -> Resu
         let value_col = t.col + colon_idx + 1 + leading_spaces;
         let v_part = after_colon.trim();
 
+        claim_key(&mut seen, &k, ctx, t.line_num, t.col)?;
         let (value, next_i) = parse_root_object_property(tokens, i, t, v_part, value_col, ctx)?;
         obj.insert(k, value);
         i = next_i;
