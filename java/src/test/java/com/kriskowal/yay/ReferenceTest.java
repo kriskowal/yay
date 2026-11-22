@@ -77,6 +77,21 @@ class ReferenceTest {
   }
 
   @Test
+  void testMadeOnlyFromReferenceText() {
+    for (String uri :
+        List.of(
+            "", "not a uri", "HTTPS://x", "urn:a b", "https://a>b", "https://x/%zz", "./a.yay")) {
+      IllegalArgumentException e =
+          assertThrows(IllegalArgumentException.class, () -> new Reference(uri), uri);
+      assertTrue(e.getMessage().startsWith("Not a reference: "), e.getMessage());
+    }
+    for (String uri : List.of("urn:x", "https://example.com/a?b=c#d", "urn:%C3%A9", "urn:\u00e9")) {
+      assertEquals(uri, new Reference(uri).uri());
+      assertEquals(new Reference(uri), Yay.parse("<" + uri + ">\n"));
+    }
+  }
+
+  @Test
   void testRefused() {
     // The Rust, JavaScript, Python and Go ports' messages and columns
     String[][] cases = {

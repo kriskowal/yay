@@ -27,6 +27,11 @@ public class Yay {
     return parser.parse();
   }
 
+  /** Why uri cannot be a reference's text, or null if it can (for {@link Reference}). */
+  static String referenceFault(String uri) {
+    return Parser.referenceFault(uri);
+  }
+
   // ========================================================================
   // Scanner - Phase 1: Convert source to scan lines
   // ========================================================================
@@ -2385,6 +2390,32 @@ public class Yay {
      * always closes it. Sets consumed[0] to the characters read, the ">" included.
      */
     private Reference parseReference(String s, int start, int lineNum, int col, int[] consumed) {
+      consumed[0] = scanReference(s, start, lineNum, col, filename);
+      return new Reference(s.substring(start + 1, start + consumed[0] - 1));
+    }
+
+    /**
+     * Why uri cannot be a reference's text, or null if it can: a lowercase scheme, a colon, URI or
+     * IRI characters and well-formed percent-encodings, with nothing after.
+     */
+    static String referenceFault(String uri) {
+      String text = "<" + uri + ">";
+      if (!isReferenceStart(text, 0)) return "A reference needs a scheme";
+      int n;
+      try {
+        n = scanReference(text, 0, 0, 0, null);
+      } catch (YayException e) {
+        String why = e.getMessage().replaceFirst(" at \\d+:\\d+$", "");
+        return why.equals("Unmatched angle bracket") ? "Unexpected line break in reference" : why;
+      }
+      return n == text.length() ? null : "Unexpected character \">\" in reference";
+    }
+
+    /**
+     * Scan a reference at s[start], which isReferenceStart accepted, to the first ">", which
+     * always closes it, and return the characters read, the ">" included.
+     */
+    private static int scanReference(String s, int start, int lineNum, int col, String filename) {
       int n = schemeLen(s, start + 1) - 1;
       String scheme = s.substring(start + 1, start + 1 + n);
       if (!scheme.toLowerCase(Locale.ROOT).equals(scheme)) {
@@ -2398,8 +2429,7 @@ public class Yay {
         int cp = s.codePointAt(at);
         int column = col + (at - start) + 1;
         if (cp == '>') {
-          consumed[0] = at + 1 - start;
-          return new Reference(s.substring(start + 1, at));
+          return at + 1 - start;
         } else if (cp == '%') {
           if (!(at + 2 < s.length() && isHexDigit(s.charAt(at + 1)) && isHexDigit(s.charAt(at + 2)))) {
             throw new YayException(

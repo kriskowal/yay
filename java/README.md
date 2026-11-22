@@ -65,7 +65,9 @@ Yay.parse("count: 10 (s)\n");
 A reference, `<https://example.com/>`: a record with the URI or IRI, held
 as written, without its angle brackets. YAY never dereferences it.
 References are equal when their texts are; a reference never equals a
-string.
+string. The constructor throws an `IllegalArgumentException` for text that
+is not a reference's (a lowercase scheme, a colon, URI or IRI characters
+and well-formed percent-encodings).
 
 ```java
 Yay.parse("<ocapn://a.tcp> (Counter)\n");
