@@ -58,7 +58,14 @@ typedef struct {
     
     /* Error */
     yay_error_t *error;
+
+    /* Inline arrays and objects enclosing the one being read */
+    int inline_depth;
 } parse_ctx_t;
+
+/* The deepest inline arrays and objects may nest, one in another, counted
+ * together. Deeper nesting is refused rather than overflowing the stack. */
+#define MAX_INLINE_DEPTH 256
 
 /* ============================================================================
  * Memory Helpers
@@ -2618,8 +2625,32 @@ static yay_value_t *parse_inline_value_impl(parse_ctx_t *ctx, const char *s,
     return value;
 }
 
+static yay_value_t *parse_inline_atom_body(parse_ctx_t *ctx, const char *s,
+                                           size_t *consumed, int line_num,
+                                           int col);
+
+/* An inline value without its tags, counting a level of inline nesting for
+ * an array or object and refusing more than MAX_INLINE_DEPTH levels */
 static yay_value_t *parse_inline_atom(parse_ctx_t *ctx, const char *s,
                                       size_t *consumed, int line_num, int col) {
+    if (s[0] != '[' && s[0] != '{') {
+        return parse_inline_atom_body(ctx, s, consumed, line_num, col);
+    }
+    if (ctx->inline_depth >= MAX_INLINE_DEPTH) {
+        ctx->error = make_error(ctx, line_num, col,
+                                "Inline nesting deeper than %d levels",
+                                MAX_INLINE_DEPTH);
+        return NULL;
+    }
+    ctx->inline_depth++;
+    yay_value_t *value = parse_inline_atom_body(ctx, s, consumed, line_num, col);
+    ctx->inline_depth--;
+    return value;
+}
+
+static yay_value_t *parse_inline_atom_body(parse_ctx_t *ctx, const char *s,
+                                           size_t *consumed, int line_num,
+                                           int col) {
     if (s[0] == '[') {
         int end = find_matching_bracket(s);
         if (end < 0) return NULL;
