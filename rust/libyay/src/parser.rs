@@ -2415,9 +2415,7 @@ fn parse_object_or_named_array(
 
     // A block array may stand at the key's column. Every other block value
     // must be indented deeper, so a sibling item or property is no value.
-    if first.indent < key_col
-        || (first.indent == key_col && first.typ != TokenType::Start)
-    {
+    if first.indent < key_col || (first.indent == key_col && first.typ != TokenType::Start) {
         return Err(
             ParseError::ExpectedValueAfterProperty(String::new()).with_location(
                 ctx,
