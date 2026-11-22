@@ -10,6 +10,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const testRoot = path.join(__dirname, "..", "..", "test");
 const yayDir = path.join(testRoot, "yay");
 const nayDir = path.join(testRoot, "nay");
+const mehDir = path.join(testRoot, "meh");
 const jsDir = path.join(testRoot, "js");
 
 /**
@@ -188,6 +189,47 @@ describe("parseYay negative (invalid .nay)", () => {
         },
         `parseYay should throw for ${basename}.nay`,
       );
+    });
+  }
+});
+
+// test/meh holds MEH's cases: <name>.<variant>.meh reads as MEH to
+// <name>.yay, or is refused with the message in <name>.error. JavaScript has
+// no MEH reader, but YAY is MEH without the leniency, which changes spacing
+// and never meaning. So each <name>.yay is YAY; YAY reads each .meh to the
+// value of its .yay or refuses it; and YAY refuses what MEH refuses.
+describe("parseYay over the MEH corpus (test/meh)", () => {
+  const files = fs.readdirSync(mehDir).sort();
+  const read = (name) => fs.readFileSync(path.join(mehDir, name), "utf8");
+
+  for (const name of files.filter((f) => f.endsWith(".yay"))) {
+    it(`${name} is YAY`, () => {
+      parseYay(read(name), name);
+    });
+  }
+
+  const mehs = files.filter((f) => f.endsWith(".meh"));
+  it("finds the cases", () => {
+    assert.ok(mehs.length > 0, `MEH cases in ${mehDir}`);
+  });
+  for (const name of mehs) {
+    const stem = name.slice(0, -".meh".length);
+    const test = stem.includes(".")
+      ? stem.slice(0, stem.lastIndexOf("."))
+      : stem;
+    it(`${name} is refused or reads as ${test}.yay`, () => {
+      if (files.includes(`${test}.yay`)) {
+        let value;
+        try {
+          value = parseYay(read(name), name);
+        } catch {
+          return;
+        }
+        assert.deepStrictEqual(value, parseYay(read(`${test}.yay`)));
+      } else {
+        assert.ok(files.includes(`${test}.error`), `${test}.yay or .error`);
+        assert.throws(() => parseYay(read(name), name));
+      }
     });
   }
 });
