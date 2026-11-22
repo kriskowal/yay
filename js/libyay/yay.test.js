@@ -191,3 +191,28 @@ describe("parseYay negative (invalid .nay)", () => {
     });
   }
 });
+
+describe("inline nesting limit", () => {
+  it("reads 256 levels of inline arrays and objects", () => {
+    const arrays = "[".repeat(256) + "1" + "]".repeat(256);
+    assert.doesNotThrow(() => parseYay(`a: ${arrays}\n`));
+    const objects = "{a: ".repeat(256) + "1" + "}".repeat(256);
+    assert.doesNotThrow(() => parseYay(`a: ${objects}\n`));
+  });
+  it("refuses deeper nesting with a YAY error, not a RangeError", () => {
+    for (const [open, close] of [
+      ["[", "]"],
+      ["{a: ", "}"],
+    ]) {
+      const deep = open.repeat(100000) + "1" + close.repeat(100000);
+      assert.throws(
+        () => parseYay(`a: ${deep}\n`, "deep.yay"),
+        (err) =>
+          !(err instanceof RangeError) &&
+          /^Inline nesting deeper than 256 levels at 1:\d+ of <deep\.yay>$/.test(
+            err.message,
+          ),
+      );
+    }
+  });
+});

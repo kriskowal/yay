@@ -669,6 +669,10 @@ function isPropertyBlockLeaderOnly(valuePart, leader) {
  * @returns {Record<string, unknown>|null}
  */
 function parseInlineObject(s, ctx = {}, lineNum = 0, col = 0) {
+  return nested(ctx, lineNum, col, () => parseInlineObjectBody(s, ctx, lineNum, col));
+}
+
+function parseInlineObjectBody(s, ctx, lineNum, col) {
   if (!s.startsWith("{")) return null;
   if (!s.includes("}")) {
     return null;
@@ -967,6 +971,38 @@ function parseQuotedString(s, ctx = {}, lineNum = 0, col = 0) {
 }
 
 /**
+ * The deepest inline arrays and objects may nest, one in another. Deeper
+ * nesting is refused rather than overflowing the stack.
+ */
+const MAX_INLINE_DEPTH = 256;
+
+/**
+ * Read one level of inline nesting with read(), refusing more than
+ * MAX_INLINE_DEPTH levels.
+ * @template T
+ * @param {ParseContext & {depth?: number}} ctx
+ * @param {number} lineNum
+ * @param {number} col
+ * @param {() => T} read
+ * @returns {T}
+ */
+function nested(ctx, lineNum, col, read) {
+  const depth = (ctx.depth ?? 0) + 1;
+  if (depth > MAX_INLINE_DEPTH) {
+    throw new Error(
+      `Inline nesting deeper than ${MAX_INLINE_DEPTH} levels` +
+        locSuffix(ctx, lineNum, col),
+    );
+  }
+  ctx.depth = depth;
+  try {
+    return read();
+  } finally {
+    ctx.depth = depth - 1;
+  }
+}
+
+/**
  * Read a single-quoted string, the whole of s. Its only escapes are \' and
  * \\; any other backslash is literal.
  * @param {string} s
@@ -1144,6 +1180,10 @@ function parseJsonQuotedString(s, ctx = {}, lineNum = 0, col = 0) {
  * @returns {unknown[]}
  */
 function parseInlineArray(s, ctx = {}, lineNum = 0, col = 0) {
+  return nested(ctx, lineNum, col, () => parseInlineArrayBody(s, ctx, lineNum, col));
+}
+
+function parseInlineArrayBody(s, ctx, lineNum, col) {
   if (!s.startsWith("[")) return [];
   if (!s.endsWith("]")) {
     throw new Error("Unterminated inline array" + locSuffix(ctx, lineNum, col));
