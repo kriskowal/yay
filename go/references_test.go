@@ -1,9 +1,6 @@
 package yay
 
 import (
-	"encoding/hex"
-	"encoding/json"
-	"math"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -12,116 +9,28 @@ import (
 	"testing"
 )
 
-// The cases of the references design: each .yay parses to its .yson, with
-// a reference spelled "$uri", and each .nay and .meh is refused, MEH's
-// leniency not being YAY's.
-var referenceCasesDir = filepath.Join("..", "doc", "design", "references", "cases")
-
-func referenceCaseNames(t *testing.T, ext string) []string {
-	t.Helper()
-	entries, err := os.ReadDir(referenceCasesDir)
+// MEH's leniency is not YAY's, so the corpus's MEH reference cases,
+// test/meh/reference-*.meh, are refused as YAY. The corpus reference cases
+// in test/yay and test/nay are read with the rest of the corpus.
+func TestReferenceMehCasesRefused(t *testing.T) {
+	dir := filepath.Join("..", "test", "meh")
+	entries, err := os.ReadDir(dir)
 	if err != nil {
-		t.Fatalf("failed to read %s: %v", referenceCasesDir, err)
+		t.Fatalf("failed to read %s: %v", dir, err)
 	}
 	var names []string
 	for _, entry := range entries {
-		if strings.HasSuffix(entry.Name(), "."+ext) {
-			names = append(names, entry.Name())
+		name := entry.Name()
+		if strings.HasPrefix(name, "reference-") && strings.HasSuffix(name, ".meh") {
+			names = append(names, name)
 		}
 	}
-	if len(names) == 0 {
-		t.Fatalf("no .%s cases in %s", ext, referenceCasesDir)
+	if len(names) < 2 {
+		t.Fatalf("no MEH reference cases in %s", dir)
 	}
-	return names
-}
-
-// ysonString is a string as YSON writes it: escaped with "!" when it
-// begins with "!" through "/".
-func ysonString(s string) string {
-	if s != "" && s[0] >= '!' && s[0] <= '/' {
-		return "!" + s
-	}
-	return s
-}
-
-// toYSON returns a value as the cases' YSON spells it, with float64 for
-// JSON numbers.
-func toYSON(v any) any {
-	switch v := v.(type) {
-	case Reference:
-		return "$" + v.URI()
-	case Tagged:
-		return map[string]any{"#tag": ysonString(v.Tag), "payload": toYSON(v.Payload)}
-	case []byte:
-		return "*" + hex.EncodeToString(v)
-	case *big.Int:
-		if v.Sign() < 0 {
-			return v.String()
-		}
-		return "+" + v.String()
-	case float64:
-		switch {
-		case math.IsNaN(v):
-			return "#nan"
-		case math.IsInf(v, 1):
-			return "#+inf"
-		case math.IsInf(v, -1):
-			return "#-inf"
-		}
-		return v
-	case string:
-		return ysonString(v)
-	case []any:
-		out := make([]any, len(v))
-		for i, item := range v {
-			out[i] = toYSON(item)
-		}
-		return out
-	case map[string]any:
-		out := make(map[string]any, len(v))
-		for k, item := range v {
-			if k != "" && strings.ContainsRune("#*!", rune(k[0])) {
-				k = "!" + k
-			}
-			out[k] = toYSON(item)
-		}
-		return out
-	}
-	return v
-}
-
-func TestReferenceAcceptedCases(t *testing.T) {
-	for _, name := range referenceCaseNames(t, "yay") {
-		base := strings.TrimSuffix(name, ".yay")
-		t.Run(base, func(t *testing.T) {
-			input, err := os.ReadFile(filepath.Join(referenceCasesDir, name))
-			if err != nil {
-				t.Fatal(err)
-			}
-			want, err := os.ReadFile(filepath.Join(referenceCasesDir, base+".yson"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			var w any
-			if err := json.Unmarshal(want, &w); err != nil {
-				t.Fatal(err)
-			}
-			got, err := UnmarshalFile(input, name)
-			if err != nil {
-				t.Fatalf("Unmarshal error: %v", err)
-			}
-			if d := toYSON(got); !reflect.DeepEqual(d, w) {
-				t.Errorf("mismatch\ngot:  %#v\nwant: %#v", d, w)
-			}
-		})
-	}
-}
-
-func TestReferenceRefusedCases(t *testing.T) {
-	names := append(referenceCaseNames(t, "nay"), referenceCaseNames(t, "meh")...)
 	for _, name := range names {
 		t.Run(name, func(t *testing.T) {
-			input, err := os.ReadFile(filepath.Join(referenceCasesDir, name))
+			input, err := os.ReadFile(filepath.Join(dir, name))
 			if err != nil {
 				t.Fatal(err)
 			}
