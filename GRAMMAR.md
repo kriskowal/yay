@@ -578,6 +578,13 @@ Bare keys support letters, digits, underscores, and hyphens.
 Keys containing spaces or other characters must be quoted.
 No space is permitted before the colon in a property.
 
+An object holds each key once. A key is its text, however it is written,
+so `a`, `"a"` and `'a'` are one key. A second property or entry with a key
+its object already has is refused, `Duplicate key "a" (first at 1:1)`, at
+the second key, in YAY and in MEH alike: neither chooses which value to
+keep. The same key may appear in different objects, a nested object's key
+included (`a:` over `  a: 1`).
+
 ## Inline Values
 
 Inline values are the subset of values permitted inside `[...]` and `{...}`:

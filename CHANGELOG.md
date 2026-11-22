@@ -190,6 +190,27 @@ level of nesting: 16 levels took 1.5 seconds.
 error in an inline object's value at the object's opening brace; it now
 places it in the value, as JavaScript does.
 
+**Breaking: duplicate keys are refused, in YAY and in MEH.** An object
+holds each key once, and a key is its text however it is quoted, so `a`,
+`"a"` and `'a'` are one key. A second one is an error at the second key,
+which names the first: `Duplicate key "a" (first at 1:1) at 2:1 of
+<doc.yay>`. That holds at the root, in a nested object, in a list item's
+object and in an inline object, in every port. The same key in different
+objects, such as `a:` over `  a: 1`, is still allowed. Before, JavaScript
+kept the last value at the root and refused a nested duplicate with
+`Unexpected indent`, and Python, Rust, Go, C, Java and Scheme kept the last
+value everywhere. MEH, the lenient form, refuses duplicates too, where it
+used to pass them through to its output (`yay -f meh -t yay`) or keep the
+last (`-f meh -t yson`): leniency is about spacing, and a duplicate key
+would silently drop data, so the author must choose which to keep. A
+document that relied on a later key overriding an earlier one must now
+delete the earlier one. Scheme names the same positions and message as
+the other ports. JSON, YSON and CBOR input to `yay` still keep the last
+of a duplicated key; YAML and TOML input refused duplicates already. The
+shared cases are `duplicate-key-*` in `test/nay` and, for MEH, in
+`test/meh`, where a `<name>.error` in place of `<name>.yay` holds the
+message MEH refuses with.
+
 **Breaking: YSON follows smallcaps.** A tagged value is
 `{"#tag": tag, "payload": value}`. An integer is `"+42"` or `"-7"`, not
 `"#42"`, which YSON no longer reads. An object key that begins with `#`, `*`
