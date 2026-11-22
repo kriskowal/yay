@@ -2,6 +2,7 @@
 YAY references: a URI or IRI in angle brackets, `<scheme:...>`.
 """
 
+import json
 import re
 from dataclasses import dataclass
 
@@ -12,7 +13,10 @@ class Reference:
     never dereferenced.
 
     Two references are equal when their texts are, character for
-    character, and a reference never equals a string.
+    character, and a reference never equals a string. The text must be a
+    reference's by the reader's own rule (check_uri): a lowercase scheme, a
+    colon, URI or IRI characters and well-formed percent-encodings; any
+    other string is refused with a ValueError.
     """
 
     uri: str
@@ -20,6 +24,11 @@ class Reference:
     def __post_init__(self):
         if not isinstance(self.uri, str):
             raise TypeError("A reference must be a string")
+        fault = check_uri(self.uri)
+        if fault is not None:
+            raise ValueError(
+                f"Not a reference: {json.dumps(self.uri, ensure_ascii=False)} ({fault[0]})"
+            )
 
 
 _SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*:")

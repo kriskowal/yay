@@ -127,6 +127,28 @@ class Model(unittest.TestCase):
         self.assertNotEqual(Reference("https://x"), Tagged("https://x", None))
         self.assertEqual(hash(Reference("a:b")), hash(Reference("a:b")))
 
+    def test_refuses_text_that_is_not_a_reference(self):
+        bad = [
+            "",
+            "not a uri",
+            "HTTPS://x",
+            "urn:a b",
+            "https://a>b",
+            "https://x/%zz",
+            "./a.yay",
+        ]
+        for uri in bad:
+            with self.subTest(uri):
+                with self.assertRaises(ValueError) as cm:
+                    Reference(uri)
+                self.assertTrue(str(cm.exception).startswith("Not a reference: "))
+
+    def test_accepts_what_the_reader_reads(self):
+        for uri in ("urn:x", "https://example.com/a?b=c#d", "urn:%C3%A9", "urn:é"):
+            with self.subTest(uri):
+                self.assertEqual(Reference(uri).uri, uri)
+                self.assertEqual(yay.loads(f"<{uri}>\n"), Reference(uri))
+
     def test_tagged(self):
         self.assertEqual(
             yay.loads("<ocapn://a.tcp> (Counter)\n"),
