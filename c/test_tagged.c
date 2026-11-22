@@ -261,7 +261,7 @@ static void test_escapes_and_nesting(void) {
         yay_result_free(&result);
     }
 
-    v = parse_ok("a: 1 (t) # note\n");
+    v = parse_ok("a: 1 (t)  # note\n");
     want = YAY_OBJECT("a", yay_tagged("t", yay_int(1)));
     check(v && yay_equal(v, want), "a comment after a tag");
     yay_free(v);
