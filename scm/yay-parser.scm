@@ -959,30 +959,30 @@
              (else
               (loop (+ i 1) items (string-append current (string ch))))))))))
 
-;; Parse nested inline array
+;; Find the end of a nested inline array at s[start], past its "]", for
+;; the item that holds it, which parse-inline-value reads once. (Reading it
+;; here as well read each level twice, exponential in the depth.)
 (define (parse-nested-inline-array s start)
-  (let loop ((i (+ start 1)) (depth 1) (content "["))
-    (if (or (>= i (string-length s)) (= depth 0))
-        (values (parse-inline-array content) i)
-        (let ((ch (string-ref s i)))
-          (cond
-           ((char=? ch #\[)
-            (loop (+ i 1) (+ depth 1) (string-append content (string ch))))
-           ((char=? ch #\])
-            (if (= depth 1)
-                (values (parse-inline-array (string-append content "]")) (+ i 1))
-                (loop (+ i 1) (- depth 1) (string-append content (string ch)))))
-           ((char=? ch #\()
-            (let ((end-i (skip-tag s i)))
-              (loop end-i depth (string-append content (substring s i end-i)))))
-           ((skip-reference s i)
-            => (lambda (end-i)
-                 (loop end-i depth (string-append content (substring s i end-i)))))
-           ((or (char=? ch #\") (char=? ch #\'))
-            (receive (str end-i) (parse-inline-string s i ch)
-              (loop end-i depth (string-append content str))))
-           (else
-            (loop (+ i 1) depth (string-append content (string ch)))))))))
+  (skip-nested-inline s start #\[ #\]))
+
+;; The index past the close that matches the open at s[start], skipping
+;; strings, tags and references, or the end of s if it does not close.
+;; Returns #f and the index, as the nested readers did.
+(define (skip-nested-inline s start open close)
+  (let ((len (string-length s)))
+    (let loop ((i (+ start 1)) (depth 1))
+      (if (or (>= i len) (= depth 0))
+          (values #f i)
+          (let ((ch (string-ref s i)))
+            (cond
+             ((char=? ch open) (loop (+ i 1) (+ depth 1)))
+             ((char=? ch close) (loop (+ i 1) (- depth 1)))
+             ((char=? ch #\() (loop (skip-tag s i) depth))
+             ((skip-reference s i) => (lambda (end-i) (loop end-i depth)))
+             ((or (char=? ch #\") (char=? ch #\'))
+              (receive (str end-i) (parse-inline-string s i ch)
+                (loop end-i depth)))
+             (else (loop (+ i 1) depth))))))))
 
 ;; Parse inline string within array
 (define (parse-inline-string s start quote)
@@ -1088,30 +1088,10 @@
              (else
               (loop (+ i 1) pairs current-key (string-append current (string ch))))))))))
 
-;; Parse nested inline object
+;; Find the end of a nested inline object at s[start], past its "}", for
+;; the value that holds it, which parse-inline-value reads once.
 (define (parse-nested-inline-object s start)
-  (let loop ((i (+ start 1)) (depth 1) (content "{"))
-    (if (or (>= i (string-length s)) (= depth 0))
-        (values (parse-inline-object content) i)
-        (let ((ch (string-ref s i)))
-          (cond
-           ((char=? ch #\{)
-            (loop (+ i 1) (+ depth 1) (string-append content (string ch))))
-           ((char=? ch #\})
-            (if (= depth 1)
-                (values (parse-inline-object (string-append content "}")) (+ i 1))
-                (loop (+ i 1) (- depth 1) (string-append content (string ch)))))
-           ((char=? ch #\()
-            (let ((end-i (skip-tag s i)))
-              (loop end-i depth (string-append content (substring s i end-i)))))
-           ((skip-reference s i)
-            => (lambda (end-i)
-                 (loop end-i depth (string-append content (substring s i end-i)))))
-           ((or (char=? ch #\") (char=? ch #\'))
-            (receive (str end-i) (parse-inline-string s i ch)
-              (loop end-i depth (string-append content str))))
-           (else
-            (loop (+ i 1) depth (string-append content (string ch)))))))))
+  (skip-nested-inline s start #\{ #\}))
 
 ;; Parse inline value (for array elements)
 (define (parse-inline-value s)

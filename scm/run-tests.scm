@@ -674,6 +674,53 @@
      error-test-names)))
 
 ;; Main entry point
+;; "x: ", then n repetitions of open, "1" and n of close
+(define (nest open close n)
+  (string-append "x: " (string-repeat open n) "1" (string-repeat close n) "\n"))
+
+(define (string-repeat s n)
+  (let loop ((n n) (acc '()))
+    (if (= n 0) (apply string-append acc) (loop (- n 1) (cons s acc)))))
+
+;; The value of n levels of wrap around 1, under x
+(define (nested-value wrap n)
+  (let loop ((n n) (v 1))
+    (if (= n 0) (list (cons "x" v)) (loop (- n 1) (wrap v)))))
+
+;; Nesting cases: (source expected), expected a value, or #f where the
+;; source must be refused with the message (third element)
+(define nesting-cases
+  (list
+   (list (nest "[" "]" 40) (nested-value vector 40))
+   (list (nest "{a: " "}" 40) (nested-value (lambda (v) (list (cons "a" v))) 40))
+   (list (nest "[{a: " "}]" 20)
+         (nested-value (lambda (v) (vector (list (cons "a" v)))) 20))))
+
+;; Run the nesting cases; returns passed and failed
+(define (run-nesting-tests)
+  (let loop ((cases nesting-cases) (passed 0) (failed 0))
+    (if (null? cases)
+        (values passed failed)
+        (let* ((c (car cases))
+               (got (catch #t
+                      (lambda () (cons 'value (parse-yay (car c))))
+                      (lambda (key . args)
+                        (cons 'error
+                              (if (and (pair? args) (pair? (cdr args)) (pair? (cddr args))
+                                       (pair? (caddr args)))
+                                  (car (caddr args))
+                                  (format #f "~a" args))))))
+               (ok (if (cadr c)
+                       (and (eq? (car got) 'value) (equal? (cdr got) (cadr c)))
+                       (and (eq? (car got) 'error) (equal? (cdr got) (caddr c))))))
+          (unless ok
+            (display "FAIL: nesting ")
+            (display (substring (car c) 0 (min 20 (string-length (car c)))))
+            (display "... ")
+            (display (if (eq? (car got) 'error) (cdr got) "a value"))
+            (newline))
+          (loop (cdr cases) (if ok (+ passed 1) passed) (if ok failed (+ failed 1)))))))
+
 (define (main)
   (let ((test-dir "../test"))
     (display "YAY Scheme Parser Test Runner")
@@ -711,6 +758,17 @@
         (newline)
         (newline)
         
+        (let-values (((nest-passed nest-failed) (run-nesting-tests)))
+        (display "Nesting tests: ")
+        (display nest-passed)
+        (display " passed, ")
+        (display nest-failed)
+        (display " failed")
+        (newline)
+        (newline)
+        (set! err-passed (+ err-passed nest-passed))
+        (set! err-failed (+ err-failed nest-failed))
+
         ;; Summary
         (display "===================")
         (newline)
@@ -724,7 +782,7 @@
         ;; Exit with error if any tests failed
         (if (> (+ failed err-failed) 0)
             (exit 1)
-            (exit 0))))))
+            (exit 0)))))))
 
 ;; Run
 (main)
