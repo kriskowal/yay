@@ -111,6 +111,60 @@ for the space at 1:4, and `- - a` reported the bare word at 1:3, not 1:5.
 The Rust, JavaScript, Go, C and Java ports now count the list leader, as
 the Python port already did, and the shared cases expect the true column.
 
+**Breaking: two spaces before an inline comment.** The grammar's
+inline comment is two spaces and `#` (`inline-comment = SP SP comment`),
+but every port took one space after a property's value, and some after a
+list item's or a block-bytes line's. A comment after any inline value or
+hex line with one space before its `#` is now refused in every port,
+`Expected two spaces before a comment` at the `#`. A comment alone after
+a block leader (`> # note`, `data: > # note`) is unchanged.
+`test/yay/bytearray-block-hex-and-comment.yay` and the README examples
+now put two spaces there.
+
+**Fixed: a comment after a list item's value.** The ports read the root
+value and list items by their own route, apart from a property's value,
+and disagreed on `- 'abc'  # c` (JavaScript and Go read `abc'  # it'`),
+`- "abc"  # c`, `- [1]  # c`, `- {a: 1}  # c` and `- <ff>  # c`, and Java
+refused `- 42  # c`. Every port now reads every inline value one way,
+wherever it stands, and the shared cases cover a comment after each kind.
+
+**Fixed: escapes in single-quoted strings.** `\'` and `\\` are the only
+escapes, in values and keys, and any other backslash is literal.
+JavaScript and Go kept both backslashes, Python ended the string at `\'`
+and took `''` as an escaped quote, which the grammar does not have (a
+breaking change for Python documents that relied on it), and the Scheme
+port kept `\\` as two. An unclosed single-quoted string is refused,
+`Unterminated string` at the line's last character, where JavaScript and
+Go read `- 'abc` as `ab`; an unclosed double-quoted property value is
+reported the same way.
+
+**Fixed: block bytes.** Uppercase hex is refused in block bytes as it is
+inline; JavaScript, Go, C and Java lowercased it.
+
+**Fixed: block strings agree at every depth.** A property's empty block
+string is refused at the root, nested and in a list item (JavaScript took
+`a: `` at the root as `""`, Rust nested), and so is a comment after a
+property's backtick (`a: `  # c`), which JavaScript and Go took at the
+root only. The grammar's property block string is the backtick alone.
+
+**Fixed: a lone `"` under a key** is refused, `Unexpected indent`, as any
+one quoted line under a key is. JavaScript read it as an old block-string
+leader and Scheme as an empty object.
+
+**Fixed: `__proto__` is an ordinary key.** JavaScript set the object's
+prototype from a `__proto__` key, block or inline; every property is now
+an own data property. Rust's `-t js` writes the key as `["__proto__"]`.
+
+**Breaking: JavaScript references are checked.** `new Reference(uri)` and
+`reference(uri)` refuse, with a `TypeError`, a string that is not a
+reference's text by the parser's rule (a lowercase scheme, a colon, URI
+or IRI characters, well-formed percent-encodings), and `capDataToYson`
+refuses such a slot, so CapData round-trips through YSON.
+
+**JavaScript: an inline nesting limit.** Inline arrays and objects nest
+at most 256 levels; deeper is refused, `Inline nesting deeper than 256
+levels`, where it overflowed the stack with a `RangeError`.
+
 **Breaking: YSON follows smallcaps.** A tagged value is
 `{"#tag": tag, "payload": value}`. An integer is `"+42"` or `"-7"`, not
 `"#42"`, which YSON no longer reads. An object key that begins with `#`, `*`
