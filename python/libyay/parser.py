@@ -219,6 +219,20 @@ class Parser:
                 token.col,
             )
 
+    @staticmethod
+    def claim_key(seen: dict[str, tuple[int, int]], key: str, token: Token) -> None:
+        """Record where a key first appears in an object, and refuse it the
+        second time. Each key keeps its first position, not only its name,
+        so that the error can say where the first one is."""
+        first = seen.get(key)
+        if first is not None:
+            raise YaySyntaxError(
+                f'Duplicate key "{key}" (first at {first[0]}:{first[1]})',
+                token.line,
+                token.col,
+            )
+        seen[key] = (token.line, token.col)
+
     def peek(self, offset: int = 0) -> Token:
         """Peek at token at current position + offset."""
         idx = self.pos + offset
@@ -436,6 +450,7 @@ class Parser:
         self.validate_inline_syntax(lbrace.line, lbrace.col, "{", "}")
 
         obj = {}
+        seen: dict[str, tuple[int, int]] = {}
 
         while self.peek().kind != "RBRACE":
             if self.peek().kind == "EOF":
@@ -449,6 +464,7 @@ class Parser:
             # is reported at the brace
             if self.peek().kind not in ("IDENT", "STRING"):
                 raise YaySyntaxError("Invalid key", lbrace.line, lbrace.col)
+            key_token = self.peek()
             key = self.parse_key()
 
             # Check colon spacing
@@ -467,6 +483,7 @@ class Parser:
                 raise YaySyntaxError(
                     'Unexpected space after ":"', colon.line, next_col + 1
                 )
+            self.claim_key(seen, key, key_token)
 
             # Parse value
             value = self.parse_inline_value()
@@ -661,6 +678,7 @@ class Parser:
     def parse_block_object(self, base_indent: int) -> dict:
         """Parse a block object (key: value pairs)."""
         obj = {}
+        seen: dict[str, tuple[int, int]] = {}
         current_indent = base_indent
 
         while True:
@@ -716,6 +734,8 @@ class Parser:
                     raise YaySyntaxError(
                         'Unexpected space after ":"', colon.line, next_col + 1
                     )
+
+            self.claim_key(seen, key, key_token)
 
             # Parse value
             value_token = self.peek()
