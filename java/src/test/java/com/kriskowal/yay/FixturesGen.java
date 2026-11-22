@@ -245,6 +245,10 @@ public class FixturesGen {
     FIXTURES.put("object-nested-empty-inline", map("outer", map("inner", map())));
     FIXTURES.put("object-nested-empty-property", map("outer", map("inner", map())));
     FIXTURES.put("object-nested-quoted-key-first", map("meta", map("A quoted key", "first in its object", "b", bi(2))));
+    FIXTURES.put("object-nested-quoted-key-over-block", map("a", map("k/m", map("c", "x"))));
+    FIXTURES.put("object-nested-quoted-key-slash", map("a", map("k/m", "x")));
+    FIXTURES.put("object-nested-quoted-key-two-levels", map("a", map("b", map("km", "x"))));
+    FIXTURES.put("object-nested-single-quoted-key-and-value", map("a", map("km", "x")));
     FIXTURES.put("object-proto-key", map("__proto__", map("polluted", true)));
     FIXTURES.put("object-proto-key-inline", map("a", map("__proto__", map("polluted", true))));
     FIXTURES.put("object-proto-key-quoted", map("__proto__", bi(1)));

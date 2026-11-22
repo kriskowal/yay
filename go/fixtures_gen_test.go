@@ -300,7 +300,11 @@ var fixtures = map[string]any{
 	"object-nested-quoted-key-first": map[string]any{
 		"meta": map[string]any{"A quoted key": "first in its object", "b": big.NewInt(2)},
 	},
-	"object-proto-key": map[string]any{"__proto__": map[string]any{"polluted": true}},
+	"object-nested-quoted-key-over-block":       map[string]any{"a": map[string]any{"k/m": map[string]any{"c": "x"}}},
+	"object-nested-quoted-key-slash":            map[string]any{"a": map[string]any{"k/m": "x"}},
+	"object-nested-quoted-key-two-levels":       map[string]any{"a": map[string]any{"b": map[string]any{"km": "x"}}},
+	"object-nested-single-quoted-key-and-value": map[string]any{"a": map[string]any{"km": "x"}},
+	"object-proto-key":                          map[string]any{"__proto__": map[string]any{"polluted": true}},
 	"object-proto-key-inline": map[string]any{
 		"a": map[string]any{"__proto__": map[string]any{"polluted": true}},
 	},

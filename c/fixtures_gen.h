@@ -685,6 +685,22 @@ static yay_value_t *make_expected_object_nested_quoted_key_first(void) {
 );
 }
 
+static yay_value_t *make_expected_object_nested_quoted_key_over_block(void) {
+    return YAY_OBJECT("a", YAY_OBJECT("k/m", YAY_OBJECT("c", yay_string("x"))));
+}
+
+static yay_value_t *make_expected_object_nested_quoted_key_slash(void) {
+    return YAY_OBJECT("a", YAY_OBJECT("k/m", yay_string("x")));
+}
+
+static yay_value_t *make_expected_object_nested_quoted_key_two_levels(void) {
+    return YAY_OBJECT("a", YAY_OBJECT("b", YAY_OBJECT("km", yay_string("x"))));
+}
+
+static yay_value_t *make_expected_object_nested_single_quoted_key_and_value(void) {
+    return YAY_OBJECT("a", YAY_OBJECT("km", yay_string("x")));
+}
+
 static yay_value_t *make_expected_object_proto_key_inline(void) {
     return YAY_OBJECT(
     "a", YAY_OBJECT("__proto__", YAY_OBJECT("polluted", yay_bool(true)))
@@ -1390,6 +1406,10 @@ static test_fixture_t test_fixtures[] = {
     {"object_nested_empty_inline", "outer:\n  inner: {}\n", make_expected_object_nested_empty_inline},
     {"object_nested_empty_property", "outer:\n  inner: {}\n", make_expected_object_nested_empty_property},
     {"object_nested_quoted_key_first", "meta:\n  \"A quoted key\": \"first in its object\"\n  b: 2\n", make_expected_object_nested_quoted_key_first},
+    {"object_nested_quoted_key_over_block", "a:\n  \"k/m\":\n    c: \"x\"\n", make_expected_object_nested_quoted_key_over_block},
+    {"object_nested_quoted_key_slash", "a:\n  \"k/m\": \"x\"\n", make_expected_object_nested_quoted_key_slash},
+    {"object_nested_quoted_key_two_levels", "a:\n  b:\n    \"km\": \"x\"\n", make_expected_object_nested_quoted_key_two_levels},
+    {"object_nested_single_quoted_key_and_value", "a:\n  'km': 'x'\n", make_expected_object_nested_single_quoted_key_and_value},
     {"object_proto_key_inline", "a: {__proto__: {polluted: true}}\n", make_expected_object_proto_key_inline},
     {"object_proto_key_quoted", "\"__proto__\": 1\n", make_expected_object_proto_key_quoted},
     {"object_proto_key", "__proto__:\n  polluted: true\n", make_expected_object_proto_key},
@@ -1484,7 +1504,7 @@ static test_fixture_t test_fixtures[] = {
     {NULL, NULL, NULL}
 };
 
-#define TEST_FIXTURE_COUNT 203
+#define TEST_FIXTURE_COUNT 207
 
 static error_fixture_t error_fixtures[] = {
     {"array_as_key", "array-as-key.nay", "[1]: 2\n", 7, "Unexpected character \":\" at 1:4 of <array-as-key.nay>"},
