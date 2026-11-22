@@ -38,14 +38,40 @@ function isAllowedCodePoint(cp) {
 }
 
 /**
- * Strip inline comments from a string.
- * Returns the value part (trimmed) without the comment.
+ * Strip an inline comment from a value. A comment after a value takes two
+ * spaces before its "#"; one space is refused.
  * @param {string} s
+ * @param {ParseContext} ctx
+ * @param {number} lineNum
+ * @param {number} col
  * @returns {string}
  */
-function stripInlineComment(s) {
+function stripInlineComment(s, ctx = {}, lineNum = 0, col = 0) {
   const end = stripInlineCommentRaw(maskTags(s).masked).length;
+  if (end < s.length) {
+    let hash = end;
+    while (s[hash] !== "#") hash++;
+    checkCommentSpacing(s, hash, ctx, lineNum, col);
+  }
   return s.slice(0, end);
+}
+
+/**
+ * Refuse a comment, at s[hash], that has one space before it rather than
+ * two.
+ * @param {string} s
+ * @param {number} hash
+ * @param {ParseContext} ctx
+ * @param {number} lineNum
+ * @param {number} col
+ */
+function checkCommentSpacing(s, hash, ctx, lineNum, col) {
+  if (hash >= 1 && s[hash - 1] === " " && (hash < 2 || s[hash - 2] !== " ")) {
+    throw new Error(
+      "Expected two spaces before a comment" +
+        locSuffix(ctx, lineNum, col + hash),
+    );
+  }
 }
 
 function stripInlineCommentRaw(s) {
@@ -302,6 +328,22 @@ function outlineLex(lines) {
 // --- Value parser: tokens -> value ---
 
 /**
+ * Give an object a property of its own. Assignment would take a
+ * "__proto__" key for the prototype; YAY has no such key.
+ * @param {Record<string, unknown>} obj
+ * @param {string} key
+ * @param {unknown} value
+ */
+function setOwn(obj, key, value) {
+  Object.defineProperty(obj, key, {
+    value,
+    writable: true,
+    enumerable: true,
+    configurable: true,
+  });
+}
+
+/**
  * @param {Token[]} tokens
  * @param {ParseContext} ctx
  * @returns {unknown}
@@ -414,31 +456,11 @@ function parseValue(tokens, i, ctx = {}) {
     }
   }
   if (t.type === "text") {
-    const raw = t.text;
-    const s = raw;
+    const s = t.text;
+    const lineNum = t.lineNum ?? 0;
     const sCol = t.col ?? 0;
-    // A tagged inline value: tags after it, and no property's colon before
-    const { first } = maskTags(s);
-    if (
-      first !== undefined &&
-      first > 0 &&
-      !s.startsWith("`") &&
-      !s.startsWith(">") &&
-      (s.startsWith("{") ||
-        s.startsWith("[") ||
-        findKeyColonOutsideQuotes(s.slice(0, first)) < 0)
-    ) {
-      return [parseScalar(s, ctx, t.lineNum ?? 0, sCol), i + 1];
-    }
-    if (s === "null") return [null, i + 1];
-    if (s === "true") return [true, i + 1];
-    if (s === "false") return [false, i + 1];
-    if (s === "nan") return [NaN, i + 1];
-    if (s === "infinity") return [Infinity, i + 1];
-    if (s === "-infinity") return [-Infinity, i + 1];
-    const num = parseNumber(s, ctx, t.lineNum ?? 0, sCol);
-    if (num !== undefined) return [num, i + 1];
-    if (s === "`" || (s.startsWith("`") && s.length >= 2 && s[1] === " ")) {
+    // The block forms, which read the lines below
+    if (s === "`" || s.startsWith("` ")) {
       const firstLine = s.length > 2 ? s.slice(2) : "";
       // Use token's indent as base - block string content must be indented more
       return parseBlockStringWithIndent(
@@ -449,76 +471,56 @@ function parseValue(tokens, i, ctx = {}) {
         t.indent ?? 0,
       );
     }
-    if (
-      (s.startsWith('"') && s.length > 1) ||
-      (s.startsWith("'") && s.length > 1)
-    ) {
-      return [parseQuotedString(s, ctx, t.lineNum ?? 0, sCol), i + 1];
+    if (s.startsWith(">")) {
+      const firstCol = s.startsWith("> ") ? sCol + 2 : sCol + 1;
+      const firstLine = s.slice(firstCol - sCol);
+      if (firstLine.length === 0) {
+        throw new Error("Expected hex or comment in hex block");
+      }
+      return parseBlockBytes(
+        tokens,
+        i,
+        ctx,
+        firstLine,
+        t.indent ?? 0,
+        firstCol,
+      );
     }
     if (s.startsWith("[")) {
       const close = findMatchingBracket(s);
       if (close >= 0 && s[close + 1] === ":") {
         throw new Error(
           'Unexpected character ":"' +
-            locSuffix(ctx, t.lineNum ?? 0, sCol + close + 1),
+            locSuffix(ctx, lineNum, sCol + close + 1),
         );
       }
-      // Inline arrays must close on the same line.
-      if (!s.endsWith("]")) {
-        throw new Error(
-          "Unexpected newline in inline array" +
-            locSuffix(ctx, t.lineNum ?? 0, sCol),
-        );
-      }
-      validateInlineArrayWhitespace(s, ctx, t.lineNum ?? 0, sCol);
-      return [parseInlineArray(s, ctx, t.lineNum ?? 0, sCol), i + 1];
     }
-    if (s.startsWith(">")) {
-      let firstLine = s.slice(1);
-      if (firstLine.startsWith(" ")) firstLine = firstLine.slice(1);
-      if (firstLine.length === 0) {
-        throw new Error("Expected hex or comment in hex block");
-      }
-      return parseBlockBytes(tokens, i, ctx, firstLine, t.indent ?? 0);
-    }
-    if (s.startsWith("{")) {
-      // Inline objects must close on the same line.
-      if (!s.includes("}")) {
-        throw new Error(
-          "Unexpected newline in inline object" +
-            locSuffix(ctx, t.lineNum ?? 0, sCol),
-        );
-      }
-      const inlineObj = parseInlineObject(s, ctx, t.lineNum ?? 0, sCol);
-      if (inlineObj !== null) return [inlineObj, i + 1];
-    }
-    // A reference, which may hold a colon
-    if (isReferenceStart(s)) {
-      return [parseScalar(s, ctx, t.lineNum ?? 0, sCol), i + 1];
-    }
-    if (s.startsWith("<") && s.includes(">"))
-      return [parseAngleBytes(s, ctx, t.lineNum, t.col), i + 1];
-    if (s.startsWith("<")) {
-      throw new Error(
-        "Unmatched angle bracket" + locSuffix(ctx, t.lineNum ?? 0, sCol),
-      );
-    }
-    const keyValue = splitKeyValue(s, sCol, ctx, t.lineNum ?? 0);
-    if (keyValue) {
+    // A property on this line: "key: value" or "key:" over a block. An
+    // inline value with tags after it, an inline container, a quoted string
+    // and a reference or bytes never take a key here.
+    const bare = stripInlineComment(s, ctx, lineNum, sCol);
+    const { first } = maskTags(bare);
+    const tagged =
+      first !== undefined &&
+      first > 0 &&
+      findKeyColonOutsideQuotes(bare.slice(0, first)) < 0;
+    if (
+      !tagged &&
+      !/^["'[{<]/.test(bare) &&
+      findKeyColonOutsideQuotes(bare) >= 0
+    ) {
+      const keyValue = splitKeyValue(bare, sCol, ctx, lineNum);
       const { key, valuePart, valueCol } = keyValue;
       if (valuePart === "" && key.length > 0) {
         return parseObjectOrNamedArray(tokens, i, key, ctx);
       }
-      // Note: "key: <" without closing ">" is invalid - inline byte arrays must be closed on the same line
       if (key.length > 0) {
-        const value =
-          valuePart === ""
-            ? undefined
-            : parseScalar(valuePart, ctx, t.lineNum ?? 0, valueCol);
+        const value = parseScalar(valuePart, ctx, lineNum, valueCol);
         return [{ [key]: value }, i + 1];
       }
     }
-    return [parseScalar(s, ctx, t.lineNum ?? 0, sCol), i + 1];
+    // Every inline value reads as a property's does
+    return [parseScalar(s, ctx, lineNum, sCol), i + 1];
   }
   return [undefined, i + 1];
 }
@@ -548,10 +550,7 @@ function splitKeyValue(s, sCol, ctx, lineNum, inlineCol) {
       const col = sCol + Math.max(0, keyRaw.length - 1);
       throw new Error("Unterminated string" + locSuffix(ctx, lineNum, col));
     }
-    key =
-      quote === '"'
-        ? parseQuotedString(keyRaw, ctx, lineNum, sCol)
-        : keyRaw.slice(1, -1);
+    key = parseQuotedString(keyRaw, ctx, lineNum, sCol);
   } else {
     if (keyRaw.length === 0) {
       throw new Error("Missing key" + locSuffix(ctx, lineNum, sCol + colonIdx));
@@ -779,7 +778,7 @@ function parseInlineObject(s, ctx = {}, lineNum = 0, col = 0) {
     if (valuePart === "") {
       throw new Error("Missing value" + locSuffix(ctx, lineNum, valueCol));
     }
-    obj[key] = parseScalar(valuePart, ctx, lineNum, valueCol);
+    setOwn(obj, key, parseScalar(valuePart, ctx, lineNum, valueCol));
   }
   return obj;
 }
@@ -793,7 +792,7 @@ function parseInlineObject(s, ctx = {}, lineNum = 0, col = 0) {
  */
 function parseScalar(s, ctx = {}, lineNum = 0, col = 0) {
   // Strip inline comments first
-  s = stripInlineComment(s);
+  s = stripInlineComment(s, ctx, lineNum, col);
   const { first } = maskTags(s);
   if (first !== undefined) {
     if (first === 0) throw prefixWithoutBlock(ctx, lineNum, col);
@@ -811,9 +810,6 @@ function parseScalar(s, ctx = {}, lineNum = 0, col = 0) {
       );
     }
     const atom = s.slice(0, atomEnd);
-    if (atom.startsWith("[")) {
-      validateInlineArrayWhitespace(atom, ctx, lineNum, col);
-    }
     return wrapTags(parseScalarAtom(atom, ctx, lineNum, col), tags);
   }
   return parseScalarAtom(s, ctx, lineNum, col);
@@ -829,23 +825,38 @@ function parseScalarAtom(s, ctx = {}, lineNum = 0, col = 0) {
   const num = parseNumber(s, ctx, lineNum, col);
   if (num !== undefined) return num;
   if (s.startsWith('"')) {
-    if (!s.endsWith('"') || s.length < 2) {
-      throw new Error(
-        `Unexpected character "${s[0]}"` + locSuffix(ctx, lineNum, col),
-      );
+    if (s.length < 2 || !s.endsWith('"')) {
+      // Closed early, with more after it, or never closed
+      let k = 1;
+      while (k < s.length && s[k] !== '"') k += s[k] === "\\" ? 2 : 1;
+      if (k < s.length) {
+        throw new Error(
+          `Unexpected character "${s[0]}"` + locSuffix(ctx, lineNum, col),
+        );
+      }
     }
     return parseQuotedString(s, ctx, lineNum, col);
   }
-  if (s.startsWith("'")) {
-    if (!s.endsWith("'") || s.length < 2) {
+  if (s.startsWith("'")) return parseSingleQuotedString(s, ctx, lineNum, col);
+  if (s.startsWith("[")) {
+    // Inline arrays must close on the same line.
+    if (!s.endsWith("]")) {
       throw new Error(
-        `Unexpected character "${s[0]}"` + locSuffix(ctx, lineNum, col),
+        "Unexpected newline in inline array" + locSuffix(ctx, lineNum, col),
       );
     }
-    return s.slice(1, -1);
+    validateInlineArrayWhitespace(s, ctx, lineNum, col);
+    return parseInlineArray(s, ctx, lineNum, col);
   }
-  if (s.startsWith("[")) return parseInlineArray(s, ctx, lineNum, col);
-  if (s.startsWith("{")) return parseInlineObject(s, ctx, lineNum, col);
+  if (s.startsWith("{")) {
+    // Inline objects must close on the same line.
+    if (!s.includes("}")) {
+      throw new Error(
+        "Unexpected newline in inline object" + locSuffix(ctx, lineNum, col),
+      );
+    }
+    return parseInlineObject(s, ctx, lineNum, col);
+  }
   if (isReferenceStart(s)) {
     const [value, n] = parseReference(s, ctx, lineNum, col);
     if (n !== s.length) {
@@ -951,8 +962,40 @@ function parseNumber(s, ctx = {}, lineNum = 0, col = 0) {
  */
 function parseQuotedString(s, ctx = {}, lineNum = 0, col = 0) {
   if (s.startsWith('"')) return parseJsonQuotedString(s, ctx, lineNum, col);
-  if (s.startsWith("'")) return s.slice(1, -1);
+  if (s.startsWith("'")) return parseSingleQuotedString(s, ctx, lineNum, col);
   return s;
+}
+
+/**
+ * Read a single-quoted string, the whole of s. Its only escapes are \' and
+ * \\; any other backslash is literal.
+ * @param {string} s
+ * @param {ParseContext} ctx
+ * @param {number} lineNum
+ * @param {number} col
+ * @returns {string}
+ */
+function parseSingleQuotedString(s, ctx = {}, lineNum = 0, col = 0) {
+  let out = "";
+  let run = 1;
+  for (let i = 1; i < s.length; i++) {
+    const c = s[i];
+    if (c === "\\" && (s[i + 1] === "'" || s[i + 1] === "\\")) {
+      out += s.slice(run, i);
+      run = i + 1;
+      i++;
+    } else if (c === "'") {
+      if (i !== s.length - 1) {
+        throw new Error(
+          'Unexpected character "\'"' + locSuffix(ctx, lineNum, col),
+        );
+      }
+      return out + s.slice(run, i);
+    }
+  }
+  throw new Error(
+    "Unterminated string" + locSuffix(ctx, lineNum, col + s.length - 1),
+  );
 }
 
 /**
@@ -1408,29 +1451,58 @@ function parseAngleBytes(s, ctx = {}, lineNum = 0, col = 0) {
       );
     }
   }
-  const hex = inner.replace(/\s/g, "");
+  return hexToBytes(inner.replace(/\s/g, ""), ctx, lineNum, col);
+}
+
+/**
+ * Decode lowercase hex, inline or block, the spaces already removed.
+ * Uppercase digits are refused where they are written, before this.
+ * @param {string} hex
+ * @param {ParseContext} ctx
+ * @param {number} lineNum
+ * @param {number} col
+ * @returns {Uint8Array}
+ */
+function hexToBytes(hex, ctx, lineNum, col) {
   if (hex.length % 2 !== 0)
     throw new Error(
       "Odd number of hex digits in byte literal" + locSuffix(ctx, lineNum, col),
     );
   if (!/^[0-9a-f]*$/.test(hex))
     throw new Error("Invalid hex digit" + locSuffix(ctx, lineNum, col));
-  return Uint8Array.fromHex
-    ? Uint8Array.fromHex(hex)
-    : hexToUint8Array(hex, ctx, lineNum, col);
-}
-
-function hexToUint8Array(hex, ctx, lineNum, col) {
   const bytes = new Uint8Array(hex.length / 2);
   for (let j = 0; j < bytes.length; j++) {
-    const pair = hex.slice(j * 2, j * 2 + 2);
-    const val = parseInt(pair, 16);
-    if (isNaN(val)) {
-      throw new Error("Invalid hex digit" + locSuffix(ctx, lineNum, col));
-    }
-    bytes[j] = val;
+    bytes[j] = parseInt(hex.slice(j * 2, j * 2 + 2), 16);
   }
   return bytes;
+}
+
+/**
+ * Read one line of block bytes: hex, then an optional comment after two
+ * spaces, or a comment alone. Returns the hex without its spaces.
+ * @param {string} text
+ * @param {ParseContext} ctx
+ * @param {number} lineNum
+ * @param {number} col
+ * @returns {string}
+ */
+function blockHexLine(text, ctx, lineNum, col) {
+  if (text.startsWith("#")) return "";
+  let body = text;
+  const hash = text.indexOf("#");
+  if (hash >= 0) {
+    checkCommentSpacing(text, hash, ctx, lineNum, col);
+    if (text[hash - 1] === " ") body = text.slice(0, hash).trimEnd();
+  }
+  for (let i = 0; i < body.length; i++) {
+    if (body[i] >= "A" && body[i] <= "F") {
+      throw new Error(
+        "Uppercase hex digit (use lowercase)" +
+          locSuffix(ctx, lineNum, col + i),
+      );
+    }
+  }
+  return body.replace(/ /g, "");
 }
 
 /**
@@ -1840,17 +1912,22 @@ function parseNestedInlineBullet(text, ctx = {}, lineNum = 0, col = 0) {
  * @param {number} baseIndent
  * @returns {[Uint8Array, number]}
  */
-function parseBlockBytes(tokens, i, ctx = {}, firstLineRaw, baseIndent) {
+function parseBlockBytes(
+  tokens,
+  i,
+  ctx = {},
+  firstLineRaw,
+  baseIndent,
+  firstCol = 0,
+) {
   const startToken = tokens[i];
   const lineNum = startToken.lineNum ?? 0;
   const col = startToken.col ?? 0;
   let hex = "";
-  if (firstLineRaw !== undefined) {
-    hex += firstLineRaw.replace(/#.*$/, "").replace(/\s/g, "").toLowerCase();
-    i++;
-  } else {
-    i++;
+  if (firstLineRaw) {
+    hex += blockHexLine(firstLineRaw, ctx, lineNum, firstCol);
   }
+  i++;
   while (i < tokens.length) {
     const t = tokens[i];
     if (t.type === "break") {
@@ -1858,22 +1935,13 @@ function parseBlockBytes(tokens, i, ctx = {}, firstLineRaw, baseIndent) {
       continue;
     }
     if (t.type === "text" && (t.indent ?? 0) > baseIndent) {
-      hex += t.text.replace(/#.*$/, "").replace(/\s/g, "").toLowerCase();
+      hex += blockHexLine(t.text, ctx, t.lineNum ?? 0, t.col ?? 0);
       i++;
       continue;
     }
     break;
   }
-  if (hex.length % 2 !== 0)
-    throw new Error(
-      "Odd number of hex digits in byte literal" + locSuffix(ctx, lineNum, col),
-    );
-  if (!/^[0-9a-f]*$/.test(hex))
-    throw new Error("Invalid hex digit" + locSuffix(ctx, lineNum, col));
-  const result = Uint8Array.fromHex
-    ? Uint8Array.fromHex(hex)
-    : hexToUint8Array(hex, ctx, lineNum, col);
-  return [result, i];
+  return [hexToBytes(hex, ctx, lineNum, col), i];
 }
 
 // Note: parseMultilineAngleBytes was removed as dead code.
@@ -1922,18 +1990,12 @@ function parseObjectOrNamedArray(tokens, i, key, ctx = {}) {
   }
   // Note: '*' syntax for multiline bytes is rejected by the scanner
   // Note: "key: <" without closing ">" is invalid - inline byte arrays must be closed on the same line
-  if (first && first.type === "text" && first.text === '"') {
-    const [body, next] = parseBlockStringWithIndent(
-      tokens,
-      i,
-      undefined,
-      false,
-      -1,
-    );
-    return [{ [key]: body }, next];
-  }
-  // Reject block string leader on separate line - must be on same line as key
-  if (first && first.type === "text" && first.text.trim() === "`") {
+  // Reject a block string leader or a lone quote on a separate line
+  if (
+    first &&
+    first.type === "text" &&
+    (first.text.trim() === "`" || first.text === '"')
+  ) {
     throw new Error(
       "Unexpected indent" + locSuffix(ctx, first.lineNum ?? 0, 0),
     );
@@ -1996,7 +2058,7 @@ function parseObjectOrNamedArray(tokens, i, key, ctx = {}) {
         if (k && (t.indent ?? 0) <= baseIndent && obj.hasOwnProperty(k)) break;
         if (k && (t.indent ?? 0) <= baseIndent && !obj.hasOwnProperty(k)) {
           if (vPart === "{}") {
-            obj[k] = {};
+            setOwn(obj, k, {});
             i++;
           } else if (vPart.startsWith(">")) {
             // Block bytes in property context
@@ -2012,10 +2074,15 @@ function parseObjectOrNamedArray(tokens, i, key, ctx = {}) {
               "",
               t.indent ?? 0,
             );
-            obj[k] = bytes;
+            setOwn(obj, k, bytes);
             i = next;
-          } else if (vPart.trim() === "`") {
+          } else if (vPart.startsWith("`")) {
             // Block string in property context: backtick alone on line
+            if (vPart !== "`") {
+              throw new Error(
+                "Expected newline after block leader in property",
+              );
+            }
             const [body, next] = parseBlockStringWithIndent(
               tokens,
               i,
@@ -2023,26 +2090,16 @@ function parseObjectOrNamedArray(tokens, i, key, ctx = {}) {
               true,
               t.indent ?? 0,
             );
-            obj[k] = body;
+            setOwn(obj, k, body);
             i = next;
           } else if (vPart === "") {
             i++;
             while (i < tokens.length && tokens[i].type === "break") i++;
             const nextT = tokens[i];
             // Note: '*' syntax for multiline bytes is rejected by the scanner
-            if (nextT && nextT.type === "text" && nextT.text === '"') {
-              const [body, next] = parseBlockStringWithIndent(
-                tokens,
-                i,
-                undefined,
-                false,
-                -1,
-              );
-              obj[k] = body;
-              i = next;
-            } else if (nextT && nextT.type === "start" && nextT.text === "-") {
+            if (nextT && nextT.type === "start" && nextT.text === "-") {
               const [arr, next] = parseListArray(tokens, i, ctx);
-              obj[k] = arr;
+              setOwn(obj, k, arr);
               i = next;
             } else if (
               nextT &&
@@ -2055,7 +2112,7 @@ function parseObjectOrNamedArray(tokens, i, key, ctx = {}) {
                 nextT.indent ?? 0,
                 ctx,
               );
-              obj[k] = child;
+              setOwn(obj, k, child);
               i = next;
             } else {
               // Empty property with no nested content is invalid
@@ -2066,14 +2123,18 @@ function parseObjectOrNamedArray(tokens, i, key, ctx = {}) {
             }
           } else {
             // Inline value (scalar, array, object, bytes)
-            obj[k] = parseScalar(vPart, ctx, t.lineNum ?? 0, keyValue.valueCol);
+            setOwn(
+              obj,
+              k,
+              parseScalar(vPart, ctx, t.lineNum ?? 0, keyValue.valueCol),
+            );
             i++;
           }
           if (tags) {
             if (isMissingBlock(obj[k])) {
               throw prefixWithoutBlock(ctx, t.lineNum ?? 0, keyValue.valueCol);
             }
-            obj[k] = wrapPrefix(obj[k], tags);
+            setOwn(obj, k, wrapPrefix(obj[k], tags));
           }
         } else {
           i++;
@@ -2153,17 +2214,20 @@ function parseObjectBlock(tokens, i, baseIndent, ctx = {}, inlineIndent) {
           throw new Error("Expected newline after block leader in property");
         }
         const [bytes, j] = parseBlockBytes(tokens, i, ctx, "", baseIndent);
-        obj[k] = bytes;
+        setOwn(obj, k, bytes);
         i = j;
         break property;
       }
       if (vPart === "{}") {
-        obj[k] = {};
+        setOwn(obj, k, {});
         i++;
         break property;
       }
       // Block string in property context: backtick alone on line
-      if (vPart.trim() === "`") {
+      if (vPart.startsWith("`")) {
+        if (vPart !== "`") {
+          throw new Error("Expected newline after block leader in property");
+        }
         // The block ends at the key's column, which for "- key: `" is past
         // the list leader.
         const [body, next] = parseBlockStringWithIndent(
@@ -2173,7 +2237,7 @@ function parseObjectBlock(tokens, i, baseIndent, ctx = {}, inlineIndent) {
           true,
           indent,
         );
-        obj[k] = body;
+        setOwn(obj, k, body);
         i = next;
         break property;
       }
@@ -2208,7 +2272,7 @@ function parseObjectBlock(tokens, i, baseIndent, ctx = {}, inlineIndent) {
         if (nextT && nextT.type === "start" && nextT.text === "-") {
           // Pass baseIndent as minIndent so nested arrays stop at the object's level
           const [arr, next] = parseListArray(tokens, i, ctx, baseIndent);
-          obj[k] = arr;
+          setOwn(obj, k, arr);
           i = next;
           break property;
         }
@@ -2225,7 +2289,7 @@ function parseObjectBlock(tokens, i, baseIndent, ctx = {}, inlineIndent) {
             nextT.indent ?? 0,
             ctx,
           );
-          obj[k] = child;
+          setOwn(obj, k, child);
           i = next;
           break property;
         }
@@ -2234,14 +2298,18 @@ function parseObjectBlock(tokens, i, baseIndent, ctx = {}, inlineIndent) {
         break property;
       }
       // Inline value (scalar, array, object, bytes)
-      obj[k] = parseScalar(vPart, ctx, t.lineNum ?? 0, keyValue.valueCol);
+      setOwn(
+        obj,
+        k,
+        parseScalar(vPart, ctx, t.lineNum ?? 0, keyValue.valueCol),
+      );
       i++;
     }
     if (tags) {
       if (isMissingBlock(obj[k])) {
         throw prefixWithoutBlock(ctx, t.lineNum ?? 0, keyValue.valueCol);
       }
-      obj[k] = wrapPrefix(obj[k], tags);
+      setOwn(obj, k, wrapPrefix(obj[k], tags));
     }
   }
   return [obj, i];
@@ -2285,79 +2353,44 @@ function parseRootObject(tokens, i, ctx = {}) {
             throw new Error("Expected newline after block leader in property");
           }
           const [bytes, j] = parseBlockBytes(tokens, i, ctx, "", baseIndent);
-          obj[k] = bytes;
+          setOwn(obj, k, bytes);
           i = j;
         } else if (vPart === "{}") {
-          obj[k] = {};
+          setOwn(obj, k, {});
           i++;
           // Note: "key: \"" is an unterminated string error, not a block string
           // Block strings use backtick (`) not double-quote (")
         } else if (vPart.startsWith("`")) {
-          if (!isPropertyBlockLeaderOnly(vPart, "`")) {
+          if (vPart !== "`") {
             throw new Error("Expected newline after block leader in property");
           }
-          i++;
-          while (
-            i < tokens.length &&
-            (tokens[i].type === "break" || tokens[i].type === "stop")
-          )
-            i++;
-          const nextT = tokens[i];
-          if (nextT && nextT.type === "text" && nextT.text === "`") {
-            // Empty block string (just opening and closing backticks) is not allowed
-            throw new Error(
-              'Empty block string not allowed (use "" or "\\n" explicitly)',
-            );
-          } else {
-            const withIndent = [];
-            while (
-              i < tokens.length &&
-              ((tokens[i].type === "text" &&
-                (tokens[i].indent ?? 0) > baseIndent) ||
-                tokens[i].type === "break")
-            ) {
-              if (tokens[i].type === "break") {
-                withIndent.push({ indent: undefined, text: "" });
-                i++;
-              } else {
-                withIndent.push({
-                  indent: tokens[i].indent ?? 0,
-                  text: tokens[i].text,
-                });
-                i++;
-              }
-            }
-            const minIndent = withIndent
-              .filter((x) => x.indent !== undefined)
-              .reduce((min, x) => (x.indent < min ? x.indent : min), Infinity);
-            const effectiveMin = minIndent === Infinity ? 0 : minIndent;
-            const bodyLines = withIndent.map(({ indent, text }) =>
-              indent === undefined
-                ? ""
-                : (indent - effectiveMin > 0
-                    ? " ".repeat(indent - effectiveMin)
-                    : "") + text,
-            );
-            let endLine = bodyLines.length;
-            while (endLine > 0 && bodyLines[endLine - 1] === "") endLine--;
-            const trimmedLines = bodyLines.slice(0, endLine);
-            obj[k] =
-              trimmedLines.join("\n") + (trimmedLines.length > 0 ? "\n" : "");
-          }
+          const [body, next] = parseBlockStringWithIndent(
+            tokens,
+            i,
+            "",
+            true,
+            baseIndent,
+          );
+          setOwn(obj, k, body);
+          i = next;
         } else if (vPart === "") {
           const [valueObj, next] = parseObjectOrNamedArray(tokens, i, k, ctx);
-          obj[k] = valueObj[k];
+          setOwn(obj, k, valueObj[k]);
           i = next;
         } else {
           // Inline value (scalar, array, object, bytes)
-          obj[k] = parseScalar(vPart, ctx, t.lineNum ?? 0, keyValue.valueCol);
+          setOwn(
+            obj,
+            k,
+            parseScalar(vPart, ctx, t.lineNum ?? 0, keyValue.valueCol),
+          );
           i++;
         }
         if (tags) {
           if (isMissingBlock(obj[k])) {
             throw prefixWithoutBlock(ctx, t.lineNum ?? 0, keyValue.valueCol);
           }
-          obj[k] = wrapPrefix(obj[k], tags);
+          setOwn(obj, k, wrapPrefix(obj[k], tags));
         }
       } else if ((t.indent ?? 0) > baseIndent) {
         // A line indented under a property that took no block, placed at
@@ -2822,7 +2855,7 @@ function mapDollars(value, f) {
   if (value !== null && typeof value === "object") {
     const out = {};
     for (const [k, v] of Object.entries(value)) {
-      out[k] = k === "#tag" && "payload" in value ? v : mapDollars(v, f);
+      setOwn(out, k, k === "#tag" && "payload" in value ? v : mapDollars(v, f));
     }
     return out;
   }
