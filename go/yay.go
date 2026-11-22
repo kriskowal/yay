@@ -26,6 +26,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // ============================================================================
@@ -562,65 +563,21 @@ func parseTextValue(tokens []token, i int, ctx *parseContext) (any, int, error) 
 	t := tokens[i]
 	s := t.text
 
-	// A tagged inline value: tags after it, and no property's colon before;
-	// a block string or block bytes reads its tags itself
-	block := strings.HasPrefix(s, "`") || strings.HasPrefix(s, ">")
-	if _, p := maskTags(s); p > 0 && !block {
-		inline := strings.HasPrefix(s, "{") || strings.HasPrefix(s, "[")
-		if inline || findColonOutsideQuotes(s[:p]) < 0 {
-			scalar, err := parseScalar(stripComment(s), ctx, t.lineNum, t.col)
-			if err != nil {
-				return nil, 0, err
-			}
-			return scalar, i + 1, nil
-		}
-	}
-
-	// Try keywords
-	if v, ok := parseKeyword(s); ok {
-		return v, i + 1, nil
-	}
-
-	// Try numbers (with strict whitespace validation)
-	if num, ok, err := parseNumberStrict(s, ctx, t.lineNum, t.col); err != nil {
-		return nil, 0, err
-	} else if ok {
-		return num, i + 1, nil
-	}
-
-	// Try block string
+	// The block forms, which read the lines below
 	if isBlockStringStart(s) {
 		firstLine := extractBlockStringFirstLine(s)
 		// Use token's indent as base - block string content must be indented more
 		return parseBlockStringWithIndent(tokens, i, firstLine, false, t.indent)
 	}
-
-	// Try quoted string, unless it is a quoted key followed by a colon
-	if isQuotedString(s) && findColonOutsideQuotes(s) < 0 {
-		str, err := parseQuotedString(s, ctx, t.lineNum, t.col)
-		if err != nil {
-			return nil, 0, err
-		}
-		return str, i + 1, nil
+	if strings.HasPrefix(s, ">") {
+		return parseBlockBytes(tokens, i, ctx)
 	}
 
-	// Try inline array
+	// An inline array taken for a key
 	if strings.HasPrefix(s, "[") {
-		return parseInlineArrayValue(s, t, i, ctx)
-	}
-
-	// Try inline object
-	if strings.HasPrefix(s, "{") {
-		return parseInlineObjectValue(s, t, i, ctx)
-	}
-
-	// Try a reference
-	if isReferenceStart(s) {
-		ref, err := parseWholeReference(stripComment(s), ctx, t.lineNum, t.col)
-		if err != nil {
-			return nil, 0, err
+		if end := findMatchingBracket(s); end >= 0 && strings.HasPrefix(s[end+1:], ":") {
+			return nil, 0, fmt.Errorf("Unexpected character \":\"%s", locSuffix(ctx, t.lineNum, t.col+end+1))
 		}
-		return ref, i + 1, nil
 	}
 
 	// Bytes before a colon are a key, which bytes never are: the colon is
@@ -630,27 +587,24 @@ func parseTextValue(tokens []token, i int, ctx *parseContext) (any, int, error) 
 		return nil, 0, fmt.Errorf("Unexpected character \":\"%s", locSuffix(ctx, t.lineNum, t.col+colonIdx))
 	}
 
-	// Try inline bytes
-	if strings.HasPrefix(s, "<") && strings.Contains(s, ">") {
-		bytes, err := parseAngleBytesStrict(s, ctx, t.lineNum, t.col)
-		if err != nil {
-			return nil, 0, err
+	bare, err := stripInlineComment(s, ctx, t.lineNum, t.col)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// A property on this line: "key: value" or "key:" over a block. An
+	// inline value with tags after it, an inline container, a reference and
+	// bytes never take a key here.
+	_, p := maskTags(bare)
+	tagged := p > 0 && findColonOutsideQuotes(bare[:p]) < 0
+	if !tagged && !strings.HasPrefix(bare, "[") && !strings.HasPrefix(bare, "{") && !strings.HasPrefix(bare, "<") {
+		if colonIdx := findColonOutsideQuotes(bare); colonIdx >= 0 {
+			return parseKeyValuePair(tokens, i, colonIdx, ctx)
 		}
-		return bytes, i + 1, nil
 	}
 
-	// Try block bytes (> introducer)
-	if strings.HasPrefix(s, ">") {
-		return parseBlockBytes(tokens, i, ctx)
-	}
-
-	// Try key:value pair
-	if colonIdx := findColonOutsideQuotes(s); colonIdx >= 0 {
-		return parseKeyValuePair(tokens, i, colonIdx, ctx)
-	}
-
-	// Fall back to scalar
-	scalar, err := parseScalar(s, ctx, t.lineNum, t.col)
+	// Every inline value reads as a property's does
+	scalar, err := parseScalar(bare, ctx, t.lineNum, t.col)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -803,22 +757,36 @@ func extractBlockStringFirstLine(s string) string {
 	return "" // Backtick alone on line
 }
 
-// isQuotedString checks if s is a quoted string (double or single).
-func isQuotedString(s string) bool {
-	return (strings.HasPrefix(s, "\"") && len(s) > 1) ||
-		(strings.HasPrefix(s, "'") && len(s) > 1)
-}
-
 // parseQuotedString parses a quoted string value.
 func parseQuotedString(s string, ctx *parseContext, lineNum, col int) (string, error) {
 	if strings.HasPrefix(s, "\"") {
 		return parseDoubleQuotedString(s, ctx, lineNum, col)
 	}
 	if strings.HasPrefix(s, "'") {
-		// Single-quoted strings are literal (no escapes)
-		return s[1 : len(s)-1], nil
+		return parseSingleQuotedString(s, ctx, lineNum, col)
 	}
 	return s, nil
+}
+
+// parseSingleQuotedString reads a single-quoted string, the whole of s. Its
+// only escapes are \' and \\; any other backslash is literal.
+func parseSingleQuotedString(s string, ctx *parseContext, lineNum, col int) (string, error) {
+	var out strings.Builder
+	for k := 1; k < len(s); k++ {
+		c := s[k]
+		if c == '\\' && k+1 < len(s) && (s[k+1] == '\'' || s[k+1] == '\\') {
+			k++
+			out.WriteByte(s[k])
+		} else if c == '\'' {
+			if k != len(s)-1 {
+				return "", fmt.Errorf("Unexpected character \"'\"%s", locSuffix(ctx, lineNum, col))
+			}
+			return out.String(), nil
+		} else {
+			out.WriteByte(c)
+		}
+	}
+	return "", fmt.Errorf("Unterminated string%s", locSuffix(ctx, lineNum, col+utf8.RuneCountInString(s)-1))
 }
 
 // parseDoubleQuotedString parses a JSON-style double-quoted string.
@@ -1079,32 +1047,6 @@ func buildBlockStringResult(firstLine string, lines []string, inPropertyContext 
 // ============================================================================
 // Inline Array Parsing
 // ============================================================================
-
-// parseInlineArrayValue parses an inline array from a text token.
-func parseInlineArrayValue(s string, t token, i int, ctx *parseContext) (any, int, error) {
-	if end := findMatchingBracket(s); end >= 0 && end+1 < len(s) && s[end+1] == ':' {
-		return nil, 0, fmt.Errorf("Unexpected character \":\"%s", locSuffix(ctx, t.lineNum, t.col+end+1))
-	}
-	if !strings.Contains(s, "]") {
-		return nil, 0, fmt.Errorf("Unexpected newline in inline array%s", locSuffix(ctx, t.lineNum, t.col))
-	}
-	arr, err := parseInlineArrayStrict(s, ctx, t.lineNum, t.col)
-	if err != nil {
-		return nil, 0, err
-	}
-	return arr, i + 1, nil
-}
-
-func parseInlineObjectValue(s string, t token, i int, ctx *parseContext) (any, int, error) {
-	if !strings.Contains(s, "}") {
-		return nil, 0, fmt.Errorf("Unexpected newline in inline object%s", locSuffix(ctx, t.lineNum, t.col))
-	}
-	obj, err := parseInlineObjectStrict(s, ctx, t.lineNum, t.col)
-	if err != nil {
-		return nil, 0, err
-	}
-	return obj, i + 1, nil
-}
 
 // parseInlineArrayStrict parses an inline array with strict whitespace validation.
 func parseInlineArrayStrict(s string, ctx *parseContext, lineNum, col int) ([]any, error) {
@@ -1821,6 +1763,10 @@ func parseAngleBytes(s string, ctx *parseContext, lineNum, col int) ([]byte, err
 	if s[1] == ' ' {
 		return nil, fmt.Errorf("Unexpected space after \"<\"%s", locSuffix(ctx, lineNum, col+1))
 	}
+	// Check for space before >
+	if s[len(s)-2] == ' ' {
+		return nil, fmt.Errorf("Unexpected space before \">\"%s", locSuffix(ctx, lineNum, col+len(s)-2))
+	}
 
 	inner := s[1 : len(s)-1]
 
@@ -1863,18 +1809,23 @@ func parseBlockBytes(tokens []token, i int, ctx *parseContext) ([]byte, int, err
 	if strings.HasPrefix(first.text, "> ") {
 		hexPart = first.text[2:]
 	}
-	hexPart = stripComment(hexPart)
-	hexPart = strings.ReplaceAll(hexPart, " ", "")
+	hexCol := first.col + len(first.text) - len(hexPart)
+	hexPart, err := blockHexLine(hexPart, ctx, first.lineNum, hexCol)
+	if err != nil {
+		return nil, 0, err
+	}
 
 	var hexStr strings.Builder
-	hexStr.WriteString(strings.ToLower(hexPart))
+	hexStr.WriteString(hexPart)
 	i++
 
 	// Collect continuation lines
 	for i < len(tokens) && tokens[i].typ == tokenText && tokens[i].indent > baseIndent {
-		line := stripComment(tokens[i].text)
-		line = strings.ReplaceAll(line, " ", "")
-		hexStr.WriteString(strings.ToLower(line))
+		line, err := blockHexLine(tokens[i].text, ctx, tokens[i].lineNum, tokens[i].col)
+		if err != nil {
+			return nil, 0, err
+		}
+		hexStr.WriteString(line)
 		i++
 	}
 
@@ -1913,9 +1864,11 @@ func parseBlockBytesFromKeyLine(tokens []token, i int, ctx *parseContext, keyInd
 
 	var hexStr strings.Builder
 	for i < len(tokens) && tokens[i].typ == tokenText && tokens[i].indent > keyIndent {
-		line := stripComment(tokens[i].text)
-		line = strings.ReplaceAll(line, " ", "")
-		hexStr.WriteString(strings.ToLower(line))
+		line, err := blockHexLine(tokens[i].text, ctx, tokens[i].lineNum, tokens[i].col)
+		if err != nil {
+			return nil, 0, err
+		}
+		hexStr.WriteString(line)
 		i++
 	}
 
@@ -1929,6 +1882,52 @@ func parseBlockBytesFromKeyLine(tokens []token, i int, ctx *parseContext, keyInd
 		return nil, 0, err
 	}
 	return result, i, nil
+}
+
+// stripInlineComment strips an inline comment from a value. A comment after
+// a value takes two spaces before its "#"; one space is refused.
+func stripInlineComment(s string, ctx *parseContext, lineNum, col int) (string, error) {
+	stripped := stripComment(s)
+	if len(stripped) < len(s) {
+		hash := len(stripped) + strings.IndexByte(s[len(stripped):], '#')
+		if err := checkCommentSpacing(s, hash, ctx, lineNum, col); err != nil {
+			return "", err
+		}
+	}
+	return stripped, nil
+}
+
+// checkCommentSpacing refuses a comment, at byte hash of s, that has one
+// space before it rather than two.
+func checkCommentSpacing(s string, hash int, ctx *parseContext, lineNum, col int) error {
+	if hash >= 1 && s[hash-1] == ' ' && (hash < 2 || s[hash-2] != ' ') {
+		return fmt.Errorf("Expected two spaces before a comment%s", locSuffix(ctx, lineNum, col+utf8.RuneCountInString(s[:hash])))
+	}
+	return nil
+}
+
+// blockHexLine reads one line of block bytes: hex, then an optional comment
+// after two spaces, or a comment alone. It returns the hex without its
+// spaces, refusing uppercase digits.
+func blockHexLine(text string, ctx *parseContext, lineNum, col int) (string, error) {
+	if strings.HasPrefix(text, "#") {
+		return "", nil
+	}
+	body := text
+	if hash := strings.IndexByte(text, '#'); hash >= 0 {
+		if err := checkCommentSpacing(text, hash, ctx, lineNum, col); err != nil {
+			return "", err
+		}
+		if strings.HasSuffix(text[:hash], " ") {
+			body = strings.TrimRight(text[:hash], " ")
+		}
+	}
+	for j, c := range body {
+		if isUppercaseHex(c) {
+			return "", fmt.Errorf("Uppercase hex digit (use lowercase)%s", locSuffix(ctx, lineNum, col+j))
+		}
+	}
+	return strings.ReplaceAll(body, " ", ""), nil
 }
 
 // stripComment removes a # comment from a line (not inside quotes).
@@ -2275,6 +2274,9 @@ func parseKeyValuePair(tokens []token, i, colonIdx int, ctx *parseContext) (any,
 		}
 		return map[string]any{key: body}, j, nil
 	}
+	if keyRaw != "" && strings.HasPrefix(valuePart, "`") {
+		return nil, 0, fmt.Errorf("Expected newline after block leader in property")
+	}
 
 	// Block bytes
 	if keyRaw != "" && isBlockBytesStart(valuePart) {
@@ -2344,7 +2346,7 @@ func findColonOutsideQuotesRaw(s string) int {
 	for i, c := range s {
 		if escaped {
 			escaped = false
-		} else if c == '\\' && inDouble {
+		} else if c == '\\' && (inDouble || inSingle) {
 			escaped = true
 		} else if c == '"' && !inSingle {
 			inDouble = !inDouble
@@ -2374,34 +2376,13 @@ func parseKeyName(s string) string {
 
 	// Single-quoted key
 	if strings.HasPrefix(s, "'") && strings.HasSuffix(s, "'") && len(s) >= 2 {
+		if key, err := parseSingleQuotedString(s, &parseContext{}, 0, 0); err == nil {
+			return key
+		}
 		return s[1 : len(s)-1]
 	}
 
 	return s
-}
-
-// isPropertyBlockLeaderOnly checks if a value part is just a block leader (backtick or >)
-// optionally followed by spaces and/or a comment.
-func isPropertyBlockLeaderOnly(valuePart string, leader rune) bool {
-	if len(valuePart) == 0 {
-		return false
-	}
-	if rune(valuePart[0]) != leader {
-		return false
-	}
-	if len(valuePart) == 1 {
-		return true
-	}
-	// Skip spaces after leader
-	i := 1
-	for i < len(valuePart) && valuePart[i] == ' ' {
-		i++
-	}
-	if i >= len(valuePart) {
-		return true
-	}
-	// Only a comment is allowed after spaces
-	return valuePart[i] == '#'
 }
 
 // validateUnquotedKey validates that an unquoted key contains only valid characters.
@@ -2584,12 +2565,15 @@ func parseObjectPropertyValue(tokens []token, i int, t token, key, vPart string,
 	}
 
 	// Block string in property context: backtick alone on line
-	if strings.TrimSpace(vPart) == "`" {
+	if vPart == "`" {
 		body, next, err := parseBlockStringWithIndent(tokens, i, "", true, keyColumn(tokens, i))
 		if err != nil {
 			return nil, 0, err
 		}
 		return body, next, nil
+	}
+	if strings.HasPrefix(vPart, "`") {
+		return nil, 0, fmt.Errorf("Expected newline after block leader in property")
 	}
 
 	// Block bytes in property context: > alone on line (or with comment)
@@ -2770,8 +2754,8 @@ func parseRootObjectProperty(tokens []token, i int, t token, key, vPart string, 
 
 	// Block string
 	if strings.HasPrefix(vPart, "`") {
-		// In property context, backtick must be alone (or followed only by spaces/comment)
-		if !isPropertyBlockLeaderOnly(vPart, '`') {
+		// In property context, the backtick stands alone
+		if vPart != "`" {
 			return nil, 0, fmt.Errorf("Expected newline after block leader in property")
 		}
 		return parseRootBlockString(tokens, i+1)
@@ -2961,7 +2945,10 @@ func parseNestedInlineBullet(text string, ctx *parseContext, lineNum, col int) (
 // parseScalar parses a scalar value from a string.
 func parseScalar(s string, ctx *parseContext, lineNum, col int) (any, error) {
 	// Strip inline comments first
-	s = stripComment(s)
+	s, err := stripInlineComment(s, ctx, lineNum, col)
+	if err != nil {
+		return nil, err
+	}
 
 	if _, p := maskTags(s); p >= 0 {
 		if p == 0 {
@@ -2997,23 +2984,41 @@ func parseScalarAtom(s string, ctx *parseContext, lineNum, col int) (any, error)
 		return num, nil
 	}
 
-	// Double-quoted string
-	if strings.HasPrefix(s, "\"") && strings.HasSuffix(s, "\"") {
+	// Double-quoted string: closed early, with more after it, or never closed
+	if strings.HasPrefix(s, "\"") {
+		if len(s) < 2 || !strings.HasSuffix(s, "\"") {
+			k := 1
+			for k < len(s) && s[k] != '"' {
+				if s[k] == '\\' {
+					k++
+				}
+				k++
+			}
+			if k < len(s) {
+				return nil, fmt.Errorf("Unexpected character \"\"\"%s", locSuffix(ctx, lineNum, col))
+			}
+		}
 		return parseQuotedString(s, ctx, lineNum, col)
 	}
 
 	// Single-quoted string
-	if strings.HasPrefix(s, "'") && strings.HasSuffix(s, "'") {
-		return s[1 : len(s)-1], nil
+	if strings.HasPrefix(s, "'") {
+		return parseSingleQuotedString(s, ctx, lineNum, col)
 	}
 
-	// Inline array
+	// Inline array, closed on its line
 	if strings.HasPrefix(s, "[") {
+		if !strings.HasSuffix(s, "]") {
+			return nil, fmt.Errorf("Unexpected newline in inline array%s", locSuffix(ctx, lineNum, col))
+		}
 		return parseInlineArrayStrict(s, ctx, lineNum, col)
 	}
 
-	// Inline object
+	// Inline object, closed on its line
 	if strings.HasPrefix(s, "{") {
+		if !strings.Contains(s, "}") {
+			return nil, fmt.Errorf("Unexpected newline in inline object%s", locSuffix(ctx, lineNum, col))
+		}
 		return parseInlineObjectStrict(s, ctx, lineNum, col)
 	}
 
