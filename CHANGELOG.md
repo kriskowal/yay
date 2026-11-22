@@ -43,7 +43,7 @@ scheme as an error; `-t json` writes the same string, which `-f json` reads
 back as a string. YAML, TOML and CBOR refuse a reference. SHON gains
 `-r uri`, which requires a scheme. `yay -t js`, `-t go`, `-t python`,
 `-t rust`, `-t c`, `-t java` and `-t scheme` write `reference(uri)`,
-`yay.Reference(uri)`, `Reference(uri)`, `Value::Reference(uri)`,
+`yay.MustReference(uri)`, `Reference(uri)`, `Value::reference(uri).unwrap()`,
 `yay_reference(uri)`, `new Reference(uri)` and `(make-reference uri)`.
 The Rust port reads and writes references (`Value::Reference`), YAY, MEH
 and YSON. The JavaScript port reads them as a frozen `reference(uri)`, and
@@ -51,7 +51,7 @@ its CapData bridge, `ysonToCapData` and `capDataToYson`, moves each distinct
 URI of a YSON document into a slot, `$0`, `$1`, ..., for `@endo/marshal`'s
 `makeMarshal`, and back. The Python port reads and writes them as a frozen
 dataclass `Reference(uri)`. The Go port reads them as `yay.Reference`, a
-string type of its own, the C port as `YAY_REFERENCE`, its text in
+type of its own, the C port as `YAY_REFERENCE`, its text in
 `data.reference`, the Java port as `record Reference(String uri)`, and
 the Scheme port as a record `reference`, `(make-reference uri)`, read with
 `reference-uri`.
@@ -155,15 +155,40 @@ leader and Scheme as an empty object.
 prototype from a `__proto__` key, block or inline; every property is now
 an own data property. Rust's `-t js` writes the key as `["__proto__"]`.
 
-**Breaking: JavaScript references are checked.** `new Reference(uri)` and
-`reference(uri)` refuse, with a `TypeError`, a string that is not a
-reference's text by the parser's rule (a lowercase scheme, a colon, URI
-or IRI characters, well-formed percent-encodings), and `capDataToYson`
-refuses such a slot, so CapData round-trips through YSON.
+**Breaking: references are checked.** Every port makes a reference only
+from a reference's text by its parser's rule (a lowercase scheme, a
+colon, URI or IRI characters, well-formed percent-encodings, nothing
+after), so every reference can be written and read back. JavaScript's
+`new Reference(uri)` and `reference(uri)` throw a `TypeError`, and
+`capDataToYson` refuses such a slot, so CapData round-trips through YSON.
+Python's `Reference(uri)` raises a `ValueError`. Rust's `Value::Reference`
+holds a `Reference`, made by `Reference::new(uri)`, `TryFrom` or
+`Value::reference(uri)`, which return an `InvalidReference` error; it
+derefs to `str`. Go's `yay.Reference` is a struct, not a string type,
+made by `NewReference(uri)`, which returns an error, or `MustReference`,
+which panics; `URI()` returns the text. C's `yay_reference` returns
+`NULL`. Java's `new Reference(uri)` throws an `IllegalArgumentException`.
+Scheme's `make-reference` raises an error. Code that made references
+from arbitrary strings, or that converted Go's or Rust's reference to and
+from a string directly, must change.
 
-**JavaScript: an inline nesting limit.** Inline arrays and objects nest
-at most 256 levels; deeper is refused, `Inline nesting deeper than 256
-levels`, where it overflowed the stack with a `RangeError`.
+**An inline nesting limit.** Inline arrays and objects nest at most 256
+levels, counted together, in every port and in MEH; deeper is refused,
+`Inline nesting deeper than 256 levels`, at the bracket that goes past
+it (Scheme and MEH give no location). Before, deep nesting overflowed
+the stack in JavaScript (a `RangeError`), Python (a `RecursionError`),
+Rust (an abort), C (a segmentation fault) and Java (a
+`StackOverflowError`), and took minutes in Go. The shared cases
+`array-inline-nesting-too-deep` and `object-inline-nesting-too-deep`
+hold 257 levels.
+
+**Fixed: Scheme reads each level of inline nesting once.** It read every
+nested inline array and object twice, so the time doubled with each
+level of nesting: 16 levels took 1.5 seconds.
+
+**Fixed: columns inside an inline object.** The Rust port placed an
+error in an inline object's value at the object's opening brace; it now
+places it in the value, as JavaScript does.
 
 **Breaking: YSON follows smallcaps.** A tagged value is
 `{"#tag": tag, "payload": value}`. An integer is `"+42"` or `"-7"`, not
