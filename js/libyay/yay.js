@@ -344,6 +344,27 @@ function setOwn(obj, key, value) {
 }
 
 /**
+ * Record where a key first appears in an object, and refuse it the second
+ * time. Each key keeps its first position, not only its name, so that the
+ * error can say where the first one is.
+ * @param {Map<string, [number, number]>} seen
+ * @param {string} key
+ * @param {ParseContext} ctx
+ * @param {number} lineNum
+ * @param {number} col
+ */
+function claimKey(seen, key, ctx, lineNum, col) {
+  const first = seen.get(key);
+  if (first !== undefined) {
+    throw new Error(
+      `Duplicate key "${key}" (first at ${first[0] + 1}:${first[1] + 1})` +
+        locSuffix(ctx, lineNum, col),
+    );
+  }
+  seen.set(key, [lineNum, col]);
+}
+
+/**
  * @param {Token[]} tokens
  * @param {ParseContext} ctx
  * @returns {unknown}
@@ -767,6 +788,8 @@ function parseInlineObjectBody(s, ctx, lineNum, col) {
   }
   parts.push({ text: body.slice(start), start });
   const obj = {};
+  /** @type {Map<string, [number, number]>} */
+  const seen = new Map();
   for (const part of parts) {
     if (part.text.length === 0) {
       throw new Error("Missing key" + locSuffix(ctx, lineNum, col + 1));
@@ -779,6 +802,7 @@ function parseInlineObjectBody(s, ctx, lineNum, col) {
       );
     }
     const { key, valuePart, valueCol } = keyValue;
+    claimKey(seen, key, ctx, lineNum, partCol);
     if (valuePart === "") {
       throw new Error("Missing value" + locSuffix(ctx, lineNum, valueCol));
     }
@@ -2066,6 +2090,8 @@ function parseObjectOrNamedArray(tokens, i, key, ctx = {}) {
     }
   }
   const obj = {};
+  /** @type {Map<string, [number, number]>} */
+  const seen = new Map();
   while (i < tokens.length) {
     const t = tokens[i];
     if (t.type === "stop") {
@@ -2085,6 +2111,9 @@ function parseObjectOrNamedArray(tokens, i, key, ctx = {}) {
         const k = keyValue.key;
         let vPart = keyValue.valuePart;
         if ((t.indent ?? 0) < baseIndent) break;
+        if ((t.indent ?? 0) <= baseIndent) {
+          claimKey(seen, k, ctx, t.lineNum ?? 0, t.col ?? 0);
+        }
         // A tagged block: read the property without its tags, then tag
         // the value
         let tags = null;
@@ -2095,8 +2124,7 @@ function parseObjectOrNamedArray(tokens, i, key, ctx = {}) {
             throw prefixWithoutBlock(ctx, lineNum, keyValue.valueCol);
           }
         }
-        if (k && (t.indent ?? 0) <= baseIndent && obj.hasOwnProperty(k)) break;
-        if (k && (t.indent ?? 0) <= baseIndent && !obj.hasOwnProperty(k)) {
+        if (k && (t.indent ?? 0) <= baseIndent) {
           if (vPart === "{}") {
             setOwn(obj, k, {});
             i++;
@@ -2203,6 +2231,8 @@ function parseObjectOrNamedArray(tokens, i, key, ctx = {}) {
  */
 function parseObjectBlock(tokens, i, baseIndent, ctx = {}, inlineIndent) {
   const obj = {};
+  /** @type {Map<string, [number, number]>} */
+  const seen = new Map();
   let firstText = true;
   while (i < tokens.length) {
     const t = tokens[i];
@@ -2237,6 +2267,7 @@ function parseObjectBlock(tokens, i, baseIndent, ctx = {}, inlineIndent) {
       continue;
     }
     const k = keyValue.key;
+    claimKey(seen, k, ctx, t.lineNum ?? 0, t.col ?? 0);
     let vPart = keyValue.valuePart;
     // A tagged block: read the property without its tags, then tag the value
     let tags = null;
@@ -2364,6 +2395,8 @@ function parseObjectBlock(tokens, i, baseIndent, ctx = {}, inlineIndent) {
  */
 function parseRootObject(tokens, i, ctx = {}) {
   const obj = {};
+  /** @type {Map<string, [number, number]>} */
+  const seen = new Map();
   const baseIndent = 0;
   while (i < tokens.length) {
     const t = tokens[i];
@@ -2376,6 +2409,7 @@ function parseRootObject(tokens, i, ctx = {}) {
       const keyValue = splitKeyValue(s, t.col ?? 0, ctx, t.lineNum ?? 0);
       if (keyValue && (t.indent ?? 0) === baseIndent) {
         const k = keyValue.key;
+        claimKey(seen, k, ctx, t.lineNum ?? 0, t.col ?? 0);
         let vPart = keyValue.valuePart;
         // A tagged block: read the property without its tags, then tag
         // the value
