@@ -416,6 +416,7 @@ public class Yay {
 
     private Map<String, Object> parseRootObject() {
       Map<String, Object> obj = new LinkedHashMap<>();
+      Map<String, int[]> seen = new HashMap<>();
 
       while (pos < tokens.size()) {
         skipBreaksAndStops();
@@ -436,7 +437,7 @@ public class Yay {
           break;
         }
 
-        Map<String, Object> pair = parseKeyValuePair(t, colonIdx);
+        Map<String, Object> pair = parseKeyValuePair(t, colonIdx, seen);
         obj.putAll(pair);
       }
 
@@ -1214,6 +1215,7 @@ public class Yay {
     // Parse an object that appears as an array item
     private Map<String, Object> parseObjectInArrayItem(int listItemIndent) {
       Map<String, Object> obj = new LinkedHashMap<>();
+      Map<String, int[]> seen = new HashMap<>();
       int objectIndent = -1;
 
       while (pos < tokens.size()) {
@@ -1241,7 +1243,7 @@ public class Yay {
         if (t.type == TokenType.TEXT && t.indent == objectIndent) {
           int colonIdx = findColonOutsideQuotes(t.text);
           if (colonIdx > 0) {
-            Map<String, Object> pair = parseKeyValuePair(t, colonIdx);
+            Map<String, Object> pair = parseKeyValuePair(t, colonIdx, seen);
             obj.putAll(pair);
           } else {
             pos++;
@@ -1548,7 +1550,31 @@ public class Yay {
     // Object Parsing
     // ====================================================================
 
+    /**
+     * Records where a key first appears in an object, and refuses it the second time. Each key
+     * keeps its first position, not only its name, so that the error can say where the first one
+     * is.
+     */
+    private void claimKey(Map<String, int[]> seen, String key, int lineNum, int col) {
+      int[] first = seen.get(key);
+      if (first != null) {
+        String firstAt = (first[0] + 1) + ":" + (first[1] + 1);
+        throw new YayException(
+            "Duplicate key \"" + key + "\" (first at " + firstAt + ")",
+            filename,
+            lineNum + 1,
+            col + 1);
+      }
+      seen.put(key, new int[] {lineNum, col});
+    }
+
     private Map<String, Object> parseKeyValuePair(Token t, int colonIdx) {
+      return parseKeyValuePair(t, colonIdx, null);
+    }
+
+    /** Reads one property; with {@code seen}, refuses a key its object already has. */
+    private Map<String, Object> parseKeyValuePair(
+        Token t, int colonIdx, Map<String, int[]> seen) {
       String keyRaw = t.text.substring(0, colonIdx);
       String valueSlice = t.text.substring(colonIdx + 1);
 
@@ -1592,6 +1618,9 @@ public class Yay {
             throw new YayException("Invalid key character", filename, t.lineNum + 1, t.col + i + 1);
           }
         }
+      }
+      if (seen != null) {
+        claimKey(seen, key, t.lineNum, t.col);
       }
 
       // A tagged block: read the property without its tags, then tag the value
@@ -1747,6 +1776,7 @@ public class Yay {
 
     private Map<String, Object> parseNestedObject(int baseIndent) {
       Map<String, Object> obj = new LinkedHashMap<>();
+      Map<String, int[]> seen = new HashMap<>();
 
       while (pos < tokens.size()) {
         skipBreaksAndStops();
@@ -1765,7 +1795,7 @@ public class Yay {
 
         int colonIdx = findColonOutsideQuotes(t.text);
         if (colonIdx > 0) {
-          Map<String, Object> pair = parseKeyValuePair(t, colonIdx);
+          Map<String, Object> pair = parseKeyValuePair(t, colonIdx, seen);
           obj.putAll(pair);
         } else {
           // Text without colon in nested object context is invalid
@@ -1878,6 +1908,7 @@ public class Yay {
       validateInlineObjectWhitespace(s, lineNum, col);
 
       Map<String, Object> obj = new LinkedHashMap<>();
+      Map<String, int[]> seen = new HashMap<>();
 
       if (s.equals("{}")) {
         return obj;
@@ -1938,6 +1969,7 @@ public class Yay {
         if (i >= s.length() || s.charAt(i) != ':') {
           throw new YayException("Expected colon after key", filename, lineNum + 1, col + 1);
         }
+        claimKey(seen, key, lineNum, col + keyStart);
         i++; // Skip colon
 
         // Skip space after colon
