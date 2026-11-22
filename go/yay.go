@@ -132,6 +132,21 @@ type token struct {
 // locSuffix formats a location suffix for error messages.
 // Returns empty string if no filename is set.
 // Uses 1-based line and column numbers for human-readable output.
+// seenKeys records where each key of an object first appears, as a
+// zero-based line and column. Each key keeps its first position, not only its
+// name, so that the error can say where the first one is.
+type seenKeys map[string][2]int
+
+// claim records where a key first appears in an object, and refuses it the
+// second time.
+func (seen seenKeys) claim(key string, ctx *parseContext, lineNum, col int) error {
+	if first, ok := seen[key]; ok {
+		return fmt.Errorf("Duplicate key \"%s\" (first at %d:%d)%s", key, first[0]+1, first[1]+1, locSuffix(ctx, lineNum, col))
+	}
+	seen[key] = [2]int{lineNum, col}
+	return nil
+}
+
 func locSuffix(ctx *parseContext, line, col int) string {
 	if ctx == nil || ctx.filename == "" {
 		return ""
@@ -1551,6 +1566,7 @@ func parseInlineObjectStrict(s string, ctx *parseContext, lineNum, col int) (map
 	}
 
 	result := make(map[string]any)
+	seen := seenKeys{}
 	remaining := inner
 	offset := 1 // Start after '{'
 
@@ -1558,7 +1574,8 @@ func parseInlineObjectStrict(s string, ctx *parseContext, lineNum, col int) (map
 		remaining, offset = skipSpaces(remaining, offset)
 
 		// Parse key
-		key, keyLen, err := parseInlineKeyStrict(remaining, ctx, lineNum, col+offset, col)
+		keyCol := col + offset
+		key, keyLen, err := parseInlineKeyStrict(remaining, ctx, lineNum, keyCol, col)
 		if err != nil {
 			return nil, err
 		}
@@ -1569,6 +1586,9 @@ func parseInlineObjectStrict(s string, ctx *parseContext, lineNum, col int) (map
 		// Expect colon
 		if !strings.HasPrefix(remaining, ":") {
 			return nil, fmt.Errorf("Expected colon after key%s", locSuffix(ctx, lineNum, col))
+		}
+		if err := seen.claim(key, ctx, lineNum, keyCol); err != nil {
+			return nil, err
 		}
 		remaining = remaining[1:]
 		offset++
@@ -2147,7 +2167,10 @@ func parseArrayItemValue(tokens []token, i, listIndent int, ctx *parseContext) (
 
 	// If value is an object, check for additional properties at the same level
 	if obj, isObj := value.(map[string]any); isObj {
-		j = mergeAdditionalObjectProperties(tokens, j, listIndent, obj, ctx)
+		j, err = mergeAdditionalObjectProperties(tokens, i, j, listIndent, obj, ctx)
+		if err != nil {
+			return nil, 0, err
+		}
 		value = obj
 	}
 
@@ -2165,7 +2188,13 @@ func parseArrayItemValue(tokens []token, i, listIndent int, ctx *parseContext) (
 
 // mergeAdditionalObjectProperties merges additional properties into an object.
 // Properties at indent > listIndent are part of the same array item object.
-func mergeAdditionalObjectProperties(tokens []token, j, listIndent int, obj map[string]any, ctx *parseContext) int {
+// A key that the object already has is refused.
+func mergeAdditionalObjectProperties(tokens []token, i, j, listIndent int, obj map[string]any, ctx *parseContext) (int, error) {
+	// The object so far was read from the item's first line
+	seen := seenKeys{}
+	for k := range obj {
+		seen[k] = [2]int{tokens[i].lineNum, tokens[i].col}
+	}
 	for j < len(tokens) {
 		j = skipBreaks(tokens, j)
 		if j >= len(tokens) {
@@ -2180,6 +2209,9 @@ func mergeAdditionalObjectProperties(tokens []token, j, listIndent int, obj map[
 			}
 			if propObj, ok := propVal.(map[string]any); ok {
 				for k, v := range propObj {
+					if err := seen.claim(k, ctx, t.lineNum, t.col); err != nil {
+						return 0, err
+					}
 					obj[k] = v
 				}
 			}
@@ -2188,7 +2220,7 @@ func mergeAdditionalObjectProperties(tokens []token, j, listIndent int, obj map[
 			break
 		}
 	}
-	return j
+	return j, nil
 }
 
 // collectNestedListGroup collects nested list items into a group.
@@ -2516,6 +2548,7 @@ func parseObjectOrNamedArray(tokens []token, i int, key string, ctx *parseContex
 // parseNestedObjectContent parses the content of a nested object.
 func parseNestedObjectContent(tokens []token, i, baseIndent int, ctx *parseContext) (map[string]any, int, error) {
 	obj := make(map[string]any)
+	seen := seenKeys{}
 
 	for i < len(tokens) {
 		t := tokens[i]
@@ -2556,6 +2589,9 @@ func parseNestedObjectContent(tokens []token, i, baseIndent int, ctx *parseConte
 			if kRaw == "" {
 				i++
 				continue
+			}
+			if err := seen.claim(k, ctx, t.lineNum, t.col); err != nil {
+				return nil, 0, err
 			}
 
 			value, nextI, err := parseObjectPropertyValue(tokens, i, t, k, vPart, baseIndent, ctx)
@@ -2687,6 +2723,7 @@ func skipToNextKey(tokens []token, i, baseIndent int) int {
 // parseRootObject parses an object at the document root level.
 func parseRootObject(tokens []token, i int, ctx *parseContext) (any, int, error) {
 	obj := make(map[string]any)
+	seen := seenKeys{}
 
 	for i < len(tokens) {
 		t := tokens[i]
@@ -2743,6 +2780,9 @@ func parseRootObject(tokens []token, i int, ctx *parseContext) (any, int, error)
 		// Calculate column of value part (colon + 1 for space + 1 for 1-based)
 		vCol := t.col + colonIdx + 2
 
+		if err := seen.claim(k, ctx, t.lineNum, t.col); err != nil {
+			return nil, 0, err
+		}
 		value, nextI, err := parseRootObjectProperty(tokens, i, t, k, vPart, vCol, ctx)
 		if err != nil {
 			return nil, 0, err
