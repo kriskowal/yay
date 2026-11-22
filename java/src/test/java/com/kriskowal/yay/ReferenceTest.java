@@ -14,39 +14,29 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
 
 /**
- * References. Reads the design's cases in doc/design/references/cases/: each .yay parses to its
- * .yson, with a reference spelled "$uri", and each .nay and .meh is refused, MEH's leniency not
- * being YAY's.
+ * References. MEH's leniency is not YAY's, so the corpus's MEH reference cases,
+ * test/meh/reference-*.meh, are refused as YAY. The corpus reference cases in test/yay and
+ * test/nay are read with the rest of the corpus.
  */
 class ReferenceTest {
 
-  private static final Path CASES = Paths.get("..", "doc", "design", "references", "cases");
+  private static final Path MEH = Paths.get("..", "test", "meh");
 
   @TestFactory
-  Stream<DynamicTest> testCasesAccepted() throws IOException {
-    return Files.list(CASES)
-        .filter(p -> p.toString().endsWith(".yay"))
-        .sorted()
-        .map(
-            path ->
-                DynamicTest.dynamicTest(
-                    path.getFileName().toString(),
-                    () -> {
-                      String name = path.getFileName().toString();
-                      Path yson = path.resolveSibling(name.replace(".yay", ".yson"));
-                      Object expected = new Json(Files.readString(yson)).value();
-                      Object actual = Yay.parse(Files.readString(path), name);
-                      assertTrue(
-                          Tagged.valuesEqual(expected, actual),
-                          name + "\nExpected: " + expected + "\nActual: " + actual);
-                    }));
-  }
-
-  @TestFactory
-  Stream<DynamicTest> testCasesRefused() throws IOException {
-    return Files.list(CASES)
-        .filter(p -> p.toString().endsWith(".nay") || p.toString().endsWith(".meh"))
-        .sorted()
+  Stream<DynamicTest> testMehCasesRefused() throws IOException {
+    List<Path> paths;
+    try (Stream<Path> list = Files.list(MEH)) {
+      paths =
+          list.filter(
+                  p -> {
+                    String name = p.getFileName().toString();
+                    return name.startsWith("reference-") && name.endsWith(".meh");
+                  })
+              .sorted()
+              .toList();
+    }
+    assertTrue(paths.size() >= 2, "MEH reference cases in " + MEH);
+    return paths.stream()
         .map(
             path ->
                 DynamicTest.dynamicTest(
@@ -138,145 +128,5 @@ class ReferenceTest {
     want = new LinkedHashMap<>();
     want.put("a", new Tagged("u", Map.of("b", new Reference("x:(t)"))));
     assertEquals(want, Yay.parse("a: {b: <x:(t)>} (u)\n"));
-  }
-
-  /**
-   * A small JSON reader for the expected values, desugaring YSON's strings: "$uri" a reference,
-   * "*hex" bytes, "+n" and "-n" integers, "#nan" and the infinities doubles, and "!" before text
-   * that would read as one of those.
-   */
-  private static final class Json {
-    private final String s;
-    private int i;
-
-    Json(String s) {
-      this.s = s;
-    }
-
-    private void space() {
-      while (i < s.length() && Character.isWhitespace(s.charAt(i))) i++;
-    }
-
-    Object value() {
-      space();
-      char c = s.charAt(i);
-      if (c == '{') {
-        i++;
-        Map<String, Object> obj = new LinkedHashMap<>();
-        space();
-        while (s.charAt(i) != '}') {
-          String key = string();
-          space();
-          i++; // :
-          obj.put(key.startsWith("!") ? key.substring(1) : key, value());
-          space();
-          if (s.charAt(i) == ',') i++;
-          space();
-        }
-        i++;
-        if (obj.size() == 2 && obj.containsKey("#tag") && obj.containsKey("payload")) {
-          String tag = (String) obj.get("#tag");
-          return new Tagged(tag.startsWith("!") ? tag.substring(1) : tag, obj.get("payload"));
-        }
-        return obj;
-      }
-      if (c == '[') {
-        i++;
-        List<Object> list = new ArrayList<>();
-        space();
-        while (s.charAt(i) != ']') {
-          list.add(value());
-          space();
-          if (s.charAt(i) == ',') i++;
-          space();
-        }
-        i++;
-        return list;
-      }
-      if (c == '"') {
-        return ysonString(string());
-      }
-      for (String word : new String[] {"null", "true", "false", "-Infinity", "Infinity"}) {
-        if (s.startsWith(word, i)) {
-          i += word.length();
-          switch (word) {
-            case "null":
-              return null;
-            case "true":
-              return Boolean.TRUE;
-            case "false":
-              return Boolean.FALSE;
-            case "-Infinity":
-              return Double.NEGATIVE_INFINITY;
-            default:
-              return Double.POSITIVE_INFINITY;
-          }
-        }
-      }
-      int start = i;
-      while (i < s.length() && "+-0123456789.eE".indexOf(s.charAt(i)) >= 0) i++;
-      String num = s.substring(start, i);
-      if (num.contains(".") || num.contains("e") || num.contains("E")) {
-        return Double.parseDouble(num);
-      }
-      return new BigInteger(num);
-    }
-
-    private static Object ysonString(String str) {
-      if (str.isEmpty()) return str;
-      switch (str.charAt(0)) {
-        case '$':
-          return new Reference(str.substring(1));
-        case '*':
-          return HexFormat.of().parseHex(str.substring(1));
-        case '+':
-          return new BigInteger(str.substring(1));
-        case '-':
-          return new BigInteger(str);
-        case '!':
-          return str.substring(1);
-        default:
-          break;
-      }
-      switch (str) {
-        case "#nan":
-          return Double.NaN;
-        case "#+inf":
-          return Double.POSITIVE_INFINITY;
-        case "#-inf":
-          return Double.NEGATIVE_INFINITY;
-        default:
-          return str;
-      }
-    }
-
-    private String string() {
-      StringBuilder out = new StringBuilder();
-      i++;
-      while (s.charAt(i) != '"') {
-        char c = s.charAt(i++);
-        if (c != '\\') {
-          out.append(c);
-          continue;
-        }
-        char e = s.charAt(i++);
-        switch (e) {
-          case 'n':
-            out.append('\n');
-            break;
-          case 't':
-            out.append('\t');
-            break;
-          case 'u':
-            out.append((char) Integer.parseInt(s.substring(i, i + 4), 16));
-            i += 4;
-            break;
-          default:
-            out.append(e);
-        }
-      }
-      i++;
-      return out.toString();
-    }
   }
 }
