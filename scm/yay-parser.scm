@@ -902,8 +902,67 @@
            (else
             (loop (+ i 1) in-string string-char))))))))
 
+;; The deepest inline arrays and objects may nest, one in another, counted
+;; together. Deeper nesting is refused rather than recursing without bound.
+(define max-inline-depth 256)
+
+;; How many inline arrays and objects enclose the one being read
+(define inline-depth (make-parameter 0))
+
+;; Refuse inline nesting deeper than max-inline-depth levels
+(define (refuse-inline-depth)
+  (yay-error (string-append "Inline nesting deeper than "
+                            (number->string max-inline-depth) " levels")))
+
+;; Read one level of inline nesting in s with (read), refusing more than
+;; max-inline-depth levels. The outermost level first scans s for its
+;; depth, so that deep input is refused at once rather than after each
+;; level has scanned the rest.
+(define (nested s read)
+  (let ((depth (+ (inline-depth) 1)))
+    (when (> depth max-inline-depth)
+      (refuse-inline-depth))
+    (when (= depth 1)
+      (check-inline-depth s))
+    (parameterize ((inline-depth depth))
+      (read))))
+
+;; Refuse s if its brackets and braces, outside strings, tags and
+;; references, nest deeper than max-inline-depth
+(define (check-inline-depth s)
+  (let ((len (string-length s)))
+    (let loop ((i 0) (depth 0))
+      (when (< i len)
+        (let ((ch (string-ref s i)))
+          (cond
+           ((or (char=? ch #\[) (char=? ch #\{))
+            (when (>= depth max-inline-depth)
+              (refuse-inline-depth))
+            (loop (+ i 1) (+ depth 1)))
+           ((or (char=? ch #\]) (char=? ch #\}))
+            (loop (+ i 1) (max 0 (- depth 1))))
+           ((char=? ch #\() (loop (skip-tag s i) depth))
+           ((skip-reference s i) => (lambda (end) (loop end depth)))
+           ((or (char=? ch #\") (char=? ch #\'))
+            (loop (skip-quoted s i ch) depth))
+           (else (loop (+ i 1) depth))))))))
+
+;; The index past the quote that closes a string at s[start], or the end
+;; of s
+(define (skip-quoted s start quote)
+  (let ((len (string-length s)))
+    (let loop ((i (+ start 1)))
+      (cond
+       ((>= i len) len)
+       ((char=? (string-ref s i) #\\) (loop (+ i 2)))
+       ((char=? (string-ref s i) quote) (+ i 1))
+       (else (loop (+ i 1)))))))
+
 ;; Parse inline array [...]
 (define (parse-inline-array s)
+  (nested s (lambda () (parse-inline-array-body s))))
+
+(define (parse-inline-array-body s)
   (let ((len (string-length s)))
     (when (not (string-contains? s "]"))
       (yay-error "Unexpected newline in inline array"))
@@ -1012,6 +1071,9 @@
 
 ;; Parse inline object {...}
 (define (parse-inline-object s)
+  (nested s (lambda () (parse-inline-object-body s))))
+
+(define (parse-inline-object-body s)
   (let ((len (string-length s)))
     (when (not (string-contains? s "}"))
       (yay-error "Unexpected newline in inline object"))

@@ -694,7 +694,15 @@
    (list (nest "[" "]" 40) (nested-value vector 40))
    (list (nest "{a: " "}" 40) (nested-value (lambda (v) (list (cons "a" v))) 40))
    (list (nest "[{a: " "}]" 20)
-         (nested-value (lambda (v) (vector (list (cons "a" v)))) 20))))
+         (nested-value (lambda (v) (vector (list (cons "a" v)))) 20))
+   ;; Inline arrays and objects nest 256 levels, counted together
+   (list (nest "[" "]" 256) (nested-value vector 256))
+   (list (nest "{a: " "}" 256) (nested-value (lambda (v) (list (cons "a" v))) 256))
+   (list (nest "[{a: " "}]" 128)
+         (nested-value (lambda (v) (vector (list (cons "a" v)))) 128))
+   (list (nest "[" "]" 100000) #f "Inline nesting deeper than 256 levels")
+   (list (nest "{a: " "}" 100000) #f "Inline nesting deeper than 256 levels")
+   (list (nest "[{a: " "}]" 129) #f "Inline nesting deeper than 256 levels")))
 
 ;; Run the nesting cases; returns passed and failed
 (define (run-nesting-tests)
