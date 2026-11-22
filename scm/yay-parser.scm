@@ -7,6 +7,37 @@
 (define (yay-error msg)
   (error msg))
 
+;; The name of the document being read, when the caller gives one, for
+;; errors that name their file as the other ports do.
+(define document-name #f)
+
+(define (leading-whitespace s)
+  (let loop ((i 0))
+    (if (and (< i (string-length s))
+             (or (char=? (string-ref s i) #\space)
+                 (char=? (string-ref s i) #\tab)))
+        (loop (+ i 1))
+        i)))
+
+;; Record the first position of a key in its object and refuse a second,
+;; naming the key and both positions. Positions are zero-based here and
+;; printed one-based, as the other ports do. Keeping the first position,
+;; not only the key, leaves room for a reader that recovers and reports
+;; every occurrence.
+(define (claim-key key seen line col)
+  (let ((first (assoc key seen)))
+    (when first
+      (yay-error
+       (string-append "Duplicate key \"" key "\" (first at "
+                      (number->string (+ (cadr first) 1)) ":"
+                      (number->string (+ (caddr first) 1)) ") at "
+                      (number->string (+ line 1)) ":"
+                      (number->string (+ col 1))
+                      (if document-name
+                          (string-append " of <" document-name ">")
+                          "")))))
+  (cons (list key line col) seen))
+
 ;; Character predicates
 (define (digit? c)
   (and (char? c) (char>=? c #\0) (char<=? c #\9)))
@@ -959,16 +990,17 @@
        (else (loop (+ i 1)))))))
 
 ;; Parse inline array [...]
-(define (parse-inline-array s)
-  (nested s (lambda () (parse-inline-array-body s))))
+(define (parse-inline-array s . base-arg)
+  (let ((base (if (pair? base-arg) (car base-arg) 0)))
+    (nested s (lambda () (parse-inline-array-body s base)))))
 
-(define (parse-inline-array-body s)
+(define (parse-inline-array-body s base)
   (let ((len (string-length s)))
     (when (not (string-contains? s "]"))
       (yay-error "Unexpected newline in inline array"))
     (validate-inline-syntax s)
     ;; Simple parser for inline arrays
-    (let loop ((i 1) (items '()) (current ""))
+    (let loop ((i 1) (items '()) (current "") (current-start 1))
       (if (>= i len)
           (list->vector (reverse items))
           (let ((ch (string-ref s i)))
@@ -980,43 +1012,43 @@
                 (yay-error "Unexpected character \":\""))
               (let ((items (if (string=? (string-trim current) "")
                                items
-                               (cons (parse-inline-value (string-trim current)) items))))
+                               (cons (parse-inline-value current (+ base current-start)) items))))
                 (list->vector (reverse items))))
              ;; Comma separator - skip following space
              ((char=? ch #\,)
               (let ((trimmed (string-trim current)))
                 (let ((new-items (if (string=? trimmed "")
                                      items
-                                     (cons (parse-inline-value trimmed) items)))
+                                     (cons (parse-inline-value current (+ base current-start)) items)))
                       ;; Skip space after comma
                       (next-i (if (and (< (+ i 1) len)
                                        (char=? (string-ref s (+ i 1)) #\space))
                                   (+ i 2)
                                   (+ i 1))))
-                  (loop next-i new-items ""))))
+                  (loop next-i new-items "" next-i))))
              ;; Start of nested array
              ((char=? ch #\[)
               (receive (nested end-i) (parse-nested-inline-array s i)
-                (loop end-i items (string-append current (substring s i end-i)))))
+                (loop end-i items (string-append current (substring s i end-i)) current-start)))
              ;; Start of string
              ((or (char=? ch #\") (char=? ch #\'))
               (receive (str end-i) (parse-inline-string s i ch)
-                (loop end-i items (string-append current str))))
+                (loop end-i items (string-append current str) current-start)))
              ;; A reference, read whole
              ((skip-reference s i)
               => (lambda (end-i)
-                   (loop end-i items (string-append current (substring s i end-i)))))
+                   (loop end-i items (string-append current (substring s i end-i)) current-start)))
              ;; Start of bytes
              ((char=? ch #\<)
               (receive (bytes end-i) (parse-inline-bytes s i)
-                (loop end-i items (string-append current (substring s i end-i)))))
+                (loop end-i items (string-append current (substring s i end-i)) current-start)))
              ;; A tag, read with the value before it
              ((char=? ch #\()
               (let ((end-i (skip-tag s i)))
-                (loop end-i items (string-append current (substring s i end-i)))))
+                (loop end-i items (string-append current (substring s i end-i)) current-start)))
              ;; Regular character
              (else
-              (loop (+ i 1) items (string-append current (string ch))))))))))
+              (loop (+ i 1) items (string-append current (string ch)) current-start))))))))
 
 ;; Find the end of a nested inline array at s[start], past its "]", for
 ;; the item that holds it, which parse-inline-value reads once. (Reading it
@@ -1070,16 +1102,18 @@
               (loop (+ i 1) (string-append content (string ch))))))))
 
 ;; Parse inline object {...}
-(define (parse-inline-object s)
-  (nested s (lambda () (parse-inline-object-body s))))
+(define (parse-inline-object s . base-arg)
+  (let ((base (if (pair? base-arg) (car base-arg) 0)))
+    (nested s (lambda () (parse-inline-object-body s base)))))
 
-(define (parse-inline-object-body s)
+(define (parse-inline-object-body s base)
   (let ((len (string-length s)))
     (when (not (string-contains? s "}"))
       (yay-error "Unexpected newline in inline object"))
     (validate-inline-syntax s)
     ;; Simple parser for inline objects
-    (let loop ((i 1) (pairs '()) (current-key #f) (current ""))
+    (define seen '())
+    (let loop ((i 1) (pairs '()) (current-key #f) (current "") (current-start 1))
       (if (>= i len)
           (reverse pairs)
           (let ((ch (string-ref s i)))
@@ -1093,14 +1127,15 @@
                 (let ((pairs (if current-key
                                  (cons (cons current-key 
                                              (if (string? current)
-                                                 (parse-inline-value trimmed-current)
+                                                 (parse-inline-value current (+ base current-start))
                                                  current))  ;; Already parsed (nested object/array)
                                        pairs)
                                  pairs)))
                   (reverse pairs))))
              ;; Colon separator - we have the key
              ((and (not current-key) (char=? ch #\:))
-              (let ((key (string-trim current)))
+              (let* ((key-raw current)
+                     (key (string-trim key-raw)))
                 ;; Parse key (may be quoted)
                 (let ((parsed-key (cond
                                    ((string-starts-with? key "\"") (parse-json-string key))
@@ -1109,58 +1144,65 @@
                                     ;; Validate unquoted key
                                     (validate-unquoted-key-inline key)
                                     key))))
+                  (set! seen (claim-key parsed-key seen 0
+                                        (+ base current-start (leading-whitespace key-raw))))
                   ;; Skip space after colon
                   (let ((next-i (if (and (< (+ i 1) len)
                                          (char=? (string-ref s (+ i 1)) #\space))
                                     (+ i 2)
                                     (+ i 1))))
-                    (loop next-i pairs parsed-key "")))))
+                    (loop next-i pairs parsed-key "" next-i)))))
              ;; Comma separator - end of value
              ((char=? ch #\,)
               (let ((value (if (string? current)
-                               (parse-inline-value (string-trim current))
+                               (parse-inline-value current (+ base current-start))
                                current)))  ;; Already parsed (nested object/array)
                 ;; Skip space after comma
                 (let ((next-i (if (and (< (+ i 1) len)
                                        (char=? (string-ref s (+ i 1)) #\space))
                                   (+ i 2)
                                   (+ i 1))))
-                  (loop next-i (cons (cons current-key value) pairs) #f ""))))
+                  (loop next-i (cons (cons current-key value) pairs) #f "" next-i))))
              ;; Start of nested object
              ((char=? ch #\{)
               (receive (nested end-i) (parse-nested-inline-object s i)
-                (loop end-i pairs current-key (string-append current (substring s i end-i)))))
+                (loop end-i pairs current-key (string-append current (substring s i end-i)) current-start)))
              ;; Start of nested array
              ((char=? ch #\[)
               (receive (nested end-i) (parse-nested-inline-array s i)
-                (loop end-i pairs current-key (string-append current (substring s i end-i)))))
+                (loop end-i pairs current-key (string-append current (substring s i end-i)) current-start)))
              ;; A tag, read with the value before it
              ((char=? ch #\()
               (let ((end-i (skip-tag s i)))
-                (loop end-i pairs current-key (string-append current (substring s i end-i)))))
+                (loop end-i pairs current-key (string-append current (substring s i end-i)) current-start)))
              ;; A reference, read whole
              ((skip-reference s i)
               => (lambda (end-i)
-                   (loop end-i pairs current-key (string-append current (substring s i end-i)))))
+                   (loop end-i pairs current-key (string-append current (substring s i end-i)) current-start)))
              ;; Start of string
              ((or (char=? ch #\") (char=? ch #\'))
               (receive (str end-i) (parse-inline-string s i ch)
-                (loop end-i pairs current-key (string-append current str))))
+                (loop end-i pairs current-key (string-append current str) current-start)))
              ;; Regular character
              (else
-              (loop (+ i 1) pairs current-key (string-append current (string ch))))))))))
+              (loop (+ i 1) pairs current-key (string-append current (string ch)) current-start))))))))
 
 ;; Find the end of a nested inline object at s[start], past its "}", for
 ;; the value that holds it, which parse-inline-value reads once.
 (define (parse-nested-inline-object s start)
   (skip-nested-inline s start #\{ #\}))
 
-;; Parse inline value (for array elements)
-(define (parse-inline-value s)
-  (parse-tagged parse-inline-atom (string-trim s)))
+;; Parse inline value (for array elements), with the zero-based column at
+;; which s begins in its line, for an object's key positions.
+(define (parse-inline-value s . base-arg)
+  (let* ((base (if (pair? base-arg) (car base-arg) 0))
+         (lead (leading-whitespace s)))
+    (parse-tagged (lambda (text) (parse-inline-atom text (+ base lead)))
+                  (string-trim s))))
 
-(define (parse-inline-atom s)
-  (let ((s (string-trim s)))
+(define (parse-inline-atom s . base-arg)
+  (let ((base (if (pair? base-arg) (car base-arg) 0))
+        (s (string-trim s)))
     (cond
      ((string=? s "") 'null)
      ((string=? s "null") 'null)
@@ -1176,8 +1218,8 @@
       (if (string-contains? s ">")
           (parse-angle-bytes s)
           (yay-error "Unmatched angle bracket")))
-     ((string-starts-with? s "[") (parse-inline-array s))
-     ((string-starts-with? s "{") (parse-inline-object s))
+     ((string-starts-with? s "[") (parse-inline-array s base))
+     ((string-starts-with? s "{") (parse-inline-object s base))
      (else
       (let ((num (parse-number s)))
         (if num
@@ -1314,11 +1356,15 @@
                   (substring s 0 j))))
            (else (loop (+ i 1) #f)))))))
 
-;; Parse a scalar value and any inline comment after it
-(define (parse-scalar s)
-  (parse-tagged parse-scalar-atom (strip-inline-comment s)))
+;; Parse a scalar value and any inline comment after it, with the zero-based
+;; column at which s begins in its line.
+(define (parse-scalar s . base-arg)
+  (let ((base (if (pair? base-arg) (car base-arg) 0)))
+    (parse-tagged (lambda (text) (parse-scalar-atom text base))
+                  (strip-inline-comment s))))
 
-(define (parse-scalar-atom s)
+(define (parse-scalar-atom s . base-arg)
+  (let ((base (if (pair? base-arg) (car base-arg) 0)))
   (cond
    ((string=? s "null") 'null)
    ((string=? s "true") #t)
@@ -1333,8 +1379,8 @@
     (if (string-contains? s ">")
         (parse-angle-bytes s)
         (yay-error "Unterminated byte literal")))
-   ((string-starts-with? s "[") (parse-inline-array s))
-   ((string-starts-with? s "{") (parse-inline-object s))
+   ((string-starts-with? s "[") (parse-inline-array s base))
+   ((string-starts-with? s "{") (parse-inline-object s base))
    (else
     (let ((num (parse-number s)))
       (if num
@@ -1342,7 +1388,7 @@
           ;; Not a keyword, string, or number - reject bare words
           (if (> (string-length s) 0)
               (yay-error (string-append "Unexpected character \"" (string (string-ref s 0)) "\""))
-              'null))))))
+              'null)))))))
 
 ;; Main parser state
 (define (make-parser tokens)
@@ -1480,7 +1526,7 @@
                                     (skip-stops-and-breaks))))
                               (loop (cons obj items)))
                             ;; Regular value - pass list-indent for block string termination
-                            (let ((value (parse-value p list-indent)))
+                            (let ((value (parse-value p list-indent (+ text-indent 2))))
                               ;; Skip stops and breaks
                               (let skip-stops-and-breaks ()
                                 (let ((t (parser-peek p)))
@@ -1681,11 +1727,13 @@
               (parse-hex-bytes hex)))))))
 
 ;; Parse value with optional base indent for block strings in array context
+;; and the zero-based column at which its first character sits.
 (define (parse-value p . args)
-  (let ((base-indent (if (pair? args) (car args) -1)))
-    (parse-value-with-indent p base-indent)))
+  (let ((base-indent (if (pair? args) (car args) -1))
+        (base-offset (if (and (pair? args) (pair? (cdr args))) (cadr args) 0)))
+    (parse-value-with-indent p base-indent base-offset)))
 
-(define (parse-value-with-indent p base-indent)
+(define (parse-value-with-indent p base-indent base-offset)
   (let ((t (parser-peek p)))
     (if (not t)
         'null
@@ -1696,7 +1744,7 @@
              (parse-list-array p))
             (else
              (parser-advance! p)
-             (parse-value-with-indent p base-indent))))
+             (parse-value-with-indent p base-indent base-offset))))
           ((text)
            (let ((s (token-text t)))
              (cond
@@ -1718,7 +1766,7 @@
                           (let ((colon (find-key-colon s)))
                             (or (not colon) (> colon tag-at))))))
                (parser-advance! p)
-               (parse-scalar s))
+               (parse-scalar s base-offset))
               ;; Keywords
               ((string=? s "null")
                (parser-advance! p)
@@ -1763,7 +1811,7 @@
               ;; Inline array, read as a property's value is
               ((string-starts-with? s "[")
                (parser-advance! p)
-               (parse-scalar s))
+               (parse-scalar s base-offset))
               ;; A reference
               ((reference-start? s 0)
                (parser-advance! p)
@@ -1773,12 +1821,12 @@
                (if (string-contains? s ">")
                    (begin
                      (parser-advance! p)
-                     (parse-scalar s))
+                     (parse-scalar s base-offset))
                    (yay-error "Unmatched angle bracket")))
               ;; Inline object
               ((string-starts-with? s "{")
                (parser-advance! p)
-               (parse-scalar s))
+               (parse-scalar s base-offset))
               ;; Key:value
               ((string-index s #\:)
                (let ((kv (split-key-value s)))
@@ -1849,18 +1897,22 @@
                         ;; Regular value
                         (else
                          (parser-advance! p)
-                         (list (cons key (parse-scalar value-part)))))))
+                         (list (cons key (parse-scalar
+                                          value-part
+                                          (+ base-offset
+                                             (- (string-length s)
+                                                (string-length value-part))))))))))
                      (begin
                        (parser-advance! p)
-                       (parse-scalar s)))))
+                       (parse-scalar s base-offset)))))
               ;; Number
               (else
                (let ((num (parse-number s)))
                  (parser-advance! p)
-                 (if num num (parse-scalar s)))))))
+                 (if num num (parse-scalar s base-offset)))))))
           ((stop break)
            (parser-advance! p)
-           (parse-value p))
+           (parse-value p -1 base-offset))
           (else
            (parser-advance! p)
            'null)))))
@@ -1908,6 +1960,7 @@
 (define (parse-object-block-in-array p first-indent array-indent)
   ;; The tags before the last property's block, to wrap its value in
   (define pending '())
+  (define seen '())
   (let ((sibling-indent (+ array-indent 2))
         (item-line (token-linenum (parser-peek p))))
     (let loop ((pairs0 '()))
@@ -1942,6 +1995,10 @@
             (if kv
                 (let ((key (car kv))
                       (value-part (cadr kv)))
+                  (set! seen (claim-key key seen (token-linenum t)
+                                        (if (= (token-linenum t) item-line)
+                                            (+ (token-indent t) 2)
+                                            (token-indent t))))
                   (set! pending (caddr kv))
                   (cond
                    ;; Empty value - nested
@@ -1995,7 +2052,15 @@
                    ;; Regular value
                    (else
                     (parser-advance! p)
-                    (loop (cons (cons key (parse-scalar value-part)) pairs)))))
+                    (loop (cons (cons key
+                                      (parse-scalar
+                                       value-part
+                                       (+ (if (= (token-linenum t) item-line)
+                                              (+ (token-indent t) 2)
+                                              (token-indent t))
+                                          (- (string-length s)
+                                             (string-length value-part)))))
+                                pairs)))))
                 (begin
                   (parser-advance! p)
                   (loop pairs)))))
@@ -2010,6 +2075,7 @@
 (define (parse-object-block p base-indent)
   ;; The tags before the last property's block, to wrap its value in
   (define pending '())
+  (define seen '())
   (let loop ((pairs0 '()))
     (let ((pairs (if (null? pending)
                      pairs0
@@ -2041,6 +2107,7 @@
           (if kv
               (let ((key (car kv))
                     (value-part (cadr kv)))
+                (set! seen (claim-key key seen (token-linenum t) (token-indent t)))
                 (set! pending (caddr kv))
                 (cond
                  ;; Empty value - nested
@@ -2130,7 +2197,13 @@
                  ;; Regular value
                  (else
                   (parser-advance! p)
-                  (loop (cons (cons key (parse-scalar value-part)) pairs)))))
+                  (loop (cons (cons key
+                                    (parse-scalar
+                                     value-part
+                                     (+ (token-indent t)
+                                        (- (string-length s)
+                                           (string-length value-part)))))
+                              pairs)))))
               (begin
                 (parser-advance! p)
                 (loop pairs)))))
@@ -2244,7 +2317,8 @@
           result)))))
 
 ;; Main entry point
-(define (parse-yay source)
+(define (parse-yay source . maybe-name)
+  (set! document-name (if (pair? maybe-name) (car maybe-name) #f))
   (let* ((lines (scan source))
          (tokens (tokenize lines))
          (parser (make-parser tokens)))

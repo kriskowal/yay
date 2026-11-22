@@ -193,9 +193,12 @@
 (define (add-test! name yay expected)
   (set! test-cases (cons (make-test name yay expected) test-cases)))
 
-;; Add an error test case
-(define (add-error-test! name nay-content)
-  (set! error-test-cases (cons (cons name nay-content) error-test-cases)))
+;; Add an error test case, with the exact message when one is known
+(define (add-error-test! name nay-content . maybe-expected)
+  (set! error-test-cases
+        (cons (list name nay-content
+                    (if (pair? maybe-expected) (car maybe-expected) #f))
+              error-test-cases)))
 
 ;; Run all tests
 (define (run-all-tests)
@@ -212,25 +215,57 @@
                 (if result (+ passed 1) passed)
                 (if result failed (+ failed 1)))))))
 
-;; Run a single error test (should fail to parse)
+;; The message Guile puts in (error message)'s arguments
+(define (caught-message key args)
+  (let loop ((rest args))
+    (cond
+     ((null? rest) (format #f "~a" key))
+     ((and (list? (car rest)) (pair? (car rest)) (string? (caar rest)))
+      (caar rest))
+     ((and (string? (car rest)) (not (string=? (car rest) "~A")))
+      (car rest))
+     (else (loop (cdr rest))))))
+
+;; Run a single error test (should fail to parse, and match its message)
 (define (run-single-error-test test)
   (let ((name (car test))
-        (nay-content (cdr test)))
+        (nay-content (cadr test))
+        (expected (caddr test)))
     (catch #t
       (lambda ()
         ;; If parse succeeds, the test fails
-        (parse-yay nay-content)
+        (parse-yay nay-content (string-append name ".nay"))
         (display "FAIL: ")
         (display name)
         (display " (expected error, but parsed successfully)")
         (newline)
         #f)
       (lambda (key . args)
-        ;; Parse failed as expected
-        (display "PASS: ")
-        (display name)
-        (newline)
-        #t))))
+        (let ((message (caught-message key args)))
+          (if expected
+              (if (string=? message expected)
+                  (begin
+                    (display "PASS: ")
+                    (display name)
+                    (newline)
+                    #t)
+                  (begin
+                    (display "FAIL: ")
+                    (display name)
+                    (newline)
+                    (display "  Expected: ")
+                    (display expected)
+                    (newline)
+                    (display "  Actual:   ")
+                    (display message)
+                    (newline)
+                    #f))
+              ;; Parse failed as expected
+              (begin
+                (display "PASS: ")
+                (display name)
+                (newline)
+                #t)))))))
 
 ;; Run all error tests
 (define (run-all-error-tests)
@@ -668,8 +703,11 @@
        (let ((nay-path (string-append test-dir "/nay/" name ".nay")))
          (catch #t
            (lambda ()
-             (let ((nay-content (read-file nay-path)))
-               (add-error-test! name nay-content)))
+             (let* ((nay-content (read-file nay-path))
+                    (error-path (string-append test-dir "/nay/" name ".error"))
+                    (expected (and (string-starts-with? name "duplicate-key-")
+                                   (string-trim-end (read-file error-path)))))
+               (add-error-test! name nay-content expected)))
            (lambda (key . args)
              (display "SKIP: ")
              (display name)
