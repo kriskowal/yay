@@ -224,6 +224,24 @@ def run_error_tests(test_root: str, verbose: bool = False) -> tuple[int, int, li
     return passed, failed, errors
 
 
+def nest_arrays(n, value):
+    for _ in range(n):
+        value = [value]
+    return value
+
+
+def nest_objects(n, value):
+    for _ in range(n):
+        value = {"a": value}
+    return value
+
+
+def nest_mixed(n, value):
+    for _ in range(n):
+        value = [{"a": value}]
+    return value
+
+
 # Documents the shared fixtures do not hold, each with its value, or None
 # where it must be refused.
 PORT_CASES = [
@@ -234,6 +252,28 @@ PORT_CASES = [
     ("key:\n  ` text\nnext: 1\n", {"key": "text\n", "next": 1}),
     ("a:\n  b:\n    ` x\n  c: 1\n", {"a": {"b": "x\n", "c": 1}}),
     ("key:\n  ` x\n  y: 1\n", None),
+    # Inline arrays and objects nest 256 levels, counted together
+    ("x: " + "[" * 256 + "1" + "]" * 256 + "\n", {"x": nest_arrays(256, 1)}),
+    ("x: " + "{a: " * 256 + "1" + "}" * 256 + "\n", {"x": nest_objects(256, 1)}),
+    ("x: " + "[{a: " * 128 + "1" + "}]" * 128 + "\n", {"x": nest_mixed(128, 1)}),
+]
+
+# Documents refused with the given message, which must be the whole of it
+PORT_ERRORS = [
+    # Deeper nesting is refused at the bracket that goes past 256 levels,
+    # not with Python's RecursionError
+    (
+        "x: " + "[" * 100000 + "1" + "]" * 100000 + "\n",
+        "Inline nesting deeper than 256 levels (line 1, col 260)",
+    ),
+    (
+        "x: " + "{a: " * 100000 + "1" + "}" * 100000 + "\n",
+        "Inline nesting deeper than 256 levels (line 1, col 1028)",
+    ),
+    (
+        "x: " + "[{a: " * 129 + "1" + "}]" * 129 + "\n",
+        "Inline nesting deeper than 256 levels (line 1, col 644)",
+    ),
 ]
 
 
@@ -259,6 +299,33 @@ def run_port_cases(verbose: bool = False) -> tuple[int, int, list]:
         else:
             failed += 1
             errors.append((repr(source), f"got {result!r}, expected {expected!r}"))
+    return passed, failed, errors
+
+
+def run_port_errors(verbose: bool = False) -> tuple[int, int, list]:
+    """Run PORT_ERRORS. Returns (passed, failed, errors)."""
+    passed = 0
+    failed = 0
+    errors = []
+    for source, message in PORT_ERRORS:
+        label = repr(source if len(source) < 60 else source[:57] + "...")
+        try:
+            result = yay.loads(source)
+        except yay.YayError as e:
+            if str(e) == message:
+                passed += 1
+                if verbose:
+                    print(f"  {label}: OK (error: {e})")
+            else:
+                failed += 1
+                errors.append((label, f"got '{e}', expected '{message}'"))
+            continue
+        except RecursionError as e:
+            failed += 1
+            errors.append((label, f"got RecursionError, expected '{message}'"))
+            continue
+        failed += 1
+        errors.append((label, f"Expected error but got result: {result!r}"[:200]))
     return passed, failed, errors
 
 
@@ -313,6 +380,9 @@ def main():
         # Run the port's own cases
         print("\nPort cases:")
         p_passed, p_failed, p_errors = run_port_cases(args.verbose)
+        q_passed, q_failed, q_errors = run_port_errors(args.verbose)
+        p_passed, p_failed = p_passed + q_passed, p_failed + q_failed
+        p_errors = p_errors + q_errors
         print(f"  {p_passed} passed, {p_failed} failed")
 
         total_passed = v_passed + e_passed + p_passed

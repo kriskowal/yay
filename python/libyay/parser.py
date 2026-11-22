@@ -9,6 +9,11 @@ from .errors import YaySyntaxError
 from .reference import mask_references
 from .tagged import Tagged
 
+# The deepest inline arrays and objects may nest, one in another, counted
+# together. Deeper nesting is refused rather than exhausting the recursion
+# limit.
+MAX_INLINE_DEPTH = 256
+
 PREFIX_WITHOUT_BLOCK = (
     "A tag before a value needs a block below it; write the tag after an inline value"
 )
@@ -30,6 +35,7 @@ class Parser:
         self.lexer = Lexer(source)
         self.tokens: list[Token] = list(self.lexer.tokenize())
         self.pos = 0
+        self.depth = 0
 
     def error(self, message: str, token: Token | None = None) -> YaySyntaxError:
         if token is None:
@@ -200,6 +206,19 @@ class Parser:
                     )
                 continue
 
+    def enter_inline(self, token: Token) -> None:
+        """Count one more level of inline nesting at token's bracket,
+        refusing more than MAX_INLINE_DEPTH levels rather than exhausting
+        Python's recursion limit. The caller counts the level off again when
+        it returns; a refusal ends the parse, so an error need not."""
+        self.depth += 1
+        if self.depth > MAX_INLINE_DEPTH:
+            raise YaySyntaxError(
+                f"Inline nesting deeper than {MAX_INLINE_DEPTH} levels",
+                token.line,
+                token.col,
+            )
+
     def peek(self, offset: int = 0) -> Token:
         """Peek at token at current position + offset."""
         idx = self.pos + offset
@@ -365,6 +384,7 @@ class Parser:
     def parse_inline_array(self) -> list:
         """Parse an inline array [a, b, c]."""
         lbracket = self.peek()
+        self.enter_inline(lbracket)
         self.expect("LBRACKET")
 
         # Check for newline immediately after [ (multiline inline array is invalid)
@@ -397,11 +417,13 @@ class Parser:
         if self.peek().kind == "COLON":
             colon = self.peek()
             raise YaySyntaxError('Unexpected character ":"', colon.line, colon.col)
+        self.depth -= 1
         return items
 
     def parse_inline_object(self) -> dict:
         """Parse an inline object {a: 1, b: 2}."""
         lbrace = self.peek()
+        self.enter_inline(lbrace)
         self.expect("LBRACE")
 
         # Check for newline immediately after { (multiline inline object is invalid)
@@ -456,6 +478,7 @@ class Parser:
                 raise self.error(f"Expected ',' or '}}', got {self.peek().kind}")
 
         self.expect("RBRACE")
+        self.depth -= 1
         return obj
 
     def parse_inline_value(self) -> Any:
