@@ -56,7 +56,9 @@ function checkVersion(binary) {
       .toString()
       .trim();
   } catch (e) {
-    throw new Error(`${binary} --version failed: ${String(e.message).split("\n")[0]}`);
+    throw new Error(
+      `${binary} --version failed: ${String(e.message).split("\n")[0]}`,
+    );
   }
   if (stdout !== `yay ${version}`) {
     throw new Error(

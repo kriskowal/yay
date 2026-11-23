@@ -27,7 +27,10 @@ function install(t, reports) {
   for (const sub of ["bin", "scripts"]) {
     fs.mkdirSync(path.join(pkg, sub), { recursive: true });
   }
-  fs.copyFileSync(path.join(here, "package.json"), path.join(pkg, "package.json"));
+  fs.copyFileSync(
+    path.join(here, "package.json"),
+    path.join(pkg, "package.json"),
+  );
   fs.copyFileSync(path.join(here, "bin", "yay"), path.join(pkg, "bin", "yay"));
   fs.chmodSync(path.join(pkg, "bin", "yay"), 0o755);
   fs.copyFileSync(
@@ -53,35 +56,45 @@ function install(t, reports) {
 function postinstall(pkg) {
   const env = { ...process.env };
   delete env.npm_config_user_agent;
-  return spawnSync(process.execPath, [path.join(pkg, "scripts", "postinstall.js")], {
-    cwd: pkg,
-    env,
-    encoding: "utf8",
-  });
+  return spawnSync(
+    process.execPath,
+    [path.join(pkg, "scripts", "postinstall.js")],
+    {
+      cwd: pkg,
+      env,
+      encoding: "utf8",
+    },
+  );
 }
 
 function warnings(result) {
-  return result.stderr.split("\n").filter((line) => line.startsWith("Warning:"));
+  return result.stderr
+    .split("\n")
+    .filter((line) => line.startsWith("Warning:"));
 }
 
 const unix = process.platform !== "win32";
 
-test("replaces bin/yay when the binary reports this version", { skip: !unix }, (t) => {
-  const pkg = install(t, `yay ${version}`);
-  const result = postinstall(pkg);
-  assert.strictEqual(result.status, 0, result.stderr);
-  assert.strictEqual(result.stderr, "");
-  const bin = path.join(pkg, "bin", "yay");
-  assert.notStrictEqual(fs.readFileSync(bin, "utf8"), wrapper);
-  assert.strictEqual(execFileSync(bin).toString(), "native\n");
-  assert.ok(fs.statSync(bin).mode & 0o100, "executable");
-  assert.deepStrictEqual(fs.readdirSync(path.join(pkg, "bin")), ["yay"]);
-  // Running again leaves the same binary and nothing else.
-  const again = postinstall(pkg);
-  assert.strictEqual(again.status, 0, again.stderr);
-  assert.strictEqual(execFileSync(bin).toString(), "native\n");
-  assert.deepStrictEqual(fs.readdirSync(path.join(pkg, "bin")), ["yay"]);
-});
+test(
+  "replaces bin/yay when the binary reports this version",
+  { skip: !unix },
+  (t) => {
+    const pkg = install(t, `yay ${version}`);
+    const result = postinstall(pkg);
+    assert.strictEqual(result.status, 0, result.stderr);
+    assert.strictEqual(result.stderr, "");
+    const bin = path.join(pkg, "bin", "yay");
+    assert.notStrictEqual(fs.readFileSync(bin, "utf8"), wrapper);
+    assert.strictEqual(execFileSync(bin).toString(), "native\n");
+    assert.ok(fs.statSync(bin).mode & 0o100, "executable");
+    assert.deepStrictEqual(fs.readdirSync(path.join(pkg, "bin")), ["yay"]);
+    // Running again leaves the same binary and nothing else.
+    const again = postinstall(pkg);
+    assert.strictEqual(again.status, 0, again.stderr);
+    assert.strictEqual(execFileSync(bin).toString(), "native\n");
+    assert.deepStrictEqual(fs.readdirSync(path.join(pkg, "bin")), ["yay"]);
+  },
+);
 
 function keepsWrapper(t, pkg, pattern) {
   const result = postinstall(pkg);
@@ -90,17 +103,32 @@ function keepsWrapper(t, pkg, pattern) {
   assert.strictEqual(lines.length, 1, result.stderr);
   assert.match(lines[0], pattern);
   assert.match(lines[0], /bin\/yay stays the Node wrapper/);
-  assert.strictEqual(fs.readFileSync(path.join(pkg, "bin", "yay"), "utf8"), wrapper);
+  assert.strictEqual(
+    fs.readFileSync(path.join(pkg, "bin", "yay"), "utf8"),
+    wrapper,
+  );
   assert.deepStrictEqual(fs.readdirSync(path.join(pkg, "bin")), ["yay"]);
 }
 
 test("keeps the wrapper when the platform package is missing", (t) => {
-  keepsWrapper(t, install(t, null), new RegExp(`${platformPackage} is not installed`));
+  keepsWrapper(
+    t,
+    install(t, null),
+    new RegExp(`${platformPackage} is not installed`),
+  );
 });
 
-test("keeps the wrapper when the binary reports another version", { skip: !unix }, (t) => {
-  keepsWrapper(t, install(t, "yay 0.0.1"), /reports "yay 0\.0\.1", not "yay /);
-});
+test(
+  "keeps the wrapper when the binary reports another version",
+  { skip: !unix },
+  (t) => {
+    keepsWrapper(
+      t,
+      install(t, "yay 0.0.1"),
+      /reports "yay 0\.0\.1", not "yay /,
+    );
+  },
+);
 
 test("keeps the wrapper when bin/ cannot be written", { skip: !unix }, (t) => {
   const pkg = install(t, `yay ${version}`);
@@ -110,19 +138,34 @@ test("keeps the wrapper when bin/ cannot be written", { skip: !unix }, (t) => {
 
 test("the wrapper fails clearly when the platform package is missing", (t) => {
   const pkg = install(t, null);
-  const result = spawnSync(process.execPath, [path.join(pkg, "bin", "yay"), "--version"], {
-    encoding: "utf8",
-  });
+  const result = spawnSync(
+    process.execPath,
+    [path.join(pkg, "bin", "yay"), "--version"],
+    {
+      encoding: "utf8",
+    },
+  );
   assert.strictEqual(result.status, 1);
-  assert.match(result.stderr, new RegExp(`Failed to find binary package: ${platformPackage}`));
+  assert.match(
+    result.stderr,
+    new RegExp(`Failed to find binary package: ${platformPackage}`),
+  );
 });
 
-test("the wrapper fails clearly when the binary is missing", { skip: !unix }, (t) => {
-  const pkg = install(t, `yay ${version}`);
-  fs.rmSync(path.join(pkg, "..", platformPackage, "bin", "yay"));
-  const result = spawnSync(process.execPath, [path.join(pkg, "bin", "yay"), "--version"], {
-    encoding: "utf8",
-  });
-  assert.strictEqual(result.status, 1);
-  assert.match(result.stderr, /Missing binary: .*yay/);
-});
+test(
+  "the wrapper fails clearly when the binary is missing",
+  { skip: !unix },
+  (t) => {
+    const pkg = install(t, `yay ${version}`);
+    fs.rmSync(path.join(pkg, "..", platformPackage, "bin", "yay"));
+    const result = spawnSync(
+      process.execPath,
+      [path.join(pkg, "bin", "yay"), "--version"],
+      {
+        encoding: "utf8",
+      },
+    );
+    assert.strictEqual(result.status, 1);
+    assert.match(result.stderr, /Missing binary: .*yay/);
+  },
+);
