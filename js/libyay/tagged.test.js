@@ -7,80 +7,44 @@ import { describe, it } from "node:test";
 import assert from "node:assert";
 import fs from "fs";
 import path from "path";
-import { fileURLToPath } from "node:url";
 
 import "@endo/init";
 import { makeTagged, passStyleOf } from "@endo/pass-style";
 
 import { parseYay, tagged, isTagged } from "./yay.js";
+import { casesDir, cases, toFixture } from "./test-helpers.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const casesDir = path.join(
-  __dirname,
-  "..",
-  "..",
-  "doc",
-  "design",
-  "tagged-values-g",
-  "cases",
-);
-
-function cases(ext) {
-  return fs
-    .readdirSync(casesDir)
-    .filter((f) => f.endsWith(`.${ext}`))
-    .sort();
-}
-
-/** The value as the cases' JSON spells it. */
-function desugar(value) {
-  if (isTagged(value)) {
-    return {
-      "#tag": value[Symbol.toStringTag],
-      payload: desugar(value.payload),
-    };
-  }
-  if (value instanceof Uint8Array) {
-    return (
-      "*" + Array.from(value, (b) => b.toString(16).padStart(2, "0")).join("")
-    );
-  }
-  if (Array.isArray(value)) return value.map(desugar);
-  // JSON's numbers are floats
-  if (typeof value === "bigint") return Number(value);
-  // The prototype's JSON spells these as strings or bare words
-  if (typeof value === "number" && Number.isNaN(value)) return "NaN";
-  if (value === Infinity) return "Infinity";
-  if (value === -Infinity) return "-Infinity";
-  if (value !== null && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value).map(([k, v]) => [k, desugar(v)]),
-    );
-  }
-  return value;
-}
+const taggedCasesDir = casesDir("doc", "design", "tagged-values-g", "cases");
 
 describe("tagged values: the design's accepted cases", () => {
-  const names = cases("yay");
+  const names = cases(taggedCasesDir, "yay");
   it("finds the cases", () => assert.ok(names.length > 0));
   for (const name of names) {
     it(name, () => {
-      const src = fs.readFileSync(path.join(casesDir, name), "utf8");
+      const src = fs.readFileSync(path.join(taggedCasesDir, name), "utf8");
       const json = fs
-        .readFileSync(path.join(casesDir, name.replace(/\.yay$/, ".json")))
+        .readFileSync(
+          path.join(taggedCasesDir, name.replace(/\.yay$/, ".json")),
+        )
         .toString()
         .replace("-Infinity", '"-Infinity"');
-      assert.deepStrictEqual(desugar(parseYay(src, name)), JSON.parse(json));
+      assert.deepStrictEqual(
+        toFixture(parseYay(src, name), isTagged),
+        JSON.parse(json),
+      );
     });
   }
 });
 
 describe("tagged values: the design's refused cases", () => {
-  const names = [...cases("nay"), ...cases("meh")];
+  const names = [
+    ...cases(taggedCasesDir, "nay"),
+    ...cases(taggedCasesDir, "meh"),
+  ];
   it("finds the cases", () => assert.ok(names.length > 0));
   for (const name of names) {
     it(name, () => {
-      const src = fs.readFileSync(path.join(casesDir, name), "utf8");
+      const src = fs.readFileSync(path.join(taggedCasesDir, name), "utf8");
       assert.throws(() => parseYay(src, name));
     });
   }

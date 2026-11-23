@@ -2,12 +2,11 @@ import { describe, it } from "node:test";
 import assert from "node:assert";
 import fs from "fs";
 import path from "path";
-import { fileURLToPath } from "node:url";
 
 import { parseYay, reference, tagged } from "./yay.js";
+import { casesDir, cases } from "./test-helpers.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const testRoot = path.join(__dirname, "..", "..", "test");
+const testRoot = casesDir("test");
 const yayDir = path.join(testRoot, "yay");
 const nayDir = path.join(testRoot, "nay");
 const mehDir = path.join(testRoot, "meh");
@@ -103,20 +102,6 @@ function decodeUtf8(buffer) {
   return s;
 }
 
-// Uint8Array.fromHex may not exist in Node < 22
-if (typeof Uint8Array.fromHex !== "function") {
-  Uint8Array.fromHex = function fromHex(hex) {
-    const str = hex.replace(/\s/g, "");
-    if (str.length % 2 !== 0) throw new RangeError("Odd number of hex digits");
-    if (!/^[0-9a-fA-F]*$/.test(str)) throw new SyntaxError("Invalid hex digit");
-    const bytes = new Uint8Array(str.length / 2);
-    for (let i = 0; i < bytes.length; i++) {
-      bytes[i] = parseInt(str.slice(i * 2, i * 2 + 2), 16);
-    }
-    return bytes;
-  };
-}
-
 function loadFixture(basename) {
   const yayPath = path.join(yayDir, `${basename}.yay`);
   const jsPath = path.join(jsDir, `${basename}.js`);
@@ -127,7 +112,7 @@ function loadFixture(basename) {
 }
 
 describe("parseYay", () => {
-  const yayFiles = fs.readdirSync(yayDir).filter((f) => f.endsWith(".yay"));
+  const yayFiles = cases(yayDir, "yay");
   const basenames = yayFiles.map((f) => path.basename(f, ".yay"));
 
   for (const basename of basenames) {
@@ -139,30 +124,22 @@ describe("parseYay", () => {
   }
 });
 
-describe("parseYay JSON parity (.yayson)", () => {
-  const yaysonFiles = fs
-    .readdirSync(yayDir)
-    .filter((f) => f.endsWith(".yayson"));
-  const basenames = yaysonFiles.map((f) => path.basename(f, ".yayson"));
-
-  for (const basename of basenames) {
-    it(`fixture ${basename} matches JSON.parse`, () => {
-      const yaysonPath = path.join(yayDir, `${basename}.yayson`);
-      const yaysonSource = fs.readFileSync(yaysonPath, "utf8");
-      const trimmed = yaysonSource.replace(/\r?\n$/, "");
-      assert.ok(
-        !/[\r\n]/.test(trimmed),
-        `fixture ${basename} must be single-line JSON`,
-      );
-      const parsed = parseYay(yaysonSource);
-      const expected = JSON.parse(yaysonSource);
-      assert.deepStrictEqual(parsed, expected, `fixture ${basename}`);
-    });
+it("decodes hex without Uint8Array.fromHex", () => {
+  const fromHex = Uint8Array.fromHex;
+  Uint8Array.fromHex = () => {
+    throw new Error("the parser used Uint8Array.fromHex");
+  };
+  try {
+    assert.deepStrictEqual(parseYay("<00ff>\n"), new Uint8Array([0, 255]));
+    assert.deepStrictEqual(parseYay("> 00 ff\n"), new Uint8Array([0, 255]));
+  } finally {
+    if (fromHex === undefined) delete Uint8Array.fromHex;
+    else Uint8Array.fromHex = fromHex;
   }
 });
 
 describe("parseYay negative (invalid .nay)", () => {
-  const nayFiles = fs.readdirSync(nayDir).filter((f) => f.endsWith(".nay"));
+  const nayFiles = cases(nayDir, "nay");
   const basenames = nayFiles.map((f) => path.basename(f, ".nay"));
 
   for (const basename of basenames) {

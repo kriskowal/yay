@@ -8,7 +8,6 @@ import { describe, it } from "node:test";
 import assert from "node:assert";
 import fs from "fs";
 import path from "path";
-import { fileURLToPath } from "node:url";
 
 import {
   parseYay,
@@ -19,15 +18,12 @@ import {
   ysonToCapData,
   capDataToYson,
 } from "./yay.js";
+import { casesDir, cases } from "./test-helpers.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const mehDir = path.join(__dirname, "..", "..", "test", "meh");
+const mehDir = casesDir("test", "meh");
 
 describe("references: MEH's reference cases are not YAY", () => {
-  const names = fs
-    .readdirSync(mehDir)
-    .filter((f) => f.startsWith("reference-") && f.endsWith(".meh"))
-    .sort();
+  const names = cases(mehDir, "meh", "reference-");
   it("finds the cases", () => {
     assert.ok(names.length >= 2, `MEH reference cases in ${mehDir}`);
   });
