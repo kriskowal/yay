@@ -210,9 +210,9 @@ instead of one character at a time, references and schemes are read by
 character code, and hex is decoded by table. A 4 MB plain quoted string
 parses at 121 MB/s instead of 14.1, a 199 KB list of tagged blocks at
 18.5 MB/s instead of 0.5, and 256 levels of inline objects in 0.11 ms
-instead of 1.97. The single-pass reader refuses some malformed inline
-strings with an unescaped quote that the old reader accepted; no valid
-document changes.
+instead of 1.97. The old substring reader remains as a slow fallback for
+a malformed document the one-pass reader refuses, so no document reads
+differently.
 
 **Fixed: columns inside an inline object.** The Rust port placed an
 error in an inline object's value at the object's opening brace; it now

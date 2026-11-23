@@ -798,6 +798,101 @@ function splitTopLevelCommas(
  * @param {number} col
  * @returns {Record<string, unknown>|null}
  */
+function parseInlineObjectSlow(s, ctx = {}, lineNum = 0, col = 0) {
+  return nested(ctx, lineNum, col, () =>
+    parseInlineObjectSlowBody(s, ctx, lineNum, col),
+  );
+}
+
+function parseInlineObjectSlowBody(s, ctx, lineNum, col) {
+  if (!s.startsWith("{")) return null;
+  if (!s.includes("}")) {
+    return null;
+  }
+  if (!s.endsWith("}")) {
+    throw new Error(
+      "Unexpected inline object content" + locSuffix(ctx, lineNum, col),
+    );
+  }
+  if (s === "{}") return {};
+  if (s[1] === " ") {
+    throw new Error(
+      'Unexpected space after "{"' + locSuffix(ctx, lineNum, col + 1),
+    );
+  }
+  if (s[s.length - 2] === " ") {
+    throw new Error(
+      'Unexpected space before "}"' +
+        locSuffix(ctx, lineNum, col + s.length - 2),
+    );
+  }
+  const body = s.slice(1, -1);
+  const parts = splitTopLevelCommas(body, ctx, lineNum, col + 1);
+  const obj = {};
+  /** @type {Map<string, [number, number]>} */
+  const seen = new Map();
+  for (const part of parts) {
+    if (part.text.length === 0) {
+      throw new Error("Missing key" + locSuffix(ctx, lineNum, col + 1));
+    }
+    const partCol = col + 1 + part.start;
+    const keyValue = splitKeyValue(part.text, partCol, ctx, lineNum, col);
+    if (!keyValue) {
+      throw new Error(
+        "Expected colon after key" + locSuffix(ctx, lineNum, col),
+      );
+    }
+    const { key, valuePart, valueCol } = keyValue;
+    claimKey(seen, key, ctx, lineNum, partCol);
+    if (valuePart === "") {
+      throw new Error("Missing value" + locSuffix(ctx, lineNum, valueCol));
+    }
+    setOwn(obj, key, parseScalar(valuePart, ctx, lineNum, valueCol));
+  }
+  return obj;
+}
+
+function parseInlineArraySlow(s, ctx = {}, lineNum = 0, col = 0) {
+  return nested(ctx, lineNum, col, () =>
+    parseInlineArraySlowBody(s, ctx, lineNum, col),
+  );
+}
+
+function parseInlineArraySlowBody(s, ctx, lineNum, col) {
+  if (!s.startsWith("[")) return [];
+  if (!s.endsWith("]")) {
+    throw new Error("Unterminated inline array" + locSuffix(ctx, lineNum, col));
+  }
+  if (s === "[]") return [];
+  if (s[1] === " ") {
+    throw new Error(
+      'Unexpected space after "["' + locSuffix(ctx, lineNum, col + 1),
+    );
+  }
+  if (s[s.length - 2] === " ") {
+    throw new Error(
+      'Unexpected space before "]"' +
+        locSuffix(ctx, lineNum, col + s.length - 2),
+    );
+  }
+  const body = s.slice(1, -1);
+  const parts = splitTopLevelCommas(body, ctx, lineNum, col + 1, {
+    angles: true,
+    validateArrays: true,
+  });
+  const arr = [];
+  for (const part of parts) {
+    if (part.text.length === 0) {
+      throw new Error(
+        "Missing array element" + locSuffix(ctx, lineNum, col + 1 + part.start),
+      );
+    }
+    const partCol = col + 1 + part.start;
+    arr.push(parseScalar(part.text, ctx, lineNum, partCol));
+  }
+  return arr;
+}
+
 function parseInlineObject(s, ctx = {}, lineNum = 0, col = 0) {
   return parseInlineObjectBody(s, ctx, lineNum, col);
 }
@@ -1203,6 +1298,70 @@ function parseScalar(
   return parseScalarAtom(s, ctx, lineNum, col);
 }
 
+/**
+ * Parse an inline array with the one-pass reader, falling back to the
+ * original substring reader when the one-pass reader refuses it. The
+ * fallback preserves the reading and errors of every malformed document,
+ * while valid documents never pay for it.
+ * @param {string} s
+ * @param {ParseContext} ctx
+ * @param {number} lineNum
+ * @param {number} col
+ * @returns {unknown[]}
+ */
+function parseInlineArrayWithFallback(s, ctx, lineNum, col) {
+  if (ctx.inlineSlow) return parseInlineArraySlow(s, ctx, lineNum, col);
+  try {
+    return parseInlineArray(s, ctx, lineNum, col);
+  } catch (error) {
+    if (
+      error instanceof RangeError ||
+      (error instanceof Error &&
+        error.message.startsWith("Inline nesting deeper than"))
+    ) {
+      throw error;
+    }
+    const previous = ctx.inlineSlow;
+    ctx.inlineSlow = true;
+    try {
+      return parseInlineArraySlow(s, ctx, lineNum, col);
+    } finally {
+      ctx.inlineSlow = previous;
+    }
+  }
+}
+
+/**
+ * Parse an inline object with the one-pass reader, falling back as
+ * parseInlineArrayWithFallback does.
+ * @param {string} s
+ * @param {ParseContext} ctx
+ * @param {number} lineNum
+ * @param {number} col
+ * @returns {Record<string, unknown>|null}
+ */
+function parseInlineObjectWithFallback(s, ctx, lineNum, col) {
+  if (ctx.inlineSlow) return parseInlineObjectSlow(s, ctx, lineNum, col);
+  try {
+    return parseInlineObject(s, ctx, lineNum, col);
+  } catch (error) {
+    if (
+      error instanceof RangeError ||
+      (error instanceof Error &&
+        error.message.startsWith("Inline nesting deeper than"))
+    ) {
+      throw error;
+    }
+    const previous = ctx.inlineSlow;
+    ctx.inlineSlow = true;
+    try {
+      return parseInlineObjectSlow(s, ctx, lineNum, col);
+    } finally {
+      ctx.inlineSlow = previous;
+    }
+  }
+}
+
 function parseScalarAtom(s, ctx = {}, lineNum = 0, col = 0) {
   if (s === "null") return null;
   if (s === "true") return true;
@@ -1233,7 +1392,7 @@ function parseScalarAtom(s, ctx = {}, lineNum = 0, col = 0) {
         "Unexpected newline in inline array" + locSuffix(ctx, lineNum, col),
       );
     }
-    return parseInlineArray(s, ctx, lineNum, col);
+    return parseInlineArrayWithFallback(s, ctx, lineNum, col);
   }
   if (s.startsWith("{")) {
     // Inline objects must close on the same line.
@@ -1242,7 +1401,7 @@ function parseScalarAtom(s, ctx = {}, lineNum = 0, col = 0) {
         "Unexpected newline in inline object" + locSuffix(ctx, lineNum, col),
       );
     }
-    return parseInlineObject(s, ctx, lineNum, col);
+    return parseInlineObjectWithFallback(s, ctx, lineNum, col);
   }
   if (isReferenceStart(s)) {
     const [value, n] = parseReference(s, ctx, lineNum, col);
