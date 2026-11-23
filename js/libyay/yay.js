@@ -1313,14 +1313,7 @@ function parseInlineArrayWithFallback(s, ctx, lineNum, col) {
   if (ctx.inlineSlow) return parseInlineArraySlow(s, ctx, lineNum, col);
   try {
     return parseInlineArray(s, ctx, lineNum, col);
-  } catch (error) {
-    if (
-      error instanceof RangeError ||
-      (error instanceof Error &&
-        error.message.startsWith("Inline nesting deeper than"))
-    ) {
-      throw error;
-    }
+  } catch {
     const previous = ctx.inlineSlow;
     ctx.inlineSlow = true;
     try {
@@ -1344,14 +1337,7 @@ function parseInlineObjectWithFallback(s, ctx, lineNum, col) {
   if (ctx.inlineSlow) return parseInlineObjectSlow(s, ctx, lineNum, col);
   try {
     return parseInlineObject(s, ctx, lineNum, col);
-  } catch (error) {
-    if (
-      error instanceof RangeError ||
-      (error instanceof Error &&
-        error.message.startsWith("Inline nesting deeper than"))
-    ) {
-      throw error;
-    }
+  } catch {
     const previous = ctx.inlineSlow;
     ctx.inlineSlow = true;
     try {
