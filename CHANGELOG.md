@@ -197,6 +197,23 @@ hold 257 levels.
 nested inline array and object twice, so the time doubled with each
 level of nesting: 16 levels took 1.5 seconds.
 
+**Fixed: JavaScript reads each level of inline nesting once.** It rescanned
+an inline array's or object's body at every level, so nesting took
+quadratic time; at the 256-level limit it took 0.81 ms for arrays and
+1.97 ms for objects, against 0.09 ms and 0.11 ms now. It now reads a
+container in one pass, as Scheme does, and keeps the 256-level limit.
+Quoted strings, references and keys longer than 13 code units are copied
+out of the source once, so a surviving value does not retain the whole
+document. The parser's other hot spots are linear now too: tagged list
+items no longer copy the token array per item, quoted strings copy runs
+instead of one character at a time, references and schemes are read by
+character code, and hex is decoded by table. A 4 MB plain quoted string
+parses at 121 MB/s instead of 14.1, a 199 KB list of tagged blocks at
+18.5 MB/s instead of 0.5, and 256 levels of inline objects in 0.11 ms
+instead of 1.97. The single-pass reader refuses some malformed inline
+strings with an unescaped quote that the old reader accepted; no valid
+document changes.
+
 **Fixed: columns inside an inline object.** The Rust port placed an
 error in an inline object's value at the object's opening brace; it now
 places it in the value, as JavaScript does.
