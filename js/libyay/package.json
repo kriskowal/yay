@@ -13,6 +13,7 @@
   ],
   "scripts": {
     "test": "node --test yay.test.js tagged.test.js smallcaps.test.js references.test.js capdata.test.js",
+    "bench": "node bench.mjs",
     "coverage": "c8 --all --include yay.js --reporter=text --reporter=html node --test yay.test.js tagged.test.js smallcaps.test.js references.test.js capdata.test.js"
   },
   "author": "Kris Kowal",
