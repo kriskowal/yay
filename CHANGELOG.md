@@ -122,6 +122,17 @@ for the space at 1:4, and `- - a` reported the bare word at 1:3, not 1:5.
 The Rust, JavaScript, Go, C and Java ports now count the list leader, as
 the Python port already did, and the shared cases expect the true column.
 
+**Breaking: a property cannot take a sibling for its value.** An untagged
+property at the start of a list item with nothing after its colon took the
+next list item (`- a:` over `- 1`) or the item's next property (`- a:` over
+`  b: 1`) as its block value in some ports, contradicting the grammar: only
+a block array may stand at the key's column, and every other block value
+must be indented deeper. Every port now refuses both shapes,
+`Expected value after property`, and so does the MEH formatter; a
+flush-left block array (`- a:` over `  - 1`) still reads as before. The
+shared cases are `untagged-item-property-sibling-item` and
+`untagged-item-property-sibling-property` in `test/nay`.
+
 **Breaking: two spaces before an inline comment.** The grammar's
 inline comment is two spaces and `#` (`inline-comment = SP SP comment`),
 but every port took one space after a property's value, and some after a
