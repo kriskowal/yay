@@ -4,12 +4,16 @@ const KEY_CHARACTER = /^[A-Za-z0-9_-]$/;
 const LOWER_HEX = /^[0-9a-f]*$/;
 const UNICODE_ESCAPE = /^[0-9A-Fa-f]{1,6}$/;
 const HEX_PAIR = /^[0-9A-Fa-f]{2}/;
-const SCHEME_START = /^[A-Za-z]$/;
-const SCHEME_CHARACTER = /^[A-Za-z0-9+.-]$/;
 const UPPERCASE = /[A-Z]/;
-const URI_ASCII = /^[A-Za-z0-9._~:/?#[\]@!$&'()*+,;=-]$/;
 const UNICODE_SPACE =
   /[\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]/;
+
+// The ASCII characters a reference's text may hold, "%" aside, which must
+// begin a percent-encoding.
+const URI_ASCII = new Uint8Array(128);
+for (const ch of "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~:/?#[]@!$&'()*+,;=") {
+  URI_ASCII[ch.charCodeAt(0)] = 1;
+}
 
 const SIMPLE_ESCAPES = Object.freeze({
   "\\": "\\",
@@ -32,6 +36,29 @@ function parseYay(source, filename) {
   const lines = scan(source, ctx);
   const tokens = outlineLex(lines);
   return parseRoot(tokens, ctx);
+}
+
+const TEXT_ENCODER =
+  typeof TextEncoder !== "undefined" ? new TextEncoder() : undefined;
+const TEXT_DECODER =
+  typeof TextDecoder !== "undefined" ? new TextDecoder() : undefined;
+
+/**
+ * Give a parsed string its own storage. A slice of a line, which is itself a
+ * slice of the source, keeps the whole source alive for as long as the value
+ * survives. V8 already copies very short slices; the rest are copied once.
+ * @param {string} s
+ * @returns {string}
+ */
+function detachString(s) {
+  if (s.length <= 13) return s;
+  if (typeof Buffer !== "undefined") {
+    return Buffer.from(s, "utf8").toString("utf8");
+  }
+  if (TEXT_ENCODER !== undefined && TEXT_DECODER !== undefined) {
+    return TEXT_DECODER.decode(TEXT_ENCODER.encode(s));
+  }
+  return s.split("").join("");
 }
 
 function locSuffix(ctx, line, col) {
@@ -221,7 +248,7 @@ function scan(source, ctx = {}) {
     }
   }
   const lines = [];
-  const lineStrings = source.split(/\n/);
+  const lineStrings = source.split("\n");
   // While inside a block string, the column that ends it: the indent of a
   // bare opener, or the key's column for a property opener. Its content
   // lines are literal: no list leaders, no "-" or "*" checks, no comments.
@@ -645,6 +672,7 @@ function splitKeyValue(
         throw new Error(errMsg + locSuffix(ctx, lineNum, errCol));
       }
     }
+    key = detachString(keyRaw);
   }
   const valueSlice = s.slice(colonIdx + 1);
   let valuePart = valueSlice;
@@ -712,7 +740,7 @@ function splitTopLevelCommas(
   col,
   { angles = false, validateArrays = false } = {},
 ) {
-  const { masked } = scanTopLevel(body);
+  const { masked } = scanTopLevel(body, true);
   const parts = [];
   let start = 0;
   let braceDepth = 0;
@@ -771,9 +799,7 @@ function splitTopLevelCommas(
  * @returns {Record<string, unknown>|null}
  */
 function parseInlineObject(s, ctx = {}, lineNum = 0, col = 0) {
-  return nested(ctx, lineNum, col, () =>
-    parseInlineObjectBody(s, ctx, lineNum, col),
-  );
+  return parseInlineObjectBody(s, ctx, lineNum, col);
 }
 
 function parseInlineObjectBody(s, ctx, lineNum, col) {
@@ -798,30 +824,342 @@ function parseInlineObjectBody(s, ctx, lineNum, col) {
         locSuffix(ctx, lineNum, col + s.length - 2),
     );
   }
-  const body = s.slice(1, -1);
-  const parts = splitTopLevelCommas(body, ctx, lineNum, col + 1);
+  const [obj, next] = parseInlineObjectAt(s, 0, ctx, lineNum, col);
+  if (next !== s.length) {
+    throw new Error(
+      "Unexpected inline object content" + locSuffix(ctx, lineNum, col),
+    );
+  }
+  return obj;
+}
+
+/**
+ * Parse an inline object beginning at s[open], in one pass. Values are read
+ * by their own parser, so nested containers are not rescanned at every
+ * level. Returns the value and the index after the closing brace.
+ * @param {string} s
+ * @param {number} open
+ * @param {ParseContext} ctx
+ * @param {number} lineNum
+ * @param {number} col
+ * @returns {[Record<string, unknown>, number]}
+ */
+function parseInlineObjectAt(s, open, ctx, lineNum, col) {
+  return nested(ctx, lineNum, col + open, () =>
+    parseInlineObjectAtBody(s, open, ctx, lineNum, col),
+  );
+}
+
+function parseInlineObjectAtBody(s, open, ctx, lineNum, col) {
   const obj = {};
   /** @type {Map<string, [number, number]>} */
   const seen = new Map();
-  for (const part of parts) {
-    if (part.text.length === 0) {
-      throw new Error("Missing key" + locSuffix(ctx, lineNum, col + 1));
+  let i = open + 1;
+  if (s.charCodeAt(i) === 0x7d) return [obj, i + 1];
+  if (s.charCodeAt(i) === 0x20) {
+    fail(ctx, 'Unexpected space after "{"', lineNum, col + i);
+  }
+  for (;;) {
+    if (i >= s.length) {
+      throw new Error(
+        "Unexpected newline in inline object" +
+          locSuffix(ctx, lineNum, col + open),
+      );
     }
-    const partCol = col + 1 + part.start;
-    const keyValue = splitKeyValue(part.text, partCol, ctx, lineNum, col);
-    if (!keyValue) {
+    const c = s.charCodeAt(i);
+    if (c === 0x7d || c === 0x2c) {
+      throw new Error("Missing key" + locSuffix(ctx, lineNum, col + i));
+    }
+    const colon = findInlineKeyColon(s, i);
+    if (colon < 0) {
       throw new Error(
         "Expected colon after key" + locSuffix(ctx, lineNum, col),
       );
     }
-    const { key, valuePart, valueCol } = keyValue;
+    const partCol = col + i;
+    const key = parseInlineKeyAt(s, i, colon, ctx, lineNum, col, col + open);
     claimKey(seen, key, ctx, lineNum, partCol);
-    if (valuePart === "") {
-      throw new Error("Missing value" + locSuffix(ctx, lineNum, valueCol));
+    let valueIndex = colon + 1;
+    if (valueIndex >= s.length) {
+      throw new Error(
+        "Missing value" + locSuffix(ctx, lineNum, col + valueIndex),
+      );
     }
-    setOwn(obj, key, parseScalar(valuePart, ctx, lineNum, valueCol));
+    if (s.charCodeAt(valueIndex) === 0x20) {
+      if (s.charCodeAt(valueIndex + 1) === 0x20) {
+        fail(ctx, 'Unexpected space after ":"', lineNum, col + valueIndex + 1);
+      }
+      valueIndex++;
+    } else if (
+      s.charCodeAt(valueIndex) !== 0x2c &&
+      s.charCodeAt(valueIndex) !== 0x7d
+    ) {
+      fail(ctx, 'Expected space after ":"', lineNum, col + colon);
+    }
+    if (
+      valueIndex >= s.length ||
+      s.charCodeAt(valueIndex) === 0x7d ||
+      s.charCodeAt(valueIndex) === 0x2c
+    ) {
+      throw new Error(
+        "Missing value" + locSuffix(ctx, lineNum, col + valueIndex),
+      );
+    }
+    const [value, next] = parseInlineValueAt(
+      s,
+      valueIndex,
+      ctx,
+      lineNum,
+      col,
+      0x7d,
+    );
+    setOwn(obj, key, value);
+    if (next >= s.length) {
+      throw new Error(
+        "Unexpected newline in inline object" +
+          locSuffix(ctx, lineNum, col + open),
+      );
+    }
+    const after = s.charCodeAt(next);
+    if (after === 0x7d) {
+      if (s.charCodeAt(next - 1) === 0x20) {
+        fail(ctx, 'Unexpected space before "}"', lineNum, col + next - 1);
+      }
+      return [obj, next + 1];
+    }
+    if (after === 0x2c) {
+      if (s.charCodeAt(next - 1) === 0x20) {
+        fail(ctx, 'Unexpected space before ","', lineNum, col + next - 1);
+      }
+      if (next + 1 >= s.length || s.charCodeAt(next + 1) !== 0x20) {
+        fail(ctx, 'Expected space after ","', lineNum, col + next);
+      }
+      if (s.charCodeAt(next + 2) === 0x20) {
+        fail(ctx, 'Unexpected space after ","', lineNum, col + next + 2);
+      }
+      i = next + 2;
+      continue;
+    }
+    if (after === 0x20) {
+      if (s.charCodeAt(next + 1) === 0x7d) {
+        fail(ctx, 'Unexpected space before "}"', lineNum, col + next);
+      }
+      if (s.charCodeAt(next + 1) === 0x2c) {
+        fail(ctx, 'Unexpected space before ","', lineNum, col + next);
+      }
+    }
+    throw new Error(
+      `Unexpected character "${s[next]}"` + locSuffix(ctx, lineNum, col + next),
+    );
   }
-  return obj;
+}
+
+/**
+ * Find the colon that separates an inline object's key from its value.
+ * Quotes, tags, and references are opaque, as they are to the syntax scan.
+ * @param {string} s
+ * @param {number} start
+ * @returns {number}
+ */
+function findInlineKeyColon(s, start) {
+  const n = s.length;
+  let i = start;
+  while (i < n) {
+    const c = s.charCodeAt(i);
+    if (c === 0x22 || c === 0x27) {
+      i++;
+      while (i < n) {
+        const q = s.charCodeAt(i);
+        if (q === 0x5c) {
+          i += 2;
+          continue;
+        }
+        i++;
+        if (q === c) break;
+      }
+      continue;
+    }
+    if (c === 0x3c && isReferenceStartAt(s, i)) {
+      const end = s.indexOf(">", i);
+      i = end < 0 ? n : end + 1;
+      continue;
+    }
+    if (c === 0x28) {
+      i++;
+      while (i < n) {
+        const q = s.charCodeAt(i);
+        if (q === 0x29) {
+          i++;
+          break;
+        }
+        i += q === 0x5c ? 2 : 1;
+      }
+      continue;
+    }
+    if (c === 0x3a) return i;
+    i++;
+  }
+  return -1;
+}
+
+/**
+ * Read an inline object's key, from start to its colon, with the checks the
+ * shared key reader makes for a block object.
+ * @param {string} s
+ * @param {number} start
+ * @param {number} colon
+ * @param {ParseContext} ctx
+ * @param {number} lineNum
+ * @param {number} col
+ * @returns {string}
+ */
+function parseInlineKeyAt(s, start, colon, ctx, lineNum, col, inlineCol) {
+  const keyRaw = s.slice(start, colon);
+  const sCol = col + start;
+  if (keyRaw.endsWith(" ")) {
+    throw new Error(
+      'Unexpected space before ":"' +
+        locSuffix(ctx, lineNum, sCol + keyRaw.length - 1),
+    );
+  }
+  if (keyRaw.startsWith('"') || keyRaw.startsWith("'")) {
+    const quote = keyRaw[0];
+    if (keyRaw.length < 2 || keyRaw[keyRaw.length - 1] !== quote) {
+      throw new Error(
+        "Unterminated string" +
+          locSuffix(ctx, lineNum, sCol + keyRaw.length - 1),
+      );
+    }
+    return parseQuotedString(keyRaw, ctx, lineNum, sCol);
+  }
+  if (keyRaw.length === 0) {
+    throw new Error("Missing key" + locSuffix(ctx, lineNum, col + colon));
+  }
+  for (let i = 0; i < keyRaw.length; i++) {
+    if (!KEY_CHARACTER.test(keyRaw[i])) {
+      const message = i === 0 ? "Invalid key" : "Invalid key character";
+      const errCol = i === 0 ? inlineCol : sCol + i;
+      throw new Error(message + locSuffix(ctx, lineNum, errCol));
+    }
+  }
+  return detachString(keyRaw);
+}
+
+/**
+ * Parse one inline value beginning at s[i], in one pass. A leaf value is
+ * read from its whole text with the shared scalar reader; a container is
+ * read by its own cursor, so its body is not rescanned. Returns the value
+ * and the index of what follows its suffix, the delimiter or the offending
+ * character.
+ * @param {string} s
+ * @param {number} i
+ * @param {ParseContext} ctx
+ * @param {number} lineNum
+ * @param {number} col
+ * @param {number} closeCode
+ * @returns {[unknown, number]}
+ */
+function parseInlineValueAt(s, i, ctx, lineNum, col, closeCode) {
+  const c = s.charCodeAt(i);
+  let value;
+  let next;
+  if (c === 0x5b) {
+    [value, next] = parseInlineArrayAt(s, i, ctx, lineNum, col);
+    const [tags, n] = parseSuffix(s.slice(next), ctx, lineNum, col + next);
+    return [wrapTags(value, tags), next + n];
+  }
+  if (c === 0x7b) {
+    [value, next] = parseInlineObjectAt(s, i, ctx, lineNum, col);
+    const [tags, n] = parseSuffix(s.slice(next), ctx, lineNum, col + next);
+    return [wrapTags(value, tags), next + n];
+  }
+  next = findInlineValueEnd(s, i, closeCode, closeCode === 0x5d);
+  if (next < s.length) {
+    const delimiter = s.charCodeAt(next);
+    if (delimiter === 0x2c && s.charCodeAt(next - 1) === 0x20) {
+      fail(ctx, 'Unexpected space before ","', lineNum, col + next - 1);
+    }
+    if (delimiter === closeCode && s.charCodeAt(next - 1) === 0x20) {
+      fail(
+        ctx,
+        `Unexpected space before "${s[next]}"`,
+        lineNum,
+        col + next - 1,
+      );
+    }
+  }
+  return [parseScalar(s.slice(i, next), ctx, lineNum, col + i), next];
+}
+
+/**
+ * The end of an inline value's own text: its next top-level comma, or the
+ * container's closing character. Quotes, tags, references, and nested
+ * containers are skipped structurally.
+ * @param {string} s
+ * @param {number} start
+ * @param {number} closeCode
+ * @param {boolean} angles
+ * @returns {number}
+ */
+function findInlineValueEnd(s, start, closeCode, angles) {
+  const n = s.length;
+  let i = start;
+  let quote = 0;
+  let braceDepth = 0;
+  let bracketDepth = 0;
+  let angleDepth = 0;
+  while (i < n) {
+    const c = s.charCodeAt(i);
+    if (quote !== 0) {
+      if (c === 0x5c) {
+        i += 2;
+        continue;
+      }
+      if (c === quote) quote = 0;
+      i++;
+      continue;
+    }
+    if (c === 0x22 || c === 0x27) {
+      quote = c;
+      i++;
+      continue;
+    }
+    if (c === 0x3c && isReferenceStartAt(s, i)) {
+      const end = s.indexOf(">", i);
+      i = end < 0 ? n : end + 1;
+      continue;
+    }
+    if (c === 0x28) {
+      i++;
+      while (i < n) {
+        const q = s.charCodeAt(i);
+        if (q === 0x29) {
+          i++;
+          break;
+        }
+        i += q === 0x5c ? 2 : 1;
+      }
+      continue;
+    }
+    if (angles) {
+      if (c === 0x3c) angleDepth++;
+      else if (c === 0x3e && angleDepth > 0) angleDepth--;
+    }
+    if (c === 0x7b) {
+      braceDepth++;
+    } else if (c === 0x7d && braceDepth > 0) {
+      braceDepth--;
+    } else if (c === 0x5b) {
+      bracketDepth++;
+    } else if (c === 0x5d && bracketDepth > 0) {
+      bracketDepth--;
+    } else if (braceDepth === 0 && bracketDepth === 0 && angleDepth === 0) {
+      if (c === 0x2c) return i;
+      if (c === closeCode) return i;
+    }
+    i++;
+  }
+  return n;
 }
 
 /**
@@ -937,7 +1275,18 @@ function parseScalarAtom(s, ctx = {}, lineNum = 0, col = 0) {
 function parseNumber(s, ctx = {}, lineNum = 0, col = 0) {
   // Check for uppercase E in exponent (must be lowercase)
   // Only check if this looks like a number (starts with digit, minus, or dot)
-  const firstNonSpace = s.replace(/^ */, "")[0];
+  // Reject a non-number on its first character without copying the string.
+  let firstIndex = 0;
+  while (s.charCodeAt(firstIndex) === 0x20) firstIndex++;
+  const firstCode = s.charCodeAt(firstIndex);
+  if (!(
+    (firstCode >= 0x30 && firstCode <= 0x39) ||
+    firstCode === 0x2d ||
+    firstCode === 0x2e
+  )) {
+    return undefined;
+  }
+  const firstNonSpace = s[firstIndex];
   if (
     (firstNonSpace >= "0" && firstNonSpace <= "9") ||
     firstNonSpace === "-" ||
@@ -989,7 +1338,7 @@ function parseNumber(s, ctx = {}, lineNum = 0, col = 0) {
       );
     }
   }
-  const compact = s.replace(/ /g, "");
+  const compact = s.indexOf(" ") < 0 ? s : s.replace(/ /g, "");
   if (/^-?\d+$/.test(compact)) return BigInt(compact);
   // Float patterns: with decimal point, or with exponent, or both
   if (
@@ -1057,13 +1406,14 @@ function nested(ctx, lineNum, col, read) {
  * @returns {string}
  */
 function parseSingleQuotedString(s, ctx = {}, lineNum = 0, col = 0) {
-  let out = "";
+  const parts = [];
   let run = 1;
   for (let i = 1; i < s.length; i++) {
     const c = s[i];
     if (c === "\\" && (s[i + 1] === "'" || s[i + 1] === "\\")) {
-      out += s.slice(run, i);
-      run = i + 1;
+      if (run < i) parts.push(s.slice(run, i));
+      parts.push(s[i + 1]);
+      run = i + 2;
       i++;
     } else if (c === "'") {
       if (i !== s.length - 1) {
@@ -1071,7 +1421,9 @@ function parseSingleQuotedString(s, ctx = {}, lineNum = 0, col = 0) {
           'Unexpected character "\'"' + locSuffix(ctx, lineNum, col),
         );
       }
-      return out + s.slice(run, i);
+      parts.push(s.slice(run, i));
+      if (parts.length === 1) return detachString(parts[0]);
+      return parts.join("");
     }
   }
   throw new Error(
@@ -1131,25 +1483,33 @@ function parseJsonQuotedString(s, ctx = {}, lineNum = 0, col = 0) {
       "Unterminated string" + locSuffix(ctx, lineNum, col + index),
     );
   }
-  let out = "";
+  // Collect runs of plain characters by slice and join them once, rather
+  // than consing one character (or one slice) at a time, which leaves a rope
+  // that retains many times the string's size.
+  const parts = [];
+  let run = 1;
   for (let i = 1; i < s.length - 1; i++) {
-    const ch = s[i];
-    if (ch === "\\") {
-      const [value, next] = readEscape(s, i, '"', ctx, lineNum, col);
-      out += value;
-      i = next - 1;
-    } else {
+    const code = s.charCodeAt(i);
+    if (code !== 0x5c) {
       // Unescaped control characters are illegal in JSON strings.
-      const code = ch.charCodeAt(0);
       if (code < 0x20) {
         throw new Error(
           "Bad character in string" + locSuffix(ctx, lineNum, col + i),
         );
       }
-      out += ch;
+      continue;
     }
+    if (run < i) parts.push(s.slice(run, i));
+    const [value, next] = readEscape(s, i, '"', ctx, lineNum, col);
+    parts.push(value);
+    i = next - 1;
+    run = i + 1;
   }
-  return out;
+  if (run === 1) {
+    return detachString(s.slice(1, -1));
+  }
+  parts.push(s.slice(run, s.length - 1));
+  return parts.join("");
 }
 
 /**
@@ -1160,9 +1520,7 @@ function parseJsonQuotedString(s, ctx = {}, lineNum = 0, col = 0) {
  * @returns {unknown[]}
  */
 function parseInlineArray(s, ctx = {}, lineNum = 0, col = 0) {
-  return nested(ctx, lineNum, col, () =>
-    parseInlineArrayBody(s, ctx, lineNum, col),
-  );
+  return parseInlineArrayBody(s, ctx, lineNum, col);
 }
 
 function parseInlineArrayBody(s, ctx, lineNum, col) {
@@ -1182,22 +1540,91 @@ function parseInlineArrayBody(s, ctx, lineNum, col) {
         locSuffix(ctx, lineNum, col + s.length - 2),
     );
   }
-  const body = s.slice(1, -1);
-  const parts = splitTopLevelCommas(body, ctx, lineNum, col + 1, {
-    angles: true,
-    validateArrays: true,
-  });
-  const arr = [];
-  for (const part of parts) {
-    if (part.text.length === 0) {
-      throw new Error(
-        "Missing array element" + locSuffix(ctx, lineNum, col + 1 + part.start),
-      );
-    }
-    const partCol = col + 1 + part.start;
-    arr.push(parseScalar(part.text, ctx, lineNum, partCol));
+  const [arr, next] = parseInlineArrayAt(s, 0, ctx, lineNum, col);
+  if (next !== s.length) {
+    throw new Error(
+      `Unexpected character "${s[next]}"` + locSuffix(ctx, lineNum, col + next),
+    );
   }
   return arr;
+}
+
+/**
+ * Parse an inline array beginning at s[open], in one pass. Returns the array
+ * and the index after its closing bracket.
+ * @param {string} s
+ * @param {number} open
+ * @param {ParseContext} ctx
+ * @param {number} lineNum
+ * @param {number} col
+ * @returns {[unknown[], number]}
+ */
+function parseInlineArrayAt(s, open, ctx, lineNum, col) {
+  return nested(ctx, lineNum, col + open, () =>
+    parseInlineArrayAtBody(s, open, ctx, lineNum, col),
+  );
+}
+
+function parseInlineArrayAtBody(s, open, ctx, lineNum, col) {
+  const arr = [];
+  let i = open + 1;
+  if (s.charCodeAt(i) === 0x5d) return [arr, i + 1];
+  if (s.charCodeAt(i) === 0x20) {
+    fail(ctx, 'Unexpected space after "["', lineNum, col + i);
+  }
+  for (;;) {
+    if (i >= s.length) {
+      throw new Error(
+        "Unexpected newline in inline array" +
+          locSuffix(ctx, lineNum, col + open),
+      );
+    }
+    const c = s.charCodeAt(i);
+    if (c === 0x5d || c === 0x2c) {
+      throw new Error(
+        "Missing array element" + locSuffix(ctx, lineNum, col + i),
+      );
+    }
+    const [value, next] = parseInlineValueAt(s, i, ctx, lineNum, col, 0x5d);
+    arr.push(value);
+    if (next >= s.length) {
+      throw new Error(
+        "Unexpected newline in inline array" +
+          locSuffix(ctx, lineNum, col + open),
+      );
+    }
+    const after = s.charCodeAt(next);
+    if (after === 0x5d) {
+      if (s.charCodeAt(next - 1) === 0x20) {
+        fail(ctx, 'Unexpected space before "]"', lineNum, col + next - 1);
+      }
+      return [arr, next + 1];
+    }
+    if (after === 0x2c) {
+      if (s.charCodeAt(next - 1) === 0x20) {
+        fail(ctx, 'Unexpected space before ","', lineNum, col + next - 1);
+      }
+      if (next + 1 >= s.length || s.charCodeAt(next + 1) !== 0x20) {
+        fail(ctx, 'Expected space after ","', lineNum, col + next);
+      }
+      if (s.charCodeAt(next + 2) === 0x20) {
+        fail(ctx, 'Unexpected space after ","', lineNum, col + next + 2);
+      }
+      i = next + 2;
+      continue;
+    }
+    if (after === 0x20) {
+      if (s.charCodeAt(next + 1) === 0x5d) {
+        fail(ctx, 'Unexpected space before "]"', lineNum, col + next);
+      }
+      if (s.charCodeAt(next + 1) === 0x2c) {
+        fail(ctx, 'Unexpected space before ","', lineNum, col + next);
+      }
+    }
+    throw new Error(
+      `Unexpected character "${s[next]}"` + locSuffix(ctx, lineNum, col + next),
+    );
+  }
 }
 
 /**
@@ -1254,8 +1681,12 @@ function hexToBytes(hex, ctx, lineNum, col) {
   if (!LOWER_HEX.test(hex))
     throw new Error("Invalid hex digit" + locSuffix(ctx, lineNum, col));
   const bytes = new Uint8Array(hex.length / 2);
-  for (let j = 0; j < bytes.length; j++) {
-    bytes[j] = parseInt(hex.slice(j * 2, j * 2 + 2), 16);
+  for (let j = 0, k = 0; j < bytes.length; j++, k += 2) {
+    const a = hex.charCodeAt(k);
+    const b = hex.charCodeAt(k + 1);
+    bytes[j] =
+      ((a <= 0x39 ? a - 0x30 : a - 0x57) << 4) |
+      (b <= 0x39 ? b - 0x30 : b - 0x57);
   }
   return bytes;
 }
@@ -1344,13 +1775,21 @@ function parseListItem(tokens, i, listIndent, ctx) {
       return [wrapPrefix(value, tags), k];
     }
     if (!prefixTakes(rest)) throw prefixWithoutBlock(ctx, lineNum, col);
-    const retokened = tokens.slice();
-    retokened[i] = {
+    // Swap the one token in place and restore it, rather than copying the
+    // whole token array for each tagged item (which is quadratic in the
+    // number of items).
+    const token = tokens[i];
+    tokens[i] = {
       ...next,
       text: rest,
       col: col + next.text.length - rest.length,
     };
-    const [value, k] = parseListItem(retokened, i, listIndent, ctx);
+    let value, k;
+    try {
+      [value, k] = parseListItem(tokens, i, listIndent, ctx);
+    } finally {
+      tokens[i] = token;
+    }
     return [wrapPrefix(value, tags), k];
   }
   if (
@@ -2142,81 +2581,85 @@ function isTagged(value) {
  * text replaces their payloads with "x", unit for unit, so structural scans
  * can use the original offsets without reimplementing quote awareness.
  * @param {string} s
- * @returns {{masked: string, firstTag: number|undefined, comment: number|undefined, colon: number|undefined, closeBracket: number}}
+ * @param {boolean=} mask - build the masked text, for a caller that scans it
+ * @returns {{masked: string|undefined, firstTag: number|undefined, comment: number|undefined, colon: number|undefined, closeBracket: number}}
  */
-function scanTopLevel(s) {
-  /** @type {[number, number][]} */
-  const masks = [];
+function scanTopLevel(s, mask = false) {
+  /** @type {[number, number][]|undefined} */
+  const masks = mask ? [] : undefined;
   let firstTag;
   let comment;
   let colon;
   let closeBracket = -1;
-  let quote = "";
+  let quote = 0;
   let quoteStart = 0;
   let depth = 0;
   let bracketDepth = 0;
   let commentEscape = false;
   let i = 0;
-  while (i < s.length) {
-    const c = s[i];
-    if (quote !== "") {
-      if (c === "\\") {
-        i += Math.min(2, s.length - i);
+  const n = s.length;
+  while (i < n) {
+    const c = s.charCodeAt(i);
+    if (quote !== 0) {
+      if (c === 0x5c) {
+        i += Math.min(2, n - i);
         continue;
       }
       if (c === quote) {
-        masks.push([quoteStart, i]);
-        quote = "";
+        if (masks !== undefined) masks.push([quoteStart, i]);
+        quote = 0;
       }
       i++;
       continue;
     }
     // A reference's text is no syntax either
-    if (c === "<" && isReferenceStart(s.slice(i))) {
+    if (c === 0x3c && isReferenceStartAt(s, i)) {
       const end = s.indexOf(">", i);
       if (end >= 0) {
-        masks.push([i + 1, end]);
+        if (masks !== undefined) masks.push([i + 1, end]);
         i = end + 1;
         continue;
       }
     }
-    if (c === '"' || c === "'") {
+    if (c === 0x22 || c === 0x27) {
       quote = c;
       quoteStart = i + 1;
-    } else if (c === "[" || c === "{") {
+    } else if (c === 0x5b || c === 0x7b) {
       depth++;
-      if (c === "[") bracketDepth++;
-    } else if (c === "]" || c === "}") {
+      if (c === 0x5b) bracketDepth++;
+    } else if (c === 0x5d || c === 0x7d) {
       depth--;
-      if (c === "]") {
+      if (c === 0x5d) {
         bracketDepth--;
         if (bracketDepth === 0 && closeBracket < 0) closeBracket = i;
       }
-    } else if (c === "(") {
+    } else if (c === 0x28) {
       if (depth === 0 && firstTag === undefined) firstTag = i;
       const tagStart = i + 1;
       i++;
-      while (i < s.length && s[i] !== ")") {
-        const n = s[i] === "\\" ? Math.min(2, s.length - i) : 1;
-        i += n;
+      while (i < n && s.charCodeAt(i) !== 0x29) {
+        i += s.charCodeAt(i) === 0x5c ? Math.min(2, n - i) : 1;
       }
-      masks.push([tagStart, i]);
+      if (masks !== undefined) masks.push([tagStart, i]);
       continue;
-    } else if (c === ":" && colon === undefined) {
+    } else if (c === 0x3a && colon === undefined) {
       colon = i;
     }
     if (comment === undefined) {
       if (commentEscape) {
         commentEscape = false;
-      } else if (c === "\\") {
+      } else if (c === 0x5c) {
         commentEscape = true;
-      } else if (c === "#") {
+      } else if (c === 0x23) {
         comment = i;
       }
     }
     i++;
   }
-  if (quote !== "") masks.push([quoteStart, s.length]);
+  if (masks === undefined) {
+    return { masked: undefined, firstTag, comment, colon, closeBracket };
+  }
+  if (quote !== 0) masks.push([quoteStart, n]);
   let masked = s;
   if (masks.length > 0) {
     const chunks = [];
@@ -2479,11 +2922,31 @@ function isReference(value) {
  * @returns {number|undefined}
  */
 function schemeLength(s) {
-  if (!SCHEME_START.test(s[0] ?? "")) return undefined;
-  for (let i = 1; i < s.length; i++) {
-    const c = s[i];
-    if (c === ":") return i + 1;
-    if (!SCHEME_CHARACTER.test(c)) return undefined;
+  return schemeLengthAt(s, 0);
+}
+
+/**
+ * The length of the scheme, colon included, beginning at s[at].
+ * @param {string} s
+ * @param {number} at
+ * @returns {number|undefined}
+ */
+function schemeLengthAt(s, at) {
+  const c0 = s.charCodeAt(at) | 0x20;
+  if (!(c0 >= 0x61 && c0 <= 0x7a)) return undefined;
+  for (let i = at + 1; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c === 0x3a) return i - at + 1;
+    const l = c | 0x20;
+    if (!(
+      (l >= 0x61 && l <= 0x7a) ||
+      (c >= 0x30 && c <= 0x39) ||
+      c === 0x2b ||
+      c === 0x2e ||
+      c === 0x2d
+    )) {
+      return undefined;
+    }
   }
   return undefined;
 }
@@ -2493,7 +2956,16 @@ function schemeLength(s) {
  * @param {string} s
  */
 function isReferenceStart(s) {
-  return s.startsWith("<") && schemeLength(s.slice(1)) !== undefined;
+  return isReferenceStartAt(s, 0);
+}
+
+/**
+ * Whether a reference begins at s[at].
+ * @param {string} s
+ * @param {number} at
+ */
+function isReferenceStartAt(s, at) {
+  return s.charCodeAt(at) === 0x3c && schemeLengthAt(s, at + 1) !== undefined;
 }
 
 /**
@@ -2503,7 +2975,7 @@ function isReferenceStart(s) {
  */
 function isUriChar(c) {
   const cp = c.codePointAt(0) ?? 0;
-  if (cp < 0x80) return URI_ASCII.test(c);
+  if (cp < 0x80) return URI_ASCII[cp] === 1;
   return cp >= 0xa0 && !UNICODE_SPACE.test(c) && cp !== 0xfffe && cp !== 0xffff;
 }
 
@@ -2518,7 +2990,7 @@ function isUriChar(c) {
  * @returns {[Reference, number]}
  */
 function parseReference(s, ctx, lineNum, col) {
-  const schemeEnd = 1 + /** @type {number} */ (schemeLength(s.slice(1))) - 1;
+  const schemeEnd = /** @type {number} */ (schemeLengthAt(s, 1));
   const scheme = s.slice(1, schemeEnd);
   if (UPPERCASE.test(scheme)) {
     throw new Error(
@@ -2527,28 +2999,57 @@ function parseReference(s, ctx, lineNum, col) {
     );
   }
   let i = schemeEnd;
-  while (i < s.length) {
-    const c = String.fromCodePoint(/** @type {number} */ (s.codePointAt(i)));
-    if (c === ">") return [checkedReference(s.slice(1, i)), i + 1];
-    if (c === "%") {
-      if (!HEX_PAIR.test(s.slice(i + 1))) {
-        throw new Error(
-          "Bad percent-encoding in reference (use % and two hex digits)" +
-            locSuffix(ctx, lineNum, col + i),
-        );
+  const n = s.length;
+  while (i < n) {
+    const u = s.charCodeAt(i);
+    if (u === 0x3e) {
+      return [checkedReference(detachString(s.slice(1, i))), i + 1];
+    }
+    if (u < 0x80) {
+      if (u === 0x25) {
+        if (!(
+          isHexDigit(s.charCodeAt(i + 1)) && isHexDigit(s.charCodeAt(i + 2))
+        )) {
+          throw new Error(
+            "Bad percent-encoding in reference (use % and two hex digits)" +
+              locSuffix(ctx, lineNum, col + i),
+          );
+        }
+      } else if (URI_ASCII[u] !== 1) {
+        const c = s[i];
+        const message =
+          c === " "
+            ? "Unexpected space in reference"
+            : c === "\t"
+              ? "Tab not allowed in reference"
+              : `Unexpected character "${c}" in reference`;
+        throw new Error(message + locSuffix(ctx, lineNum, col + i));
       }
-    } else if (!isUriChar(c)) {
-      const message =
-        c === " "
-          ? "Unexpected space in reference"
-          : c === "\t"
-            ? "Tab not allowed in reference"
-            : `Unexpected character "${c}" in reference`;
-      throw new Error(message + locSuffix(ctx, lineNum, col + i));
+      i++;
+      continue;
+    }
+    const c = String.fromCodePoint(/** @type {number} */ (s.codePointAt(i)));
+    if (!isUriChar(c)) {
+      throw new Error(
+        `Unexpected character "${c}" in reference` +
+          locSuffix(ctx, lineNum, col + i),
+      );
     }
     i += c.length;
   }
   throw new Error("Unmatched angle bracket" + locSuffix(ctx, lineNum, col));
+}
+
+/**
+ * Whether a code unit is an ASCII hex digit.
+ * @param {number} c
+ */
+function isHexDigit(c) {
+  return (
+    (c >= 0x30 && c <= 0x39) ||
+    (c >= 0x61 && c <= 0x66) ||
+    (c >= 0x41 && c <= 0x46)
+  );
 }
 
 // --- The CapData bridge ---
