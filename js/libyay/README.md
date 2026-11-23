@@ -45,10 +45,12 @@ Parses a YAY document string and returns the corresponding JavaScript value.
   hook. There is no default reference value.
 - `options.bytes` - How to make a byte value. The default is a plain
   `Uint8Array`. `"immutable"` makes the immutable byteArray that the locked
-  `@endo/pass-style` accepts, and throws where the environment has neither
-  `ArrayBuffer.prototype.transferToImmutable` nor `sliceToImmutable`, native
-  or shimmed by `@endo/immutable-arraybuffer` (`@endo/init` loads it). A
-  function is the caller's own hook from the plain `Uint8Array` to any value.
+  `@endo/pass-style` accepts, a hardened immutable `ArrayBuffer` (that
+  version rejects a `Uint8Array` view over one), and throws where the
+  environment has neither `ArrayBuffer.prototype.transferToImmutable` nor
+  `sliceToImmutable`, native or shimmed by `@endo/immutable-arraybuffer`
+  (`@endo/init` loads it). A function is the caller's own hook from the plain
+  `Uint8Array` to any value.
 
 **Returns:** A JavaScript value representing the parsed document.
 
