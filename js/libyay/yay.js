@@ -8,6 +8,11 @@ const UPPERCASE = /[A-Z]/;
 const UNICODE_SPACE =
   /[\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]/;
 
+// The old inline reader scans its whole remaining text at every level. Keep
+// the one-pass depth error for a pathological malformed flood too large for
+// that scan, rather than turn the fallback into a quadratic denial of service.
+const MAX_DEPTH_FALLBACK_LENGTH = 4096;
+
 // The ASCII characters a reference's text may hold, "%" aside, which must
 // begin a percent-encoding.
 const URI_ASCII = new Uint8Array(128);
@@ -1299,10 +1304,24 @@ function parseScalar(
 }
 
 /**
+ * Whether a huge malformed flood hit the depth limit. The old reader would
+ * rescan a remainder this large at every level, so keep the first error.
+ * @param {unknown} error
+ * @param {string} s
+ */
+function isHugeDepthError(error, s) {
+  return (
+    s.length > MAX_DEPTH_FALLBACK_LENGTH &&
+    error instanceof Error &&
+    error.message.startsWith("Inline nesting deeper than")
+  );
+}
+
+/**
  * Parse an inline array with the one-pass reader, falling back to the
  * original substring reader when the one-pass reader refuses it. The
- * fallback preserves the reading and errors of every malformed document,
- * while valid documents never pay for it.
+ * fallback preserves the reading and errors of an ordinary malformed
+ * document, while valid documents never pay for it.
  * @param {string} s
  * @param {ParseContext} ctx
  * @param {number} lineNum
@@ -1313,7 +1332,8 @@ function parseInlineArrayWithFallback(s, ctx, lineNum, col) {
   if (ctx.inlineSlow) return parseInlineArraySlow(s, ctx, lineNum, col);
   try {
     return parseInlineArray(s, ctx, lineNum, col);
-  } catch {
+  } catch (error) {
+    if (isHugeDepthError(error, s)) throw error;
     const previous = ctx.inlineSlow;
     ctx.inlineSlow = true;
     try {
@@ -1337,7 +1357,8 @@ function parseInlineObjectWithFallback(s, ctx, lineNum, col) {
   if (ctx.inlineSlow) return parseInlineObjectSlow(s, ctx, lineNum, col);
   try {
     return parseInlineObject(s, ctx, lineNum, col);
-  } catch {
+  } catch (error) {
+    if (isHugeDepthError(error, s)) throw error;
     const previous = ctx.inlineSlow;
     ctx.inlineSlow = true;
     try {
