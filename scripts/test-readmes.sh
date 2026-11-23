@@ -62,7 +62,7 @@ foreach_code_block() {
 }
 
 # Handler: verify code block matches fixture
-# shellcheck disable=SC2317
+# shellcheck disable=SC2317,SC2329 # invoked by name through foreach_code_block
 handle_verify() {
   local filename="$1"
   local content="$2"
