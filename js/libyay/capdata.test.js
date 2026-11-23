@@ -12,6 +12,7 @@ import {
   parseYay,
   isTagged,
   isReference,
+  reference,
   ysonToCapData,
   capDataToYson,
 } from "./yay.js";
@@ -57,7 +58,7 @@ function makeUriMarshal() {
 describe("references: a CapData round trip", () => {
   it("decodes each URI to a remotable, and back", () => {
     const { fromCapData, toCapData, requested } = makeUriMarshal();
-    const capData = ysonToCapData(yson);
+    const capData = ysonToCapData(yson, { decodeReference: (uri) => uri });
 
     // A repeated URI shares one slot
     assert.deepStrictEqual(capData.slots, [
@@ -80,7 +81,7 @@ describe("references: a CapData round trip", () => {
     assert.deepStrictEqual(value.counter, makeTagged("Counter", a));
 
     // The same document as YAY reads to the same structure
-    const parsed = parseYay(yay);
+    const parsed = parseYay(yay, { decodeReference: reference });
     assert.ok(isTagged(parsed.counter));
     assert.ok(isReference(parsed.counter.payload));
     assert.strictEqual(parsed.counter.payload.reference, capData.slots[0]);

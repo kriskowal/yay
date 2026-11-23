@@ -26,4 +26,4 @@ fi
 cd "$DIR"
 
 echo "Running tests..."
-node --test yay.test.js tagged.test.js smallcaps.test.js references.test.js capdata.test.js
+node --test yay.test.js tagged.test.js smallcaps.test.js references.test.js capdata.test.js codec.test.js

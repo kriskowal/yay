@@ -33,11 +33,34 @@ const SIMPLE_ESCAPES = Object.freeze({
 /**
  * Parses a YAY document string and returns the corresponding JavaScript value.
  * @param {string} source - UTF-8 YAY document
- * @param {string} [filename] - Optional filename for error messages
+ * @param {ParseOptions} [options] - Decoding hooks and error-message options
  * @returns {unknown} - Parsed value (null, bigint, number, boolean, string, Array, object, Uint8Array)
  */
-function parseYay(source, filename) {
-  const ctx = { filename: filename || undefined };
+function parseYay(source, options = {}) {
+  if (typeof options === "string") {
+    throw new TypeError(
+      "parseYay options must be an object; pass a filename as { filename }",
+    );
+  }
+  if (
+    options.decodeReference !== undefined &&
+    typeof options.decodeReference !== "function"
+  ) {
+    throw new TypeError("decodeReference must be a function");
+  }
+  if (
+    options.bytes !== undefined &&
+    options.bytes !== "plain" &&
+    options.bytes !== "immutable" &&
+    typeof options.bytes !== "function"
+  ) {
+    throw new TypeError('bytes must be "plain", "immutable", or a function');
+  }
+  const ctx = {
+    filename: options.filename || undefined,
+    decodeReference: options.decodeReference,
+    bytes: options.bytes,
+  };
   const lines = scan(source, ctx);
   const tokens = outlineLex(lines);
   return parseRoot(tokens, ctx);
@@ -72,6 +95,24 @@ function locSuffix(ctx, line, col) {
   const oneBasedCol = col + 1;
   return (
     " at " + oneBasedLine + ":" + oneBasedCol + " of <" + ctx.filename + ">"
+  );
+}
+
+/**
+ * A location for an error that must name one even without a filename.
+ * @param {ParseContext} ctx
+ * @param {number} line
+ * @param {number} col
+ */
+function requiredLocSuffix(ctx, line, col) {
+  const oneBasedLine = line + 1;
+  const oneBasedCol = col + 1;
+  return (
+    " at " +
+    oneBasedLine +
+    ":" +
+    oneBasedCol +
+    (ctx.filename ? " of <" + ctx.filename + ">" : "")
   );
 }
 
@@ -152,8 +193,20 @@ function checkCommentSpacing(s, hash, ctx, lineNum, col) {
 }
 
 /**
+ * @typedef {Object} ParseOptions
+ * @property {string=} filename - Optional filename for error messages
+ * @property {(uri: string) => unknown=} decodeReference - Turn a
+ * reference's URI text into the caller's value
+ * @property {'plain'|'immutable'|((bytes: Uint8Array) => unknown)=} bytes -
+ * How to make a byte value: a plain Uint8Array by default, an immutable
+ * byteArray when asked, or a caller's hook
+ */
+
+/**
  * @typedef {Object} ParseContext
  * @property {string=} filename
+ * @property {(uri: string) => unknown=} decodeReference
+ * @property {'plain'|'immutable'|((bytes: Uint8Array) => unknown)=} bytes
  */
 
 /**
@@ -1411,13 +1464,13 @@ function parseScalarAtom(s, ctx = {}, lineNum = 0, col = 0) {
     return parseInlineObjectWithFallback(s, ctx, lineNum, col);
   }
   if (isReferenceStart(s)) {
-    const [value, n] = parseReference(s, ctx, lineNum, col);
+    const [uri, n] = parseReference(s, ctx, lineNum, col);
     if (n !== s.length) {
       throw new Error(
         `Unexpected character "${s[n]}"` + locSuffix(ctx, lineNum, col + n),
       );
     }
-    return value;
+    return decodeReferenceText(uri, ctx, lineNum, col);
   }
   if (s.startsWith("<")) return parseAngleBytes(s, ctx, lineNum, col);
   // Bare words are not valid - strings must be quoted
@@ -1804,7 +1857,7 @@ function parseAngleBytes(s, ctx = {}, lineNum = 0, col = 0) {
   if (!s.endsWith(">")) {
     throw new Error("Unmatched angle bracket" + locSuffix(ctx, lineNum, col));
   }
-  if (s === "<>") return new Uint8Array(0);
+  if (s === "<>") return applyBytesHook(new Uint8Array(0), ctx);
   if (s.length > 2 && s[1] === " ") {
     throw new Error(
       'Unexpected space after "<"' + locSuffix(ctx, lineNum, col + 1),
@@ -1854,7 +1907,50 @@ function hexToBytes(hex, ctx, lineNum, col) {
       ((a <= 0x39 ? a - 0x30 : a - 0x57) << 4) |
       (b <= 0x39 ? b - 0x30 : b - 0x57);
   }
-  return bytes;
+  return applyBytesHook(bytes, ctx);
+}
+
+/**
+ * Make a byte value from the parser's plain Uint8Array, by the caller's
+ * choice. The default is the plain Uint8Array. "immutable" makes the
+ * byteArray that the locked @endo/pass-style accepts; a function is the
+ * caller's own hook.
+ * @param {Uint8Array} bytes
+ * @param {ParseContext} ctx
+ * @returns {unknown}
+ */
+function applyBytesHook(bytes, ctx = {}) {
+  const option = ctx.bytes;
+  if (option === undefined || option === "plain") return bytes;
+  if (typeof option === "function") return option(bytes);
+  if (option === "immutable") return immutableBytes(bytes);
+  throw new TypeError('bytes must be "plain", "immutable", or a function');
+}
+
+/**
+ * Make a hardened immutable ArrayBuffer holding a copy of bytes. Detect the
+ * Immutable ArrayBuffer proposal at call time, so a shim loaded after this
+ * module, as @endo/init loads @endo/immutable-arraybuffer, serves. Fail
+ * loudly where the environment has neither native support nor the shim.
+ *
+ * The locked @endo/pass-style (1.8.2) accepts a hardened immutable
+ * ArrayBuffer as its byteArray, not a Uint8Array view over one, so this is
+ * the passable form while that remains the locked version.
+ * @param {Uint8Array} bytes
+ * @returns {ArrayBuffer}
+ */
+function immutableBytes(bytes) {
+  const copy = bytes.slice().buffer;
+  if (typeof copy.transferToImmutable === "function") {
+    return Object.freeze(copy.transferToImmutable());
+  }
+  if (typeof copy.sliceToImmutable === "function") {
+    return Object.freeze(copy.sliceToImmutable());
+  }
+  throw new Error(
+    "Immutable bytes are unavailable: load @endo/immutable-arraybuffer " +
+      "(or @endo/init) or use the plain bytes",
+  );
 }
 
 /**
@@ -3053,18 +3149,8 @@ function checkReferenceText(uri) {
 }
 
 /**
- * A reference whose text the parser has already checked.
- * @param {string} uri
- * @returns {Reference}
- */
-function checkedReference(uri) {
-  const ref = Object.create(Reference.prototype);
-  ref.reference = uri;
-  return Object.freeze(ref);
-}
-
-/**
- * Make a reference, as the YAY parser does and as `yay -t js` writes it.
+ * Make a reference, as `yay -t js` writes it and as a caller may use it for
+ * `decodeReference`.
  * @param {string} uri
  * @returns {Reference}
  */
@@ -3147,13 +3233,13 @@ function isUriChar(c) {
 
 /**
  * Parse a reference at the start of s, which begins with "<" and a scheme.
- * Returns the reference and the number of units consumed, the ">" included.
+ * Returns the URI text and the number of units consumed, the ">" included.
  * The text between the brackets is the URI, verbatim.
  * @param {string} s
  * @param {ParseContext} ctx
  * @param {number} lineNum
  * @param {number} col
- * @returns {[Reference, number]}
+ * @returns {[string, number]}
  */
 function parseReference(s, ctx, lineNum, col) {
   const schemeEnd = /** @type {number} */ (schemeLengthAt(s, 1));
@@ -3169,7 +3255,7 @@ function parseReference(s, ctx, lineNum, col) {
   while (i < n) {
     const u = s.charCodeAt(i);
     if (u === 0x3e) {
-      return [checkedReference(detachString(s.slice(1, i))), i + 1];
+      return [detachString(s.slice(1, i)), i + 1];
     }
     if (u < 0x80) {
       if (u === 0x25) {
@@ -3207,6 +3293,27 @@ function parseReference(s, ctx, lineNum, col) {
 }
 
 /**
+ * Turn a reference's validated URI text into the caller's value. No default
+ * reference: a document with a reference and no hook is refused, naming the
+ * reference and its location.
+ * @param {string} uri
+ * @param {ParseContext} ctx
+ * @param {number} lineNum
+ * @param {number} col
+ * @returns {unknown}
+ */
+function decodeReferenceText(uri, ctx, lineNum, col) {
+  const decode = ctx.decodeReference;
+  if (typeof decode !== "function") {
+    throw new Error(
+      `Reference ${JSON.stringify(uri)} needs a decodeReference hook` +
+        requiredLocSuffix(ctx, lineNum, col),
+    );
+  }
+  return decode(uri);
+}
+
+/**
  * Whether a code unit is an ASCII hex digit.
  * @param {number} c
  */
@@ -3225,18 +3332,27 @@ function isHexDigit(c) {
  * reference, or a slot) through f. A tagged value's tag is a string, never
  * a reference, so only its payload is walked.
  * @param {unknown} value
- * @param {(s: string) => string} f
+ * @param {(s: string, path: string) => string} f
+ * @param {string} path
  * @returns {unknown}
  */
-function mapDollars(value, f) {
+function mapDollars(value, f, path = "$") {
   if (typeof value === "string") {
-    return value.startsWith("$") ? f(value) : value;
+    return value.startsWith("$") ? f(value, path) : value;
   }
-  if (Array.isArray(value)) return value.map((v) => mapDollars(v, f));
+  if (Array.isArray(value)) {
+    return value.map((v, i) => mapDollars(v, f, `${path}[${i}]`));
+  }
   if (value !== null && typeof value === "object") {
     const out = {};
     for (const [k, v] of Object.entries(value)) {
-      setOwn(out, k, k === "#tag" && "payload" in value ? v : mapDollars(v, f));
+      setOwn(
+        out,
+        k,
+        k === "#tag" && "payload" in value
+          ? v
+          : mapDollars(v, f, `${path}[${JSON.stringify(k)}]`),
+      );
     }
     return out;
   }
@@ -3246,32 +3362,52 @@ function mapDollars(value, f) {
 /**
  * From YSON to CapData: each distinct reference goes to `slots` in order of
  * first appearance, and the body names it `$0`, `$1`, ... as smallcaps
- * names a remotable. `makeMarshal(convertValToSlot, convertSlotToVal)` then
- * reads it, and its convertSlotToVal decides what each URI becomes.
+ * names a remotable. The URI is checked against YAY's reference rule before
+ * the decode hook sees it, and the hook's result goes to `slots`. Without
+ * a hook, a YSON document with a reference is refused, naming the reference
+ * and its JSON path.
  * @param {string} yson
- * @returns {{body: string, slots: string[]}}
+ * @param {{decodeReference?: (uri: string) => unknown}=} options
+ * @returns {{body: string, slots: unknown[]}}
  */
-function ysonToCapData(yson) {
-  /** @type {string[]} */
+function ysonToCapData(yson, options = {}) {
+  const decodeReference = options.decodeReference;
+  if (decodeReference !== undefined && typeof decodeReference !== "function") {
+    throw new TypeError("decodeReference must be a function");
+  }
+  /** @type {unknown[]} */
   const slots = [];
   const index = new Map();
-  const body = mapDollars(JSON.parse(yson), (s) => {
+  const body = mapDollars(JSON.parse(yson), (s, path) => {
     const uri = s.slice(1);
     if (!isReferenceStart(`<${uri}`)) {
-      throw new Error(`A reference needs a scheme: ${JSON.stringify(s)}`);
+      throw new Error(
+        `A reference needs a scheme: ${JSON.stringify(s)} at ${path}`,
+      );
     }
     const text = `<${uri}>`;
-    const [, consumed] = parseReference(text, {}, 0, 0);
+    let consumed;
+    try {
+      [, consumed] = parseReference(text, {}, 0, 0);
+    } catch (error) {
+      throw new Error(`${/** @type {Error} */ (error).message} at ${path}`);
+    }
     if (consumed !== text.length) {
       throw new Error(
-        `Unexpected character ">" in reference: ${JSON.stringify(s)}`,
+        `Unexpected character ">" in reference: ${JSON.stringify(s)} at ${path}`,
       );
     }
     let slot = index.get(uri);
     if (slot === undefined) {
+      if (typeof decodeReference !== "function") {
+        throw new Error(
+          `Reference ${JSON.stringify(uri)} needs a decodeReference hook ` +
+            `at ${path}`,
+        );
+      }
       slot = slots.length;
       index.set(uri, slot);
-      slots.push(uri);
+      slots.push(decodeReference(uri));
     }
     return `$${slot}`;
   });
@@ -3281,11 +3417,19 @@ function ysonToCapData(yson) {
 /**
  * From CapData to YSON: the reverse of ysonToCapData. Each `$n` (with or
  * without smallcaps' interface, `$n.Alleged: x`, which YAY does not keep)
- * becomes `"$" + slots[n]`. A body with promises (`&n`) is refused.
- * @param {{body: string, slots: string[]}} capData
+ * becomes `"$" + slots[n]`. A slot that is already URI text is checked and
+ * used; any other slot is the caller's value, which the encode hook turns
+ * back into URI text. URI text is checked after the hook returns. A body
+ * with promises (`&n`) is refused.
+ * @param {{body: string, slots: unknown[]}} capData
+ * @param {{encodeReference?: (value: unknown) => string}=} options
  * @returns {string}
  */
-function capDataToYson({ body, slots }) {
+function capDataToYson({ body, slots }, options = {}) {
+  const encodeReference = options.encodeReference;
+  if (encodeReference !== undefined && typeof encodeReference !== "function") {
+    throw new TypeError("encodeReference must be a function");
+  }
   if (!body.startsWith("#")) {
     throw new Error("Expected a smallcaps body, beginning with #");
   }
@@ -3302,9 +3446,21 @@ function capDataToYson({ body, slots }) {
   check(value);
   const yson = mapDollars(value, (s) => {
     const match = /^\$(0|[1-9][0-9]*)(\..*)?$/.exec(s);
-    const uri = match ? slots[Number(match[1])] : undefined;
-    if (typeof uri !== "string") {
+    const n = match ? Number(match[1]) : -1;
+    if (n < 0 || n >= slots.length) {
       throw new Error(`No slot for ${JSON.stringify(s)}`);
+    }
+    const slot = slots[n];
+    let uri;
+    if (typeof encodeReference === "function") {
+      uri = encodeReference(slot);
+    } else if (typeof slot === "string") {
+      uri = slot;
+    } else {
+      throw new Error(`Reference slot ${n} needs an encodeReference hook`);
+    }
+    if (typeof uri !== "string") {
+      throw new TypeError(`encodeReference must return a string for slot ${n}`);
     }
     // A slot is a reference's text, as YSON's "$" strings are
     checkReferenceText(uri);

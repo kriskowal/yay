@@ -49,4 +49,4 @@ jobs:
       - name: Run tests
         env:
           YAY_BIN: ${{ github.workspace }}/rust/target/release/yay
-        run: node --test yay.test.js tagged.test.js smallcaps.test.js references.test.js capdata.test.js
+        run: node --test yay.test.js tagged.test.js smallcaps.test.js references.test.js capdata.test.js codec.test.js

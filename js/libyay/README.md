@@ -25,19 +25,30 @@ const result = parseYay('key: "value"');
 // => { key: "value" }
 
 // Parse with filename for error messages
-const data = parseYay(source, 'config.yay');
+const data = parseYay(source, { filename: 'config.yay' });
 ```
 
 ## API
 
-### `parseYay(source, filename?)`
+### `parseYay(source, options?)`
 
 Parses a YAY document string and returns the corresponding JavaScript value.
 
 **Parameters:**
 
 - `source` - A string containing the YAY document (UTF-8)
-- `filename` - Optional filename for error messages
+- `options.filename` - Optional filename for error messages
+- `options.decodeReference(uri)` - Turn a reference's URI text into the
+  caller's value. The URI is checked against YAY's reference rule before the
+  hook sees it. A document with a reference and no hook is refused, naming
+  the reference and its location; a document without references needs no
+  hook. There is no default reference value.
+- `options.bytes` - How to make a byte value. The default is a plain
+  `Uint8Array`. `"immutable"` makes the immutable byteArray that the locked
+  `@endo/pass-style` accepts, and throws where the environment has neither
+  `ArrayBuffer.prototype.transferToImmutable` nor `sliceToImmutable`, native
+  or shimmed by `@endo/immutable-arraybuffer` (`@endo/init` loads it). A
+  function is the caller's own hook from the plain `Uint8Array` to any value.
 
 **Returns:** A JavaScript value representing the parsed document.
 
@@ -65,31 +76,40 @@ parseYay('(rgb)\n- 255\n- 136\n- 0');
 ### `reference(uri)`, `isReference(value)`, `Reference`
 
 A reference is a URI or IRI in angle brackets, `<https://example.com/>`,
-held as written and never dereferenced. The parser makes them with
-`reference`, which returns a frozen `Reference` instance with a `reference`
-property, the name `yay -t js` writes. Two references are equal
-(`assert.deepStrictEqual`) when their texts are, and a reference never
-equals a string or a plain `{reference}` object. A tagged reference,
-`<ocapn://a.tcp> (Counter)`, is a tagged value over a reference.
+held as written and never dereferenced. `reference` is a ready-made decode
+hook a caller may choose: it returns a frozen `Reference` instance with a
+`reference` property, the name `yay -t js` writes. Its matching encode hook
+is `(value) => value.reference`. The parser does not use it unless the caller
+supplies it. Two references are equal (`assert.deepStrictEqual`) when their
+texts are, and a reference never equals a string or a plain `{reference}`
+object. A tagged reference, `<ocapn://a.tcp> (Counter)`, is a tagged value
+over whatever the decode hook made of its URI.
 
 ```js
 import { parseYay, reference } from 'libyay';
 
-parseYay('icon: <https://example.com/cat.png>');
+parseYay('icon: <https://example.com/cat.png>', {
+  decodeReference: reference,
+});
 // => { icon: reference("https://example.com/cat.png") }
 ```
 
-### `ysonToCapData(yson)`, `capDataToYson(capData)`
+### `ysonToCapData(yson, options?)`, `capDataToYson(capData, options?)`
 
 YSON writes a reference as smallcaps writes a remotable, a string beginning
 with `$`, with the URI in place of the slot: `"$https://example.com/"`.
 `ysonToCapData` takes YSON text and returns CapData, `{body, slots}`: each
-distinct URI goes to `slots` in order of first appearance, and the body
-names it `$0`, `$1`, ... as `@endo/marshal`'s smallcaps does.
-`capDataToYson` puts each slot's URI back, dropping any alleged interface
+distinct URI is checked against YAY's reference rule and passed to
+`options.decodeReference`, whose value goes to `slots` in order of first
+appearance; the body names it `$0`, `$1`, ... as `@endo/marshal`'s smallcaps
+does. A YSON document with a reference and no decode hook is refused,
+naming the reference and its JSON path.
+
+`capDataToYson` puts each slot back, through `options.encodeReference` when
+given, or as URI text when the slot is already a string. It validates the
+URI after the hook returns, drops any alleged interface
 (`$0.Alleged: Counter`), and refuses a promise (`&0`), which YAY does not
-write. What a URI becomes is the caller's choice, in the
-`convertSlotToVal` it gives `makeMarshal`.
+write.
 
 ```js
 import { makeMarshal } from '@endo/marshal';
@@ -97,7 +117,11 @@ import { ysonToCapData } from 'libyay';
 
 const { fromCapData } = makeMarshal(undefined, (uri, iface) =>
   lookup(uri), { serializeBodyFormat: 'smallcaps' });
-fromCapData(ysonToCapData('["$ocapn://a.tcp", "$ocapn://a.tcp"]'));
+fromCapData(
+  ysonToCapData('["$ocapn://a.tcp", "$ocapn://a.tcp"]', {
+    decodeReference: (uri) => uri,
+  }),
+);
 // one slot, "ocapn://a.tcp"; both items are the remotable lookup returned
 ```
 
@@ -112,9 +136,9 @@ fromCapData(ysonToCapData('["$ocapn://a.tcp", "$ocapn://a.tcp"]'));
 | string | `string` |
 | array | `Array` |
 | object | `Object` |
-| bytes | `Uint8Array` |
+| bytes | `Uint8Array`, or `ArrayBuffer` with `bytes: 'immutable'` |
 | tagged | Endo-shaped record from `tagged(tag, payload)` |
-| reference | `Reference`, from `reference(uri)` |
+| reference | the decode hook's value; `Reference` from `reference(uri)` |
 
 # YAY Format
 
@@ -945,7 +969,10 @@ them with `npm install`; the test skips, and says why, only when binyay is
 missing. `yay.test.js` reads the shared corpus in `../../test/`, `test/meh`
 among it: YAY reads each MEH document as MEH does, or refuses it.
 `references.test.js` checks the references model and the CapData bridge;
-`capdata.test.js` takes the bridge through `@endo/marshal`.
+`capdata.test.js` takes the bridge through `@endo/marshal`; and
+`codec.test.js`, under `@endo/init`, checks that a configured codec's decoded
+references and immutable bytes make every value kind pass data, and that the
+encode hook gives the same text back.
 
 ## References
 

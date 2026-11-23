@@ -166,10 +166,7 @@ describe("YSON is smallcaps: live binyay output", { skip }, () => {
     const value = parseYay(yay);
     assert.ok(isTagged(value));
     const decoded = fromCapData({ body: `#${toYson(yay)}`, slots: [] });
-    assert.strictEqual(
-      decoded[Symbol.toStringTag],
-      value[Symbol.toStringTag],
-    );
+    assert.strictEqual(decoded[Symbol.toStringTag], value[Symbol.toStringTag]);
     assert.deepStrictEqual(decoded.payload, value.payload);
   });
 
@@ -205,7 +202,7 @@ describe("YSON is smallcaps: live binyay output", { skip }, () => {
         return remotable;
       },
     );
-    const capData = ysonToCapData(yson);
+    const capData = ysonToCapData(yson, { decodeReference: (uri) => uri });
     assert.deepStrictEqual(capData.slots, ["https://example.com/cat.png"]);
     const decoded = slotted.fromCapData(capData);
     assert.deepStrictEqual(

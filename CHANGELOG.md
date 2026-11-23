@@ -57,10 +57,11 @@ back as a string. YAML, TOML and CBOR refuse a reference. SHON gains
 `yay.MustReference(uri)`, `Reference(uri)`, `Value::reference(uri).unwrap()`,
 `yay_reference(uri)`, `new Reference(uri)` and `(make-reference uri)`.
 The Rust port reads and writes references (`Value::Reference`), YAY, MEH
-and YSON. The JavaScript port reads them as a frozen `reference(uri)`, and
-its CapData bridge, `ysonToCapData` and `capDataToYson`, moves each distinct
-URI of a YSON document into a slot, `$0`, `$1`, ..., for `@endo/marshal`'s
-`makeMarshal`, and back. The Python port reads and writes them as a frozen
+and YSON. The JavaScript port reads them through the caller's decode hook,
+and its CapData bridge, `ysonToCapData` and `capDataToYson`, moves each
+distinct URI of a YSON document into a slot, `$0`, `$1`, ..., through that
+hook, and back through the encode hook. The Python port reads and writes
+them as a frozen
 dataclass `Reference(uri)`. The Go port reads them as `yay.Reference`, a
 type of its own, the C port as `YAY_REFERENCE`, its text in
 `data.reference`, the Java port as `record Reference(String uri)`, and
@@ -68,6 +69,27 @@ the Scheme port as a record `reference`, `(make-reference uri)`, read with
 `reference-uri`.
 All seven read the shared cases, `reference-*` in `test/`, and refuse the
 malformed ones with the Rust port's messages.
+
+**Breaking: the JavaScript reference codec and bytes are configured by the
+caller.** `parseYay` takes an options object in place of its filename
+argument: `parseYay(source, { filename, decodeReference, bytes })`.
+`decodeReference(uri)` turns a reference's URI text into the caller's value;
+with no hook, a document with a reference is refused, naming the reference
+and its location, and a document without references needs no hook. The URI
+is checked against YAY's reference rule before the hook sees it.
+`reference(uri)` and its frozen `Reference` stay as a ready-made hook a
+caller may choose, no longer the parser's default. `ysonToCapData(yson,
+{ decodeReference })` puts each decoded value in its slot, and with no hook
+refuses a YSON reference at its JSON path. `capDataToYson(capData,
+{ encodeReference })` turns a caller's slot value back into URI text,
+validates it after the hook returns, and takes a slot that is already URI
+text as is. Bytes stay a plain `Uint8Array` by default; `bytes:
+"immutable"` makes the byteArray that the locked `@endo/pass-style` accepts,
+a hardened immutable `ArrayBuffer` rather than a `Uint8Array` view, and
+throws where `ArrayBuffer.prototype.transferToImmutable` and
+`sliceToImmutable` are absent, native or shimmed by `@endo/init`. A function
+is the caller's own bytes hook. `yay.js` gains no dependency: it detects the
+feature at call time.
 
 **Fixed: a space after `<` in bytes.** GRAMMAR.md forbids a space after
 the opening `<` of inline bytes, as it forbids one before `>`, but the

@@ -118,7 +118,7 @@ describe("parseYay", () => {
   for (const basename of basenames) {
     it(`fixture ${basename} matches expected value`, () => {
       const { yaySource, expected } = loadFixture(basename);
-      const parsed = parseYay(yaySource);
+      const parsed = parseYay(yaySource, { decodeReference: reference });
       assert.deepStrictEqual(parsed, expected, `fixture ${basename}`);
     });
   }
@@ -138,6 +138,35 @@ it("decodes hex without Uint8Array.fromHex", () => {
   }
 });
 
+describe("bytes: plain by default, with a hook or immutable mode", () => {
+  it("is a plain Uint8Array by default", () => {
+    const value = parseYay("a: <00ff>\nb: <>\n");
+    assert.ok(value.a instanceof Uint8Array);
+    assert.deepStrictEqual(value.a, new Uint8Array([0, 255]));
+    assert.deepStrictEqual(value.b, new Uint8Array(0));
+  });
+  it("takes a caller's hook for inline, block and empty bytes", () => {
+    const hex = (bytes) =>
+      Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+    const value = parseYay("a: <00ff>\nb: <>\nc: >\n  01 02\n", {
+      bytes: hex,
+    });
+    assert.deepStrictEqual(value, { a: "00ff", b: "", c: "0102" });
+  });
+  it("fails loudly when immutable bytes are unavailable", () => {
+    assert.throws(
+      () => parseYay("<00ff>\n", { bytes: "immutable" }),
+      /Immutable bytes are unavailable/,
+    );
+  });
+  it("refuses an unknown bytes option", () => {
+    assert.throws(
+      () => parseYay("<00ff>\n", { bytes: "freeze" }),
+      /bytes must be "plain", "immutable", or a function/,
+    );
+  });
+});
+
 describe("parseYay negative (invalid .nay)", () => {
   const nayFiles = cases(nayDir, "nay");
   const basenames = nayFiles.map((f) => path.basename(f, ".nay"));
@@ -154,7 +183,7 @@ describe("parseYay negative (invalid .nay)", () => {
       const expectedMessage = fs.readFileSync(errorPath, "utf8").trim();
       const filename = `${basename}.nay`;
       assert.throws(
-        () => parseYay(naySource, filename),
+        () => parseYay(naySource, { filename, decodeReference: reference }),
         (err) => {
           // The whole message, its line and column included
           assert.equal(
@@ -181,7 +210,7 @@ describe("parseYay over the MEH corpus (test/meh)", () => {
 
   for (const name of files.filter((f) => f.endsWith(".yay"))) {
     it(`${name} is YAY`, () => {
-      parseYay(read(name), name);
+      parseYay(read(name), { filename: name, decodeReference: reference });
     });
   }
 
@@ -198,14 +227,25 @@ describe("parseYay over the MEH corpus (test/meh)", () => {
       if (files.includes(`${test}.yay`)) {
         let value;
         try {
-          value = parseYay(read(name), name);
+          value = parseYay(read(name), {
+            filename: name,
+            decodeReference: reference,
+          });
         } catch {
           return;
         }
-        assert.deepStrictEqual(value, parseYay(read(`${test}.yay`)));
+        assert.deepStrictEqual(
+          value,
+          parseYay(read(`${test}.yay`), { decodeReference: reference }),
+        );
       } else {
         assert.ok(files.includes(`${test}.error`), `${test}.yay or .error`);
-        assert.throws(() => parseYay(read(name), name));
+        assert.throws(() =>
+          parseYay(read(name), {
+            filename: name,
+            decodeReference: reference,
+          }),
+        );
       }
     });
   }
@@ -225,7 +265,7 @@ describe("inline nesting limit", () => {
     ]) {
       const deep = open.repeat(100000) + "1" + close.repeat(100000);
       assert.throws(
-        () => parseYay(`a: ${deep}\n`, "deep.yay"),
+        () => parseYay(`a: ${deep}\n`, { filename: "deep.yay" }),
         (err) =>
           !(err instanceof RangeError) &&
           /^Inline nesting deeper than 256 levels at 1:\d+ of <deep\.yay>$/.test(

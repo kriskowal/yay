@@ -30,7 +30,9 @@ describe("references: MEH's reference cases are not YAY", () => {
   for (const name of names) {
     it(`${name} is refused`, () => {
       const meh = fs.readFileSync(path.join(mehDir, name), "utf8");
-      assert.throws(() => parseYay(meh, name));
+      assert.throws(() =>
+        parseYay(meh, { filename: name, decodeReference: reference }),
+      );
     });
   }
 });
@@ -49,9 +51,79 @@ describe("references: errors", () => {
   ];
   for (const [yay, message] of refused) {
     it(JSON.stringify(yay), () => {
-      assert.throws(() => parseYay(yay, "test.yay"), message);
+      assert.throws(
+        () =>
+          parseYay(yay, { filename: "test.yay", decodeReference: reference }),
+        message,
+      );
     });
   }
+});
+
+describe("references: a codec is required", () => {
+  it("names the reference and its location when no hook is given", () => {
+    assert.throws(
+      () => parseYay("<https://x>\n"),
+      /^Error: Reference "https:\/\/x" needs a decodeReference hook at 1:1$/,
+    );
+    assert.throws(
+      () => parseYay("a: <https://x>\n", { filename: "test.yay" }),
+      /needs a decodeReference hook at 1:4 of <test\.yay>/,
+    );
+  });
+  it("checks the URI before the hook sees it", () => {
+    let calls = 0;
+    assert.throws(
+      () =>
+        parseYay("<HTTPS://x>\n", {
+          decodeReference: () => {
+            calls++;
+          },
+        }),
+      /Uppercase scheme "HTTPS"/,
+    );
+    assert.strictEqual(calls, 0);
+  });
+  it("checks the URI after the encode hook returns", () => {
+    assert.throws(
+      () =>
+        capDataToYson(
+          { body: '#"$0"', slots: [{}] },
+          { encodeReference: () => "HTTPS://x" },
+        ),
+      /Not a reference/,
+    );
+    assert.throws(
+      () =>
+        capDataToYson(
+          { body: '#"$0"', slots: [{}] },
+          { encodeReference: () => 42 },
+        ),
+      /must return a string/,
+    );
+  });
+  it("needs an encode hook for a caller value, not for URI text", () => {
+    assert.throws(
+      () => capDataToYson({ body: '#"$0"', slots: [{}] }),
+      /Reference slot 0 needs an encodeReference hook/,
+    );
+    assert.equal(
+      capDataToYson({ body: '#"$0"', slots: ["https://x"] }),
+      '"$https://x"',
+    );
+  });
+  it("needs a decode hook for a YSON reference", () => {
+    assert.throws(
+      () => ysonToCapData('{"a": "$https://x"}'),
+      /Reference "https:\/\/x" needs a decodeReference hook at \$\["a"\]/,
+    );
+    assert.deepStrictEqual(
+      ysonToCapData('{"a": "$https://x"}', {
+        decodeReference: (uri) => ({ uri }),
+      }),
+      { body: '#{"a":"$0"}', slots: [{ uri: "https://x" }] },
+    );
+  });
 });
 
 describe("references: the model", () => {
@@ -65,17 +137,23 @@ describe("references: the model", () => {
     assert.ok(!isReference({ reference: "https://x" }));
   });
   it("is equal by text, never to a string", () => {
-    assert.deepStrictEqual(parseYay("<https://x>\n"), reference("https://x"));
+    assert.deepStrictEqual(
+      parseYay("<https://x>\n", { decodeReference: reference }),
+      reference("https://x"),
+    );
     assert.notDeepStrictEqual(reference("https://x/"), reference("https://x"));
     assert.notDeepStrictEqual(reference("a:%2f"), reference("a:%2F"));
-    assert.notDeepStrictEqual(parseYay("<https://x>\n"), "https://x");
+    assert.notDeepStrictEqual(
+      parseYay("<https://x>\n", { decodeReference: reference }),
+      "https://x",
+    );
     assert.notDeepStrictEqual(reference("https://x"), {
       reference: "https://x",
     });
   });
   it("tagged is a tagged value over the reference", () => {
     assert.deepStrictEqual(
-      parseYay("<ocapn://a.tcp> (Counter)\n"),
+      parseYay("<ocapn://a.tcp> (Counter)\n", { decodeReference: reference }),
       tagged("Counter", reference("ocapn://a.tcp")),
     );
   });
@@ -89,7 +167,7 @@ describe("references: the CapData bridge", () => {
       c: { "#tag": "Counter", payload: "$ocapn://a.tcp" },
       d: "+1",
     });
-    const capData = ysonToCapData(yson);
+    const capData = ysonToCapData(yson, { decodeReference: (uri) => uri });
     assert.deepStrictEqual(capData.slots, ["ocapn://b.tcp", "ocapn://a.tcp"]);
     assert.deepStrictEqual(JSON.parse(capData.body.slice(1)), {
       a: "$0",

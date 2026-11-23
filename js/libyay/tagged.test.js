@@ -29,7 +29,7 @@ describe("tagged values: the design's accepted cases", () => {
         .toString()
         .replace("-Infinity", '"-Infinity"');
       assert.deepStrictEqual(
-        toFixture(parseYay(src, name), isTagged),
+        toFixture(parseYay(src, { filename: name }), isTagged),
         JSON.parse(json),
       );
     });
@@ -45,7 +45,7 @@ describe("tagged values: the design's refused cases", () => {
   for (const name of names) {
     it(name, () => {
       const src = fs.readFileSync(path.join(taggedCasesDir, name), "utf8");
-      assert.throws(() => parseYay(src, name));
+      assert.throws(() => parseYay(src, { filename: name }));
     });
   }
 });
