@@ -978,8 +978,8 @@ go test -v
 The test runner uses fixture files from `../test/`.
 Files with `.yay` extension contain YAY input.
 Files with `.go` extension contain expected Go output.
-`tagged_test.go` reads the tagged-value cases of the design, in
-`../doc/design/tagged-values-g/cases/`, until they join the shared corpus.
+The tagged-value cases are in the shared corpus, named `tagged-*`, and
+`tagged_test.go` checks that YAY refuses the ones in `../test/meh/`.
 
 ## References
 

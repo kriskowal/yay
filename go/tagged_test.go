@@ -1,136 +1,37 @@
 package yay
 
 import (
-	"encoding/hex"
-	"encoding/json"
 	"math"
 	"math/big"
 	"os"
 	"path/filepath"
 	"reflect"
-	"sort"
-	"strconv"
 	"strings"
 	"testing"
 )
 
-// The cases of the tagged values design: each .yay parses to its .json,
-// with a tagged value as {"#tag": tag, "payload": payload} and bytes as
-// "*hex", and each .nay and .meh is refused, MEH's leniency not being YAY's.
-var casesDir = filepath.Join("..", "doc", "design", "tagged-values-g", "cases")
-
-func caseNames(t *testing.T, ext string) []string {
-	t.Helper()
-	entries, err := os.ReadDir(casesDir)
+// MEH's leniency is not YAY's, so the corpus's MEH tagged cases,
+// test/meh/tagged-*.meh, are refused as YAY. The corpus tagged cases in
+// test/yay and test/nay are read with the rest of the corpus.
+func TestTaggedMehCasesRefused(t *testing.T) {
+	dir := filepath.Join("..", "test", "meh")
+	entries, err := os.ReadDir(dir)
 	if err != nil {
-		t.Fatalf("failed to read %s: %v", casesDir, err)
+		t.Fatalf("failed to read %s: %v", dir, err)
 	}
 	var names []string
 	for _, entry := range entries {
-		if strings.HasSuffix(entry.Name(), "."+ext) {
-			names = append(names, entry.Name())
+		name := entry.Name()
+		if strings.HasPrefix(name, "tagged-") && strings.HasSuffix(name, ".meh") {
+			names = append(names, name)
 		}
 	}
-	sort.Strings(names)
-	if len(names) == 0 {
-		t.Fatalf("no .%s cases in %s", ext, casesDir)
+	if len(names) < 3 {
+		t.Fatalf("no MEH tagged cases in %s", dir)
 	}
-	return names
-}
-
-// desugar returns a value as the cases' JSON spells it, with integers as
-// "i:<digits>" and floats as float64, to compare with expected.
-func desugar(v any) any {
-	switch v := v.(type) {
-	case Tagged:
-		return map[string]any{"#tag": v.Tag, "payload": desugar(v.Payload)}
-	case []byte:
-		return "*" + hex.EncodeToString(v)
-	case *big.Int:
-		return "i:" + v.String()
-	case float64:
-		switch {
-		case math.IsNaN(v):
-			return "NaN"
-		case math.IsInf(v, 1):
-			return "Infinity"
-		case math.IsInf(v, -1):
-			return "-Infinity"
-		}
-		return v
-	case []any:
-		out := make([]any, len(v))
-		for i, item := range v {
-			out[i] = desugar(item)
-		}
-		return out
-	case map[string]any:
-		out := make(map[string]any, len(v))
-		for k, item := range v {
-			out[k] = desugar(item)
-		}
-		return out
-	}
-	return v
-}
-
-// expected reads a case's JSON with numbers as desugar spells them.
-func expected(v any) any {
-	switch v := v.(type) {
-	case json.Number:
-		s := string(v)
-		if strings.ContainsAny(s, ".eE") {
-			f, _ := strconv.ParseFloat(s, 64)
-			return f
-		}
-		return "i:" + s
-	case []any:
-		for i, item := range v {
-			v[i] = expected(item)
-		}
-	case map[string]any:
-		for k, item := range v {
-			v[k] = expected(item)
-		}
-	}
-	return v
-}
-
-func TestTaggedAcceptedCases(t *testing.T) {
-	for _, name := range caseNames(t, "yay") {
-		base := strings.TrimSuffix(name, ".yay")
-		t.Run(base, func(t *testing.T) {
-			input, err := os.ReadFile(filepath.Join(casesDir, name))
-			if err != nil {
-				t.Fatal(err)
-			}
-			want, err := os.ReadFile(filepath.Join(casesDir, base+".json"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			text := strings.ReplaceAll(string(want), "-Infinity", `"-Infinity"`)
-			dec := json.NewDecoder(strings.NewReader(text))
-			dec.UseNumber()
-			var w any
-			if err := dec.Decode(&w); err != nil {
-				t.Fatal(err)
-			}
-			got, err := UnmarshalFile(input, name)
-			if err != nil {
-				t.Fatalf("Unmarshal error: %v", err)
-			}
-			if d := desugar(got); !reflect.DeepEqual(d, expected(w)) {
-				t.Errorf("mismatch\ngot:  %#v\nwant: %#v", d, expected(w))
-			}
-		})
-	}
-}
-
-func TestTaggedRefusedCases(t *testing.T) {
-	names := append(caseNames(t, "nay"), caseNames(t, "meh")...)
 	for _, name := range names {
 		t.Run(name, func(t *testing.T) {
-			input, err := os.ReadFile(filepath.Join(casesDir, name))
+			input, err := os.ReadFile(filepath.Join(dir, name))
 			if err != nil {
 				t.Fatal(err)
 			}
