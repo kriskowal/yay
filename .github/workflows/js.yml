@@ -7,7 +7,6 @@ on:
       - 'js/**'
       - 'rust/**'
       - 'test/**'
-      - 'doc/design/tagged-values-g/cases/**'
       - '.github/workflows/js.yml'
   pull_request:
     branches: [main]
@@ -15,7 +14,6 @@ on:
       - 'js/**'
       - 'rust/**'
       - 'test/**'
-      - 'doc/design/tagged-values-g/cases/**'
       - '.github/workflows/js.yml'
 
 permissions:

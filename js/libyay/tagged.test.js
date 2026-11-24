@@ -1,7 +1,6 @@
-// Tagged values, against the cases of the design
-// (doc/design/tagged-values-g/cases/): each .yay parses to its .json, with a
-// tagged value as {"#tag": tag, "payload": payload} and bytes as "*hex", and
-// each .nay and .meh is refused, MEH's leniency not being YAY's.
+// Tagged values: MEH's leniency is not YAY's, so the corpus's MEH tagged cases
+// are refused as YAY. Then the model. The corpus tagged cases in test/yay and
+// test/nay are read with the rest of the corpus by yay.test.js.
 
 import { describe, it } from "node:test";
 import assert from "node:assert";
@@ -12,40 +11,19 @@ import "@endo/init";
 import { makeTagged, passStyleOf } from "@endo/pass-style";
 
 import { parseYay, tagged, isTagged } from "./yay.js";
-import { casesDir, cases, toFixture } from "./test-helpers.js";
+import { casesDir, cases } from "./test-helpers.js";
 
-const taggedCasesDir = casesDir("doc", "design", "tagged-values-g", "cases");
+const mehDir = casesDir("test", "meh");
 
-describe("tagged values: the design's accepted cases", () => {
-  const names = cases(taggedCasesDir, "yay");
-  it("finds the cases", () => assert.ok(names.length > 0));
+describe("tagged values: MEH's tagged cases are not YAY", () => {
+  const names = cases(mehDir, "meh", "tagged-");
+  it("finds the cases", () => {
+    assert.ok(names.length >= 3, `MEH tagged cases in ${mehDir}`);
+  });
   for (const name of names) {
-    it(name, () => {
-      const src = fs.readFileSync(path.join(taggedCasesDir, name), "utf8");
-      const json = fs
-        .readFileSync(
-          path.join(taggedCasesDir, name.replace(/\.yay$/, ".json")),
-        )
-        .toString()
-        .replace("-Infinity", '"-Infinity"');
-      assert.deepStrictEqual(
-        toFixture(parseYay(src, { filename: name }), isTagged),
-        JSON.parse(json),
-      );
-    });
-  }
-});
-
-describe("tagged values: the design's refused cases", () => {
-  const names = [
-    ...cases(taggedCasesDir, "nay"),
-    ...cases(taggedCasesDir, "meh"),
-  ];
-  it("finds the cases", () => assert.ok(names.length > 0));
-  for (const name of names) {
-    it(name, () => {
-      const src = fs.readFileSync(path.join(taggedCasesDir, name), "utf8");
-      assert.throws(() => parseYay(src, { filename: name }));
+    it(`${name} is refused`, () => {
+      const meh = fs.readFileSync(path.join(mehDir, name), "utf8");
+      assert.throws(() => parseYay(meh, { filename: name }));
     });
   }
 });

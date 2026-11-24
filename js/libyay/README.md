@@ -961,8 +961,8 @@ npm test
 The test runner uses fixture files from `../test/`.
 Files with `.yay` extension contain YAY input.
 Files with `.js` extension contain expected JavaScript output.
-`tagged.test.js` reads the tagged-value cases of the design, in
-`../../doc/design/tagged-values-g/cases/`, until they join the shared corpus.
+The tagged-value cases are in the shared corpus, named `tagged-*`, and
+`tagged.test.js` checks that YAY refuses the ones in `../../test/meh/`.
 `smallcaps.test.js` runs YAY documents through a built binyay
 (`yay -f yay -t yson`; `YAY_BIN`, or `rust/target/release` or `debug`) and
 decodes the YSON with Endo's smallcaps encoding (`@endo/marshal`), then
