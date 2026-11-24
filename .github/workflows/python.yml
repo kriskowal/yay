@@ -33,4 +33,7 @@ jobs:
           python-version: '3.12'
 
       - name: Run tests
-        run: python test_yay.py
+        run: |
+          python test_yay.py
+          python test_tagged.py
+          python test_references.py

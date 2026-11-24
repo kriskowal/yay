@@ -4,11 +4,16 @@
 //! arguments into YAY `Value`s. SHON is activated by positional arguments
 //! `[`, `-x`, `-b`, or `-s` in the CLI.
 //!
+//! The path `-` after `-s` or `-b` reads stdin. Stdin can be read only once,
+//! so an expression that names `-` more than once is refused before anything
+//! is read.
+//!
 //! See `SHON.md` for the full specification.
 
 use num_bigint::BigInt;
 use std::collections::HashMap;
 use std::fs;
+use std::io::{self, Read};
 use std::str::FromStr;
 
 use crate::Value;
@@ -25,10 +30,131 @@ impl std::fmt::Display for ShonError {
 
 impl std::error::Error for ShonError {}
 
+/// Reads the paths that `-s` and `-b` name, `-` being stdin.
+/// A dry reader reads nothing and only counts the reads of stdin.
+struct Files {
+    dry: bool,
+    stdin_reads: usize,
+}
+
+impl Files {
+    fn new(dry: bool) -> Self {
+        Files {
+            dry,
+            stdin_reads: 0,
+        }
+    }
+
+    fn bytes(&mut self, path: &str) -> Result<Vec<u8>, ShonError> {
+        if path == "-" {
+            self.stdin_reads += 1;
+            if self.dry {
+                return Ok(Vec::new());
+            }
+            let mut bytes = Vec::new();
+            io::stdin()
+                .read_to_end(&mut bytes)
+                .map_err(|e| ShonError(format!("Cannot read stdin: {}", e)))?;
+            return Ok(bytes);
+        }
+        if self.dry {
+            return Ok(Vec::new());
+        }
+        fs::read(path).map_err(|e| ShonError(format!("Cannot read file '{}': {}", path, e)))
+    }
+
+    fn string(&mut self, path: &str) -> Result<String, ShonError> {
+        if path == "-" {
+            let bytes = self.bytes(path)?;
+            // The same words as read_to_string's error for a file.
+            return String::from_utf8(bytes).map_err(|_| {
+                ShonError("Cannot read stdin: stream did not contain valid UTF-8".into())
+            });
+        }
+        if self.dry {
+            return Ok(String::new());
+        }
+        fs::read_to_string(path)
+            .map_err(|e| ShonError(format!("Cannot read file '{}': {}", path, e)))
+    }
+}
+
+/// Check that a SHON expression names stdin (`-`) at most once.
+fn check_stdin_once(stdin_reads: usize) -> Result<(), ShonError> {
+    if stdin_reads > 1 {
+        return Err(ShonError(format!(
+            "stdin can be read only once, but '-' is named {} times after -s or -b",
+            stdin_reads
+        )));
+    }
+    Ok(())
+}
+
+/// Scan a SHON expression starting with any trigger (`[`, `[]`, `[--]`, `-x`,
+/// `-b` or `-s`) without reading any file or stdin.
+/// Returns the number of arguments the expression consumes and the number of
+/// times it reads stdin (`-s -` or `-b -`), so that a caller can refuse to read
+/// stdin twice before reading anything.
+pub fn scan_shon(args: &[String]) -> Result<(usize, usize), ShonError> {
+    let mut files = Files::new(true);
+    let (_, consumed) = shon_expression(args, &mut files)?;
+    Ok((consumed, files.stdin_reads))
+}
+
+/// Parse a SHON expression starting with any trigger (`[`, `[]`, `[--]`, `-x`,
+/// `-b` or `-s`). The path `-` reads stdin, at most once per expression.
+/// Returns the parsed value and the number of arguments consumed.
+pub fn parse_shon(args: &[String]) -> Result<(Value, usize), ShonError> {
+    let (_, stdin_reads) = scan_shon(args)?;
+    check_stdin_once(stdin_reads)?;
+    shon_expression(args, &mut Files::new(false))
+}
+
+fn shon_expression(args: &[String], files: &mut Files) -> Result<(Value, usize), ShonError> {
+    match args.first().map(String::as_str) {
+        Some("[") | Some("[]") | Some("[--]") => shon_bracket(args, files),
+        Some("-x") => parse_shon_hex(args),
+        Some("-b") => shon_file_bytes(args, files),
+        Some("-s") => shon_file_string(args, files),
+        _ => Err(ShonError(
+            "Expected '[', '-x', '-b' or '-s' to start SHON expression".into(),
+        )),
+    }
+}
+
+/// Reads a `-r` token as a reference: a scheme and a colon, then the URI as
+/// YAY's angle brackets hold it. An uppercase scheme is lowercased, as `-x`
+/// takes uppercase hex.
+fn parse_reference_token(token: &str) -> Result<String, ShonError> {
+    let bracketed = format!("<{}>", token);
+    if !crate::reference::is_reference_start(&bracketed) {
+        return Err(ShonError(format!(
+            "-r requires a URI with a scheme: {:?}",
+            token
+        )));
+    }
+    match crate::reference::scan_reference(&bracketed, true) {
+        Ok((uri, n)) if n == bracketed.len() => Ok(uri),
+        Ok(_) => Err(ShonError(format!(
+            "Unexpected \">\" in reference: {:?}",
+            token
+        ))),
+        Err(e) => Err(ShonError(format!("{}: {:?}", e.message(), token))),
+    }
+}
+
 /// Parse a SHON compound value from CLI arguments starting with `[`, `[]`, or `[--]`.
 /// The `args` slice should begin with the trigger token.
 /// Returns the parsed value and the number of arguments consumed (including the brackets).
+/// `-s -` and `-b -` read stdin, which may be named only once.
 pub fn parse_shon_bracket(args: &[String]) -> Result<(Value, usize), ShonError> {
+    let mut files = Files::new(true);
+    shon_bracket(args, &mut files)?;
+    check_stdin_once(files.stdin_reads)?;
+    shon_bracket(args, &mut Files::new(false))
+}
+
+fn shon_bracket(args: &[String], files: &mut Files) -> Result<(Value, usize), ShonError> {
     if args.is_empty() {
         return Err(ShonError("Expected '[' to start SHON expression".into()));
     }
@@ -37,7 +163,7 @@ pub fn parse_shon_bracket(args: &[String]) -> Result<(Value, usize), ShonError> 
         "[--]" => Ok((Value::Object(HashMap::new()), 1)),
         "[" => {
             let mut pos = 1; // skip opening [
-            let (value, consumed) = parse_bracket_contents(args, &mut pos)?;
+            let (value, consumed) = parse_bracket_contents(args, &mut pos, files)?;
             Ok((value, consumed))
         }
         _ => Err(ShonError("Expected '[' to start SHON expression".into())),
@@ -59,32 +185,38 @@ pub fn parse_shon_hex(args: &[String]) -> Result<(Value, usize), ShonError> {
 }
 
 /// Parse a SHON `-b <file>` from CLI arguments.
-/// Reads the file as raw bytes.
+/// Reads the file as raw bytes, or stdin if the path is `-`.
 /// Returns the parsed bytes value and the number of arguments consumed (2).
 pub fn parse_shon_file_bytes(args: &[String]) -> Result<(Value, usize), ShonError> {
+    shon_file_bytes(args, &mut Files::new(false))
+}
+
+fn shon_file_bytes(args: &[String], files: &mut Files) -> Result<(Value, usize), ShonError> {
     if args.is_empty() || args[0] != "-b" {
         return Err(ShonError("Expected '-b' for file bytes".into()));
     }
     if args.len() < 2 {
         return Err(ShonError("-b requires a file path argument".into()));
     }
-    let bytes = fs::read(&args[1])
-        .map_err(|e| ShonError(format!("Cannot read file '{}': {}", args[1], e)))?;
+    let bytes = files.bytes(&args[1])?;
     Ok((Value::Bytes(bytes), 2))
 }
 
 /// Parse a SHON `-s <file>` from CLI arguments.
-/// Reads the file as a UTF-8 string.
+/// Reads the file as a UTF-8 string, or stdin if the path is `-`.
 /// Returns the parsed string value and the number of arguments consumed (2).
 pub fn parse_shon_file_string(args: &[String]) -> Result<(Value, usize), ShonError> {
+    shon_file_string(args, &mut Files::new(false))
+}
+
+fn shon_file_string(args: &[String], files: &mut Files) -> Result<(Value, usize), ShonError> {
     if args.is_empty() || args[0] != "-s" {
         return Err(ShonError("Expected '-s' for file string".into()));
     }
     if args.len() < 2 {
         return Err(ShonError("-s requires a file path argument".into()));
     }
-    let content = fs::read_to_string(&args[1])
-        .map_err(|e| ShonError(format!("Cannot read file '{}': {}", args[1], e)))?;
+    let content = files.string(&args[1])?;
     Ok((Value::String(content), 2))
 }
 
@@ -92,7 +224,11 @@ pub fn parse_shon_file_string(args: &[String]) -> Result<(Value, usize), ShonErr
 /// `pos` points to the first token after `[`.
 /// Returns the value and the total number of args consumed from the original slice
 /// (including the opening `[`).
-fn parse_bracket_contents(args: &[String], pos: &mut usize) -> Result<(Value, usize), ShonError> {
+fn parse_bracket_contents(
+    args: &[String],
+    pos: &mut usize,
+    files: &mut Files,
+) -> Result<(Value, usize), ShonError> {
     // Check for empty object `[--]`
     if *pos < args.len() && args[*pos] == "--]" {
         *pos += 1;
@@ -110,9 +246,9 @@ fn parse_bracket_contents(args: &[String], pos: &mut usize) -> Result<(Value, us
     let is_object = peek_is_object(args, *pos);
 
     if is_object {
-        parse_object_contents(args, pos)
+        parse_object_contents(args, pos, files)
     } else {
-        parse_array_contents(args, pos)
+        parse_array_contents(args, pos, files)
     }
 }
 
@@ -131,7 +267,11 @@ fn is_object_key(token: &str) -> bool {
 }
 
 /// Parse object contents: `--key value --key value ... ]`
-fn parse_object_contents(args: &[String], pos: &mut usize) -> Result<(Value, usize), ShonError> {
+fn parse_object_contents(
+    args: &[String],
+    pos: &mut usize,
+    files: &mut Files,
+) -> Result<(Value, usize), ShonError> {
     let mut map = HashMap::new();
 
     loop {
@@ -159,13 +299,17 @@ fn parse_object_contents(args: &[String], pos: &mut usize) -> Result<(Value, usi
             return Err(ShonError(format!("Expected value after key '--{}'", key)));
         }
 
-        let value = parse_value(args, pos)?;
+        let value = parse_value(args, pos, files)?;
         map.insert(key, value);
     }
 }
 
 /// Parse array contents: `value value ... ]`
-fn parse_array_contents(args: &[String], pos: &mut usize) -> Result<(Value, usize), ShonError> {
+fn parse_array_contents(
+    args: &[String],
+    pos: &mut usize,
+    files: &mut Files,
+) -> Result<(Value, usize), ShonError> {
     let mut items = Vec::new();
 
     loop {
@@ -178,13 +322,13 @@ fn parse_array_contents(args: &[String], pos: &mut usize) -> Result<(Value, usiz
             return Ok((Value::Array(items), *pos));
         }
 
-        let value = parse_value(args, pos)?;
+        let value = parse_value(args, pos, files)?;
         items.push(value);
     }
 }
 
 /// Parse a single SHON value at `args[*pos]`, advancing `*pos` past it.
-fn parse_value(args: &[String], pos: &mut usize) -> Result<Value, ShonError> {
+fn parse_value(args: &[String], pos: &mut usize, files: &mut Files) -> Result<Value, ShonError> {
     if *pos >= args.len() {
         return Err(ShonError("Expected value, got end of arguments".into()));
     }
@@ -195,7 +339,7 @@ fn parse_value(args: &[String], pos: &mut usize) -> Result<Value, ShonError> {
         // Nested array/object
         "[" => {
             *pos += 1;
-            let (value, _) = parse_bracket_contents(args, pos)?;
+            let (value, _) = parse_bracket_contents(args, pos, files)?;
             Ok(value)
         }
         // `[]` as single token
@@ -245,6 +389,20 @@ fn parse_value(args: &[String], pos: &mut usize) -> Result<Value, ShonError> {
             *pos += 1;
             Ok(Value::Float(f64::NAN))
         }
+        // Tagged value: the next token is the tag, the value after it the payload
+        "-T" => {
+            *pos += 1;
+            if *pos >= args.len() {
+                return Err(ShonError("-T requires a tag and a value".into()));
+            }
+            let tag = args[*pos].clone();
+            *pos += 1;
+            if *pos >= args.len() {
+                return Err(ShonError(format!("-T {} requires a value", tag)));
+            }
+            let payload = parse_value(args, pos, files)?;
+            Ok(Value::Tagged(tag, Box::new(payload)))
+        }
         // Hex bytes
         "-x" => {
             *pos += 1;
@@ -255,15 +413,23 @@ fn parse_value(args: &[String], pos: &mut usize) -> Result<Value, ShonError> {
             *pos += 1;
             Ok(Value::Bytes(bytes))
         }
+        // Reference: the next token is a URI, which must have a scheme
+        "-r" => {
+            *pos += 1;
+            if *pos >= args.len() {
+                return Err(ShonError("-r requires a URI argument".into()));
+            }
+            let uri = parse_reference_token(&args[*pos])?;
+            *pos += 1;
+            Ok(Value::Reference(crate::reference::Reference::checked(uri)))
+        }
         // File → bytes
         "-b" => {
             *pos += 1;
             if *pos >= args.len() {
                 return Err(ShonError("-b requires a file path argument".into()));
             }
-            let path = &args[*pos];
-            let bytes = fs::read(path)
-                .map_err(|e| ShonError(format!("Cannot read file '{}': {}", path, e)))?;
+            let bytes = files.bytes(&args[*pos])?;
             *pos += 1;
             Ok(Value::Bytes(bytes))
         }
@@ -273,9 +439,7 @@ fn parse_value(args: &[String], pos: &mut usize) -> Result<Value, ShonError> {
             if *pos >= args.len() {
                 return Err(ShonError("-s requires a file path argument".into()));
             }
-            let path = &args[*pos];
-            let content = fs::read_to_string(path)
-                .map_err(|e| ShonError(format!("Cannot read file '{}': {}", path, e)))?;
+            let content = files.string(&args[*pos])?;
             *pos += 1;
             Ok(Value::String(content))
         }
@@ -455,6 +619,32 @@ mod tests {
     }
 
     // ---- Scalars inside brackets ----
+
+    #[test]
+    fn test_tagged() {
+        let tagged = |tag: &str, v: Value| Value::Tagged(tag.to_string(), Box::new(v));
+        let a = args(&["[", "-T", "s", "10", "]"]);
+        let (val, _) = parse_shon_bracket(&a).unwrap();
+        assert_eq!(val, Value::Array(vec![tagged("s", Value::from(10i64))]));
+        let a = args(&["[", "--c", "-T", "rgb", "[", "255", "136", "0", "]", "]"]);
+        let (val, _) = parse_shon_bracket(&a).unwrap();
+        let rgb = Value::Array(vec![255i64.into(), 136i64.into(), 0i64.into()]);
+        assert_eq!(
+            val,
+            Value::Object(HashMap::from([("c".to_string(), tagged("rgb", rgb))]))
+        );
+        let a = args(&["[", "-T", "utc", "-T", "datetime", "t", "]"]);
+        let (val, _) = parse_shon_bracket(&a).unwrap();
+        assert_eq!(
+            val,
+            Value::Array(vec![tagged("utc", tagged("datetime", "t".into()))])
+        );
+        // Nothing is fused onto a token
+        let a = args(&["[", "10s", "]"]);
+        let (val, _) = parse_shon_bracket(&a).unwrap();
+        assert_eq!(val, Value::Array(vec![Value::String("10s".into())]));
+        assert!(parse_shon_bracket(&args(&["[", "-T", "s", "]"])).is_err());
+    }
 
     #[test]
     fn test_null() {
@@ -781,6 +971,45 @@ mod tests {
     fn test_file_string_nonexistent() {
         let a = args(&["-s", "/nonexistent/file/path/abc123"]);
         assert!(parse_shon_file_string(&a).is_err());
+    }
+
+    // ---- stdin ----
+
+    #[test]
+    fn test_scan_counts_stdin() {
+        let a = args(&["[", "-s", "-", "--", "-", "-b", "./-", "]", "-t", "md"]);
+        assert_eq!(scan_shon(&a), Ok((8, 1)));
+        assert_eq!(scan_shon(&args(&["-b", "-"])), Ok((2, 1)));
+        assert_eq!(scan_shon(&args(&["-x", "ff"])), Ok((2, 0)));
+    }
+
+    #[test]
+    fn test_scan_reads_no_file() {
+        let a = args(&["[", "-s", "/nonexistent/file/path/abc123", "]"]);
+        assert_eq!(scan_shon(&a), Ok((4, 0)));
+    }
+
+    #[test]
+    fn test_stdin_named_twice() {
+        let a = args(&["[", "-s", "-", "[", "-b", "-", "]", "]"]);
+        assert_eq!(scan_shon(&a), Ok((8, 2)));
+        let err = parse_shon_bracket(&a).unwrap_err();
+        assert!(err.0.contains("stdin can be read only once"), "{}", err);
+        let err = parse_shon(&a).unwrap_err();
+        assert!(err.0.contains("stdin can be read only once"), "{}", err);
+    }
+
+    #[test]
+    fn test_parse_shon_dispatches() {
+        assert_eq!(
+            parse_shon(&args(&["-x", "ff"])),
+            Ok((Value::Bytes(vec![0xff]), 2))
+        );
+        assert_eq!(
+            parse_shon(&args(&["[", "a", "]"])),
+            Ok((Value::Array(vec![Value::String("a".into())]), 3))
+        );
+        assert!(parse_shon(&args(&["a"])).is_err());
     }
 
     // ---- Mixed content ----

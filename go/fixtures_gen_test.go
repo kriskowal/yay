@@ -39,13 +39,23 @@ var fixtures = map[string]any{
 		[]any{"I feel happy!", "yay."},
 		[]any{"And there was much rejoicing.", "yay."},
 	},
-	"array-inline-singlequote": []any{"a", "b"},
+	"array-inline-object-root": []any{
+		map[string]any{"a": big.NewInt(1)},
+		map[string]any{"b": "c: d"},
+	},
+	"array-inline-singlequote":              []any{"a", "b"},
+	"array-item-doublequote-then-comment":   []any{"abc"},
+	"array-item-inline-array-then-comment":  []any{[]any{big.NewInt(1), "b"}},
+	"array-item-inline-bytes-then-comment":  []any{[]byte{0xff}},
+	"array-item-inline-object-then-comment": []any{map[string]any{"a": big.NewInt(1)}},
+	"array-item-keyword-then-comment":       []any{true, nil},
 	"array-item-nested-object-then-item": map[string]any{
 		"steps": []any{
 			map[string]any{"run": map[string]any{"command": "make"}},
 			"a plain item after an item holding an object",
 		},
 	},
+	"array-item-number-then-comment": []any{big.NewInt(42), 6.5},
 	"array-item-object-empty-key": map[string]any{
 		"items": []any{
 			map[string]any{"": "the empty key opens this item", "b": big.NewInt(2)},
@@ -57,7 +67,10 @@ var fixtures = map[string]any{
 			map[string]any{"born": big.NewInt(1906), "full name": "Grace Hopper"},
 		},
 	},
-	"array-multiline": []any{big.NewInt(5), big.NewInt(3)},
+	"array-item-reference-then-comment":   []any{MustReference("https://example.com/")},
+	"array-item-singlequote-then-comment": []any{"abc"},
+	"array-item-tagged-then-comment":      []any{Tagged{Tag: "t", Payload: big.NewInt(1)}},
+	"array-multiline":                     []any{big.NewInt(5), big.NewInt(3)},
 	"array-multiline-named": map[string]any{
 		"complaints": []any{
 			"I didn't vote for you.",
@@ -265,8 +278,12 @@ var fixtures = map[string]any{
 	},
 	"object-inline-doublequote-key": map[string]any{"*": 1.0},
 	"object-inline-empty":           map[string]any{"empty": map[string]any{}},
-	"object-inline-integers":        map[string]any{"answer": big.NewInt(42), "error": big.NewInt(404)},
-	"object-inline-mixed":           map[string]any{"mood": "depressed", "name": "Marvin"},
+	"object-inline-in-list": []any{
+		map[string]any{"a": big.NewInt(1)},
+		map[string]any{"b": []any{big.NewInt(1), big.NewInt(2)}},
+	},
+	"object-inline-integers": map[string]any{"answer": big.NewInt(42), "error": big.NewInt(404)},
+	"object-inline-mixed":    map[string]any{"mood": "depressed", "name": "Marvin"},
 	"object-inline-nested": map[string]any{
 		"air":     []any{"canned", "Perri-Air"},
 		"luggage": map[string]any{"combination": big.NewInt(12345)},
@@ -283,12 +300,87 @@ var fixtures = map[string]any{
 	"object-nested-quoted-key-first": map[string]any{
 		"meta": map[string]any{"A quoted key": "first in its object", "b": big.NewInt(2)},
 	},
+	"object-nested-quoted-key-over-block":       map[string]any{"a": map[string]any{"k/m": map[string]any{"c": "x"}}},
+	"object-nested-quoted-key-slash":            map[string]any{"a": map[string]any{"k/m": "x"}},
+	"object-nested-quoted-key-two-levels":       map[string]any{"a": map[string]any{"b": map[string]any{"km": "x"}}},
+	"object-nested-single-quoted-key-and-value": map[string]any{"a": map[string]any{"km": "x"}},
+	"object-proto-key":                          map[string]any{"__proto__": map[string]any{"polluted": true}},
+	"object-proto-key-inline": map[string]any{
+		"a": map[string]any{"__proto__": map[string]any{"polluted": true}},
+	},
+	"object-proto-key-quoted": map[string]any{"__proto__": big.NewInt(1)},
 	"object-quoted-key-escapes": map[string]any{
 		"":            "the empty key",
 		"a\"b":        "an escaped quote",
 		"a/b":         "a slash",
 		"a\\b":        "an escaped backslash",
 		"line\nbreak": "an escaped newline",
+	},
+	"object-same-key-at-different-depths": map[string]any{
+		"a": map[string]any{"a": big.NewInt(1)},
+		"b": []any{
+			map[string]any{"a": big.NewInt(2)},
+			map[string]any{"a": big.NewInt(3)},
+		},
+		"c": map[string]any{"a": map[string]any{"a": big.NewInt(4)}},
+	},
+	"reference-block-array": []any{
+		MustReference("https://a.example/x"),
+		MustReference("urn:isbn:0451450523"),
+	},
+	"reference-delimiters-inside": map[string]any{
+		"q": []any{
+			MustReference("https://x.example/a,b]c?e=(f)&g='h'"),
+			big.NewInt(1),
+		},
+	},
+	"reference-inline-array": map[string]any{
+		"mirrors": []any{
+			MustReference("https://a.example/x"),
+			MustReference("https://b.example/x"),
+			[]byte{0xff},
+			[]byte{},
+		},
+	},
+	"reference-inline-object": map[string]any{
+		"links": map[string]any{
+			"home": MustReference("https://kriskowal.com/"),
+			"seed": []byte{0xff, 0x88, 0x00},
+		},
+	},
+	"reference-iri":               map[string]any{"page": MustReference("https://例え.jp/パス?q=é")},
+	"reference-percent":           map[string]any{"space": MustReference("https://example.com/a%20b%2Fc")},
+	"reference-percent-case-kept": map[string]any{"a": MustReference("https://x/a%2fb%2F")},
+	"reference-root":              MustReference("https://example.com/"),
+	"reference-same-text":         map[string]any{"r": MustReference("https://x"), "s": "https://x"},
+	"reference-schemes": map[string]any{
+		"icon": MustReference("https://example.com/cat.png"),
+		"mail": MustReference("mailto:kris@example.com"),
+		"peer": MustReference("ocapn://a2ef69ddd5f8.tcp-testing-only?host=127.0.0.1&port=22046"),
+		"spec": MustReference("urn:ietf:rfc:3986"),
+	},
+	"reference-tagged": map[string]any{
+		"home":  Tagged{Tag: "outer", Payload: Tagged{Tag: "com.example.homepage", Payload: MustReference("https://kriskowal.com/")}},
+		"thumb": Tagged{Tag: "image/png", Payload: MustReference("https://example.com/cat.png")},
+	},
+	"reference-tagged-in-array": map[string]any{
+		"peers": []any{
+			Tagged{Tag: "Counter", Payload: MustReference("ocapn://a.tcp")},
+			MustReference("ocapn://b.tcp"),
+		},
+	},
+	"reference-then-comment": map[string]any{"a": MustReference("https://example.com/#frag")},
+	"reference-unchanged-in-strings": map[string]any{
+		"a": "<https://x>",
+		"b": "<urn:x>",
+		"c": Tagged{Tag: "<https://x>", Payload: big.NewInt(1)},
+		"d": "<https://in-a-block-string>\n",
+	},
+	"reference-under-block-tag": map[string]any{
+		"links": Tagged{Tag: "mirrors", Payload: []any{
+			MustReference("https://a.example/x"),
+			MustReference("https://b.example/x"),
+		}},
 	},
 	"string-block-array-in-property": map[string]any{
 		"items": []any{"a\n- b\n", "\n* c\n\n\n---\n"},
@@ -333,6 +425,7 @@ var fixtures = map[string]any{
 	},
 	"string-block-root-hash":      "# this is not a comment\nit is content\n",
 	"string-block-root-next-line": "\nI've calculated your chance of survival,\nbut I don't think you'll like it.\n",
+	"string-block-root-parens":    "a (b) c\n",
 	"string-block-root-same-line": "I think you ought to know I'm feeling very depressed.\nThis will all end in tears.\n",
 	"string-block-separated-array": map[string]any{
 		"items": []any{
@@ -369,5 +462,159 @@ var fixtures = map[string]any{
 	"string-inline-singlequote-basic":                  "Are you suggesting coconuts migrate?",
 	"string-inline-singlequote-doublequote":            "He said \"yay.\" and left.",
 	"string-multiline-concat":                          map[string]any{"confession": "I'm not dead yet. I feel happy!"},
-	"whitespace-leading-lines":                         big.NewInt(10),
+	"string-singlequote-escapes": map[string]any{
+		"backslash": "a\\b",
+		"end":       "a\\",
+		"other":     "a\\nb\\u{41}\\\"c\\t",
+		"quote":     "a'b",
+	},
+	"string-singlequote-escapes-in-array": []any{"a'b", "a\\b", "a\\nb"},
+	"string-singlequote-escapes-in-key": map[string]any{
+		"a'b":   big.NewInt(1),
+		"a\\b":  big.NewInt(2),
+		"a\\nb": big.NewInt(3),
+	},
+	"tagged-block-bytes-item-same-line": []any{
+		Tagged{Tag: "sha256", Payload: []byte{0x89, 0x50, 0x4e, 0x47}},
+	},
+	"tagged-block-bytes-property": map[string]any{
+		"sum": Tagged{Tag: "sha256", Payload: []byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a}},
+	},
+	"tagged-block-concatenated-string": map[string]any{"msg": Tagged{Tag: "note", Payload: "Hello, world."}},
+	"tagged-block-empty-tag":           map[string]any{"a": Tagged{Tag: "", Payload: []any{big.NewInt(1)}}},
+	"tagged-block-escaped-tag":         map[string]any{"a": Tagged{Tag: "x)y", Payload: []any{big.NewInt(1)}}},
+	"tagged-block-item-array": []any{
+		Tagged{Tag: "rgb", Payload: []any{big.NewInt(255), big.NewInt(136), big.NewInt(0)}},
+	},
+	"tagged-block-item-property-flush-array": []any{
+		map[string]any{
+			"color": Tagged{Tag: "rgb", Payload: []any{big.NewInt(255), big.NewInt(136), big.NewInt(0)}},
+			"next":  big.NewInt(1),
+		},
+		big.NewInt(2),
+	},
+	"tagged-block-nested-outer-first": []any{
+		Tagged{Tag: "outer", Payload: Tagged{Tag: "inner", Payload: []any{big.NewInt(1)}}},
+	},
+	"tagged-block-property-flush-array": map[string]any{
+		"color": Tagged{Tag: "rgb", Payload: []any{big.NewInt(255), big.NewInt(136), big.NewInt(0)}},
+		"next":  big.NewInt(1),
+	},
+	"tagged-block-property-object": map[string]any{
+		"at":   Tagged{Tag: "point", Payload: map[string]any{"x": big.NewInt(1), "y": big.NewInt(2)}},
+		"next": big.NewInt(3),
+	},
+	"tagged-block-root-array":        Tagged{Tag: "rgb", Payload: []any{big.NewInt(255), big.NewInt(136), big.NewInt(0)}},
+	"tagged-block-root-colon-in-tag": Tagged{Tag: "match:splitRecord", Payload: []any{map[string]any{}, Tagged{Tag: "a: b", Payload: "x"}}},
+	"tagged-block-root-object":       Tagged{Tag: "point", Payload: map[string]any{"x": big.NewInt(1), "y": big.NewInt(2)}},
+	"tagged-block-string-item-dash-line": []any{
+		Tagged{Tag: "md", Payload: "\n- not an item\n"},
+		big.NewInt(2),
+	},
+	"tagged-block-string-item-same-line": []any{
+		Tagged{Tag: "text/markdown", Payload: "First line.\nSecond line.\n"},
+	},
+	"tagged-block-string-property": map[string]any{
+		"text": Tagged{Tag: "markdown", Payload: "# Notes\n\nTagged values arrive.\n"},
+	},
+	"tagged-block-string-property-dash-line": map[string]any{
+		"a": Tagged{Tag: "md", Payload: "- not an item\n"},
+		"b": big.NewInt(1),
+	},
+	"tagged-block-then-comment": map[string]any{
+		"color": Tagged{Tag: "rgb", Payload: []any{big.NewInt(255), big.NewInt(0)}},
+	},
+	"tagged-block-under-item-key": []any{
+		map[string]any{
+			"color": Tagged{Tag: "rgb", Payload: []any{big.NewInt(1)}},
+			"name":  "a",
+		},
+	},
+	"tagged-inline-on-every-kind": map[string]any{
+		"a": Tagged{Tag: "date", Payload: "x"},
+		"b": Tagged{Tag: "t", Payload: "y"},
+		"c": Tagged{Tag: "rgb", Payload: []byte{0xff}},
+		"d": Tagged{Tag: "rgb", Payload: []any{big.NewInt(255), big.NewInt(136), big.NewInt(0)}},
+		"e": Tagged{Tag: "point", Payload: map[string]any{"x": big.NewInt(1)}},
+		"f": Tagged{Tag: "ms", Payload: 1.5},
+		"g": Tagged{Tag: "h", Payload: big.NewInt(-3)},
+		"h": Tagged{Tag: "us", Payload: 1000.0},
+		"i": Tagged{Tag: "ms", Payload: big.NewInt(10000)},
+		"j": Tagged{Tag: "x", Payload: big.NewInt(0)},
+	},
+	"tagged-inline-root":              Tagged{Tag: "com.example/rgb-string", Payload: "ffffff"},
+	"tagged-inline-root-colon-in-tag": Tagged{Tag: "a: b", Payload: "x"},
+	"tagged-inline-then-comment": map[string]any{
+		"a": Tagged{Tag: "t", Payload: "x"},
+		"b": Tagged{Tag: "s", Payload: big.NewInt(1)},
+		"c": Tagged{Tag: "a)  # b", Payload: big.NewInt(2)},
+	},
+	"tagged-inside-inline-containers": map[string]any{
+		"a": []any{
+			Tagged{Tag: "s", Payload: big.NewInt(10)},
+			Tagged{Tag: "x", Payload: "ff"},
+			Tagged{Tag: "a, b", Payload: []any{big.NewInt(1)}},
+			Tagged{Tag: "t", Payload: true},
+		},
+		"b": map[string]any{
+			"c": Tagged{Tag: "rgb", Payload: []byte{0xff, 0x88, 0x00}},
+			"d": Tagged{Tag: "m", Payload: big.NewInt(2)},
+			"e": Tagged{Tag: "x}y", Payload: "v"},
+			"f": Tagged{Tag: ")", Payload: big.NewInt(1)},
+		},
+	},
+	"tagged-kris-example": map[string]any{
+		"color": Tagged{Tag: "rgba", Payload: []byte{0xff, 0x88, 0x00, 0xff}},
+		"count": Tagged{Tag: "s", Payload: big.NewInt(10)},
+		"odd":   Tagged{Tag: "a)b", Payload: big.NewInt(3)},
+		"sku":   Tagged{Tag: "com.example/sku", Payload: "X-1"},
+		"when":  Tagged{Tag: "utc", Payload: Tagged{Tag: "datetime", Payload: "2026-11-03T05:00:00Z"}},
+	},
+	"tagged-kris-example-blocks": map[string]any{
+		"color": Tagged{Tag: "rgb", Payload: []any{big.NewInt(255), big.NewInt(136), big.NewInt(0)}},
+		"items": []any{
+			Tagged{Tag: "match:splitRecord", Payload: map[string]any{"name": "x"}},
+		},
+	},
+	"tagged-misindented-sibling-unchanged": map[string]any{"enabled": true, "retries": big.NewInt(3)},
+	"tagged-nested-inline-innermost-first": map[string]any{
+		"a": Tagged{Tag: "utc", Payload: Tagged{Tag: "datetime", Payload: "2026-11-01T15:00:00"}},
+		"b": Tagged{Tag: "outer", Payload: Tagged{Tag: "inner", Payload: []any{big.NewInt(1), big.NewInt(2)}}},
+	},
+	"tagged-paren-on-keywords": map[string]any{
+		"a": Tagged{Tag: "t", Payload: true},
+		"b": Tagged{Tag: "null", Payload: nil},
+		"c": Tagged{Tag: "ms", Payload: math.NaN()},
+		"d": Tagged{Tag: "x", Payload: math.Inf(-1)},
+	},
+	"tagged-tag-empty-and-spaces": map[string]any{
+		"a": Tagged{Tag: "", Payload: big.NewInt(1)},
+		"b": Tagged{Tag: " edge ", Payload: big.NewInt(2)},
+		"c": Tagged{Tag: " ", Payload: big.NewInt(3)},
+	},
+	"tagged-tag-escapes": map[string]any{
+		"a": Tagged{Tag: "a)b", Payload: big.NewInt(1)},
+		"b": Tagged{Tag: "back\\slash", Payload: big.NewInt(2)},
+		"c": Tagged{Tag: "tab\there", Payload: big.NewInt(3)},
+		"d": Tagged{Tag: "😀", Payload: big.NewInt(4)},
+		"e": Tagged{Tag: "a/b", Payload: big.NewInt(5)},
+		"f": Tagged{Tag: "\n", Payload: big.NewInt(6)},
+	},
+	"tagged-tag-quotes-are-text": map[string]any{
+		"a": Tagged{Tag: "'a'", Payload: big.NewInt(1)},
+		"b": Tagged{Tag: "\"\"", Payload: big.NewInt(2)},
+	},
+	"tagged-tag-text": map[string]any{
+		"a": Tagged{Tag: "com.example.sku", Payload: big.NewInt(1)},
+		"b": Tagged{Tag: "match:any", Payload: big.NewInt(2)},
+		"c": Tagged{Tag: "image/png", Payload: big.NewInt(3)},
+		"d": Tagged{Tag: "my tag", Payload: big.NewInt(4)},
+		"e": Tagged{Tag: "a#b", Payload: big.NewInt(5)},
+		"f": Tagged{Tag: "a  # b", Payload: big.NewInt(6)},
+		"g": Tagged{Tag: "it's", Payload: big.NewInt(7)},
+		"h": Tagged{Tag: "a(b", Payload: big.NewInt(8)},
+		"i": Tagged{Tag: "\"q\"", Payload: big.NewInt(9)},
+		"j": Tagged{Tag: "a, b] }", Payload: big.NewInt(10)},
+	},
+	"whitespace-leading-lines": big.NewInt(10),
 }

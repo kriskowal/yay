@@ -1,0 +1,1 @@
+(("a" . #((make-tagged "s" 10) (make-tagged "x" "ff") (make-tagged "a, b" #(1)) (make-tagged "t" #t))) ("b" . (("c" . (make-tagged "rgb" (bytevector 255 136 0))) ("d" . (make-tagged "m" 2)) ("e" . (make-tagged "x}y" "v")) ("f" . (make-tagged ")" 1)))))

@@ -1,0 +1,1 @@
+(("a" . (make-tagged "date" "x")) ("b" . (make-tagged "t" "y")) ("c" . (make-tagged "rgb" (bytevector 255))) ("d" . (make-tagged "rgb" #(255 136 0))) ("e" . (make-tagged "point" (("x" . 1)))) ("f" . (make-tagged "ms" 1.5)) ("g" . (make-tagged "h" -3)) ("h" . (make-tagged "us" 1000.0)) ("i" . (make-tagged "ms" 10000)) ("j" . (make-tagged "x" 0)))

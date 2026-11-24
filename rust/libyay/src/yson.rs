@@ -4,13 +4,20 @@
 //! byte arrays in strings using a prefix to multiplex the string behavior,
 //! without altering strings unless they have a symbol prefix.
 //!
-//! YSON is itself a subset of the Endo SmallCaps encoding (<https://endojs.org>).
+//! YSON is Endo's smallcaps encoding (<https://endojs.org>). Bytes are written
+//! `"*<hex>"`, the form endojs/endo#2871
+//! (<https://github.com/endojs/endo/pull/2871>) gives byteArrays, which
+//! `@endo/marshal` 1.10.0 does not yet decode.
 //!
 //! Encoding:
-//! - BigInt: `"#12345678901234567890"` (hash prefix + decimal)
+//! - BigInt: `"+12345678901234567890"`, `"-7"` (sign + decimal)
 //! - Float specials: `"#NaN"`, `"#Infinity"`, `"#-Infinity"` (hash prefix)
 //! - Bytes: `"*cafe"` (asterisk prefix + hex)
 //! - Escaped strings: `"!*hello"` (exclamation prefix for strings starting with reserved chars)
+//! - Tagged: `{"#tag": "s", "payload": "+10"}` (the tag a YSON string)
+//! - Reference: `"$https://example.com/"` (dollar prefix + URI, as smallcaps
+//!   writes a remotable, the URI in place of its slot)
+//! - Escaped keys: `{"!#x": …}` (exclamation prefix for keys starting with `#`, `*` or `!`)
 //!
 //! Reserved prefixes (ASCII `!` through `/`) are escaped with `!`.
 
@@ -106,8 +113,15 @@ fn parse_string(input: &str, yson: bool) -> Result<(Value, &str), String> {
                     "-Infinity" => return Ok((Value::Float(f64::NEG_INFINITY), rest)),
                     _ => {}
                 }
-                // BigInt
-                match payload.parse::<BigInt>() {
+                return Err(format!("Unknown special value: {:?}", s));
+            }
+            '+' | '-' => {
+                // BigInt, as smallcaps writes it
+                let digits = &s[1..];
+                if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+                    return Err(format!("Invalid bigint: {:?}", s));
+                }
+                match s.trim_start_matches('+').parse::<BigInt>() {
                     Ok(n) => return Ok((Value::Integer(n), rest)),
                     Err(e) => return Err(format!("Invalid bigint: {}", e)),
                 }
@@ -119,6 +133,14 @@ fn parse_string(input: &str, yson: bool) -> Result<(Value, &str), String> {
                     Ok(bytes) => return Ok((Value::Bytes(bytes), rest)),
                     Err(e) => return Err(format!("Invalid hex: {}", e)),
                 }
+            }
+            '$' => {
+                // Reference: a scheme, a colon, and the rest of the URI,
+                // held to the rules of YAY's angle brackets
+                return match crate::reference::Reference::new(&s[1..]) {
+                    Ok(r) => Ok((Value::Reference(r), rest)),
+                    Err(e) => Err(format!("{}: {:?}", e.reason(), s)),
+                };
             }
             '!' => {
                 // Escaped string - remove the escape prefix
@@ -313,6 +335,7 @@ fn parse_object(input: &str, yson: bool) -> Result<(Value, &str), String> {
 
     let mut rest = input[1..].trim_start();
     let mut obj = HashMap::new();
+    let mut tag = None;
 
     if let Some(stripped) = rest.strip_prefix('}') {
         return Ok((Value::Object(obj), stripped));
@@ -332,18 +355,66 @@ fn parse_object(input: &str, yson: bool) -> Result<(Value, &str), String> {
         }
         rest = rest[1..].trim_start();
 
+        // An escaped key: "!#x" is the key "#x"
+        let key = if yson {
+            match key.chars().next() {
+                Some('!') => key[1..].to_string(),
+                Some('#') if key == "#tag" => {
+                    let (value, new_rest) = parse_value(rest, yson)?;
+                    tag = Some(value);
+                    rest = new_rest.trim_start();
+                    if let Some(stripped) = rest.strip_prefix('}') {
+                        return Ok((tagged_from_object(tag, obj)?, stripped));
+                    } else if rest.starts_with(',') {
+                        rest = rest[1..].trim_start();
+                        continue;
+                    } else {
+                        return Err("Expected ',' or '}'".to_string());
+                    }
+                }
+                Some('#') | Some('*') => {
+                    return Err(format!(
+                        "Unescaped key {:?}: write it {:?}",
+                        key,
+                        format!("!{}", key)
+                    ))
+                }
+                _ => key,
+            }
+        } else {
+            key
+        };
+
         // Parse value
         let (value, new_rest) = parse_value(rest, yson)?;
         obj.insert(key, value);
         rest = new_rest.trim_start();
 
         if let Some(stripped) = rest.strip_prefix('}') {
+            if tag.is_some() {
+                return Ok((tagged_from_object(tag, obj)?, stripped));
+            }
             return Ok((Value::Object(obj), stripped));
         } else if rest.starts_with(',') {
             rest = rest[1..].trim_start();
         } else {
             return Err("Expected ',' or '}'".to_string());
         }
+    }
+}
+
+/// A tagged value from the smallcaps object `{"#tag": tag, "payload": value}`.
+fn tagged_from_object(
+    tag: Option<Value>,
+    mut obj: HashMap<String, Value>,
+) -> Result<Value, String> {
+    if obj.len() != 1 || !obj.contains_key("payload") {
+        return Err("A \"#tag\" object has exactly \"#tag\" and \"payload\"".to_string());
+    }
+    let payload = obj.remove("payload").unwrap();
+    match tag {
+        Some(Value::String(tag)) => Ok(Value::Tagged(tag, Box::new(payload))),
+        _ => Err("A \"#tag\" is a string".to_string()),
     }
 }
 
@@ -385,7 +456,7 @@ mod tests {
 
     #[test]
     fn test_parse_bigint() {
-        let result = parse_yson("\"#12345678901234567890\"").unwrap();
+        let result = parse_yson("\"+12345678901234567890\"").unwrap();
         assert_eq!(
             result,
             Value::Integer("12345678901234567890".parse().unwrap())

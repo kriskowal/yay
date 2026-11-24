@@ -9,7 +9,7 @@ import java.util.regex.Pattern;
  *
  * <p>Type mapping: - null -> null - boolean -> Boolean - big integer -> BigInteger - float64 ->
  * Double - string -> String - array -> List<Object> - object -> LinkedHashMap<String, Object> -
- * bytes -> byte[]
+ * bytes -> byte[] - reference -> Reference
  */
 public class Yay {
 
@@ -25,6 +25,11 @@ public class Yay {
   public static Object parse(String source, String filename) {
     Parser parser = new Parser(source, filename);
     return parser.parse();
+  }
+
+  /** Why uri cannot be a reference's text, or null if it can (for {@link Reference}). */
+  static String referenceFault(String uri) {
+    return Parser.referenceFault(uri);
   }
 
   // ========================================================================
@@ -54,6 +59,38 @@ public class Yay {
   /** Whether a line's content (after any list leader) is a bare "`" or "` text" opener. */
   private static boolean isBareBlockOpener(String content) {
     return content.equals("`") || content.startsWith("` ");
+  }
+
+  /** Past the tags, each "(...)" and one space, at the start of content. */
+  private static String skipPrefixTags(String content) {
+    int i = 0;
+    while (i < content.length() && content.charAt(i) == '(') {
+      int j = i + 1;
+      while (j < content.length() && content.charAt(j) != ')') {
+        if (content.charAt(j) == '\\') j++;
+        j++;
+      }
+      if (j >= content.length()) break;
+      j++;
+      if (j < content.length() && content.charAt(j) == ' ') j++;
+      i = j;
+    }
+    return content.substring(i);
+  }
+
+  /** Whether a line's content is a property whose tags precede a block leader: "key: (t) `". */
+  private static boolean isTaggedPropertyOpener(String content) {
+    if (!content.endsWith("`")) return false;
+    for (int i = 0; i + 2 < content.length(); i++) {
+      char c = content.charAt(i);
+      if (c == '"' || c == '\'' || c == '(') return false;
+      if (c == ':' && content.startsWith(" (", i + 1)) {
+        String after = content.substring(i + 2);
+        String rest = skipPrefixTags(after);
+        return rest.length() < after.length() && rest.equals("`");
+      }
+    }
+    return false;
   }
 
   private static boolean isAllowedCodePoint(int cp) {
@@ -162,9 +199,9 @@ public class Yay {
         throw new YayException("Expected space after \"-\"", filename, i + 1, indent + 2);
       }
 
-      if (isBareBlockOpener(content)) {
+      if (isBareBlockOpener(content) || isBareBlockOpener(skipPrefixTags(content))) {
         blockOpener = indent;
-      } else if (content.endsWith(": `")) {
+      } else if (content.endsWith(": `") || isTaggedPropertyOpener(content)) {
         blockOpener = indent + leader.length();
       }
 
@@ -191,6 +228,8 @@ public class Yay {
     int indent;
     int lineNum;
     int col;
+    // The indent of the token's line, before any list leader
+    int lineIndent;
 
     Token(TokenType type, String text, int indent, int lineNum, int col) {
       this.type = type;
@@ -198,6 +237,7 @@ public class Yay {
       this.indent = indent;
       this.lineNum = lineNum;
       this.col = col;
+      this.lineIndent = col;
     }
   }
 
@@ -247,8 +287,11 @@ public class Yay {
 
       // Handle content
       if (!sl.content.isEmpty()) {
-        // Use indent as col (like JS), not indent + leader.length()
-        tokens.add(new Token(TokenType.TEXT, sl.content, effectiveIndent, sl.lineNum, sl.indent));
+        // The text's column follows the list leader, if any
+        Token text =
+            new Token(TokenType.TEXT, sl.content, effectiveIndent, sl.lineNum, effectiveIndent);
+        text.lineIndent = sl.indent;
+        tokens.add(text);
       }
     }
 
@@ -269,6 +312,32 @@ public class Yay {
     private final List<Token> tokens;
     private final String filename;
     private int pos;
+
+    /** Inline arrays and objects enclosing the one being read. */
+    private int inlineDepth;
+
+    /**
+     * The deepest inline arrays and objects may nest, one in another, counted together. Deeper
+     * nesting is refused rather than overflowing the stack.
+     */
+    private static final int MAX_INLINE_DEPTH = 256;
+
+    /** Read one level of inline nesting, refusing more than MAX_INLINE_DEPTH levels. */
+    private <T> T nested(int lineNum, int col, java.util.function.Supplier<T> read) {
+      if (inlineDepth >= MAX_INLINE_DEPTH) {
+        throw new YayException(
+            "Inline nesting deeper than " + MAX_INLINE_DEPTH + " levels",
+            filename,
+            lineNum + 1,
+            col + 1);
+      }
+      inlineDepth++;
+      try {
+        return read.get();
+      } finally {
+        inlineDepth--;
+      }
+    }
 
     Parser(String source, String filename) {
       this.filename = filename;
@@ -297,8 +366,34 @@ public class Yay {
         throw new YayException("Unexpected leading space", filename, t.lineNum + 1, t.col + 1);
       }
 
+      // A tagged root block: the tags alone on the first line, the block below at column 0
+      if (t.type == TokenType.TEXT && t.text.startsWith("(")) {
+        String[] rest = new String[1];
+        List<String> tags = parsePrefix(t.text, 0, rest, t.lineNum, t.col);
+        pos++;
+        skipBreaksAndStops();
+        Token b = pos < tokens.size() ? tokens.get(pos) : null;
+        if (rest[0].isEmpty() && b != null && b.indent > 0) {
+          throw new YayException("Unexpected indent", filename, b.lineNum + 1, 1);
+        }
+        if (rest[0].isEmpty() && b != null && b.indent == 0) {
+          if (b.type == TokenType.START) {
+            return ensureAtEnd(wrapPrefix(parseMultilineArray(), tags));
+          }
+          if (b.type == TokenType.TEXT
+              && !b.text.startsWith("{")
+              && findColonOutsideQuotes(b.text) > 0) {
+            return ensureAtEnd(wrapPrefix(parseRootObject(), tags));
+          }
+        }
+        throw new YayException(PREFIX_WITHOUT_BLOCK, filename, t.lineNum + 1, t.col + 1);
+      }
+
       // Check for root-level multiline object (key: value at indent 0)
-      if (t.type == TokenType.TEXT && t.indent == 0 && !t.text.startsWith("{")) {
+      if (t.type == TokenType.TEXT
+          && t.indent == 0
+          && !t.text.startsWith("{")
+          && !t.text.startsWith("[")) {
         int colonIdx = findColonOutsideQuotes(t.text);
         if (colonIdx > 0) {
           Object result = parseRootObject();
@@ -321,6 +416,7 @@ public class Yay {
 
     private Map<String, Object> parseRootObject() {
       Map<String, Object> obj = new LinkedHashMap<>();
+      Map<String, int[]> seen = new HashMap<>();
 
       while (pos < tokens.size()) {
         skipBreaksAndStops();
@@ -329,6 +425,10 @@ public class Yay {
         Token t = tokens.get(pos);
 
         if (t.type != TokenType.TEXT || t.indent != 0) {
+          // Nothing may stand indented under a root property's value
+          if (t.indent != 0 && (t.type == TokenType.TEXT || t.type == TokenType.START)) {
+            throw new YayException("Unexpected indent", filename, t.lineNum + 1, 1);
+          }
           break;
         }
 
@@ -337,7 +437,7 @@ public class Yay {
           break;
         }
 
-        Map<String, Object> pair = parseKeyValuePair(t, colonIdx);
+        Map<String, Object> pair = parseKeyValuePair(t, colonIdx, seen);
         obj.putAll(pair);
       }
 
@@ -393,102 +493,258 @@ public class Yay {
         throw new YayException("Unexpected leading space", filename, t.lineNum + 1, t.col + 1);
       }
 
-      // Keywords
-      if (s.equals("null")) {
-        pos++;
-        return null;
-      }
-      if (s.equals("true")) {
-        pos++;
-        return Boolean.TRUE;
-      }
-      if (s.equals("false")) {
-        pos++;
-        return Boolean.FALSE;
-      }
-      if (s.equals("infinity")) {
-        pos++;
-        return Double.POSITIVE_INFINITY;
-      }
-      if (s.equals("-infinity")) {
-        pos++;
-        return Double.NEGATIVE_INFINITY;
-      }
-      if (s.equals("nan")) {
-        pos++;
-        return Double.NaN;
-      }
-
-      // Block string (backtick)
+      // The block forms, which read the lines below
       if (s.equals("`") || (s.startsWith("`") && s.length() >= 2 && s.charAt(1) == ' ')) {
         String firstLine = s.length() > 2 ? s.substring(2) : "";
         // The block ends at a line indented no deeper than the opener's line.
-        return parseBlockString(firstLine, t.col, false);
+        return parseBlockString(firstLine, t.lineIndent, false);
       }
-
-      // Block bytes (>)
       if (s.startsWith(">") && !s.contains("<")) {
         return parseBlockBytes(s, -1);
       }
 
-      // Quoted string
-      if (s.startsWith("\"") && s.endsWith("\"") && s.length() >= 2) {
-        pos++;
-        return parseDoubleQuotedString(s, t.lineNum, t.col);
-      }
-      if (s.startsWith("\"") && !s.endsWith("\"")) {
-        // Unterminated double-quoted string
-        throw new YayException("Unterminated string", filename, t.lineNum + 1, t.col + s.length());
-      }
-      if (s.startsWith("'") && s.endsWith("'") && s.length() >= 2) {
-        pos++;
-        return parseSingleQuotedString(s);
-      }
-      if (s.startsWith("'") && !s.endsWith("'")) {
-        // Unterminated single-quoted string
-        throw new YayException("Unterminated string", filename, t.lineNum + 1, t.col + s.length());
-      }
-
-      // Inline array
+      // An inline array taken for a key
       if (s.startsWith("[")) {
-        pos++;
-        return parseInlineArray(s, t.lineNum, t.col);
+        int close = findMatchingBracket(s, 0, '[', ']');
+        if (close + 1 < s.length() && s.charAt(close + 1) == ':') {
+          throw new YayException(
+              "Unexpected character \":\"", filename, t.lineNum + 1, t.col + close + 2);
+        }
       }
 
-      // Inline object
-      if (s.startsWith("{")) {
-        pos++;
-        return parseInlineObject(s, t.lineNum, t.col);
-      }
-
-      // Inline bytes
-      if (s.startsWith("<") && s.contains(">")) {
-        pos++;
-        return parseInlineBytes(s, t.lineNum, t.col);
-      }
-
-      // Unclosed angle bracket is invalid
-      if (s.startsWith("<")) {
-        throw new YayException("Unmatched angle bracket", filename, t.lineNum + 1, t.col + 1);
-      }
-
-      // Key:value pair
-      int colonIdx = findColonOutsideQuotes(s);
-      if (colonIdx > 0) {
+      // A property on this line: "key: value" or "key:" over a block. An inline value with tags
+      // after it, an inline container, a reference and bytes never take a key here.
+      String bare = stripInlineComment(s, t.lineNum, t.col);
+      int tagAt = findTopLevelTag(bare);
+      int colonIdx = findColonOutsideQuotes(bare);
+      boolean tagged = tagAt > 0 && (colonIdx < 0 || colonIdx > tagAt);
+      if (!tagged
+          && !bare.startsWith("[")
+          && !bare.startsWith("{")
+          && !bare.startsWith("<")
+          && colonIdx > 0) {
         return parseKeyValuePair(t, colonIdx);
       }
 
-      // Number
-      Object num = parseNumber(s, t.lineNum, t.col);
-      if (num != null) {
-        pos++;
-        return num;
-      }
+      // Every inline value reads as a property's does
+      pos++;
+      return parseScalar(bare, t.lineNum, t.col);
+    }
 
-      // Bare words are not valid - strings must be quoted
-      char firstChar = s.isEmpty() ? '?' : s.charAt(0);
-      throw new YayException(
-          "Unexpected character \"" + firstChar + "\"", filename, t.lineNum + 1, t.col + 1);
+    // ====================================================================
+    // Tags
+    // ====================================================================
+
+    private static final String PREFIX_WITHOUT_BLOCK =
+        "A tag before a value needs a block below it; write the tag after an inline value";
+
+    /**
+     * Read a tag at s[start], "(", escaped as a double-quoted string is but with \) in the place
+     * of \". Sets end[0] past the ")".
+     */
+    private String readTag(String s, int start, int[] end, int lineNum, int col) {
+      StringBuilder out = new StringBuilder();
+      int i = start + 1;
+      while (true) {
+        if (i >= s.length() || s.charAt(i) == '\n') {
+          throw new YayException("Unterminated string", filename, lineNum + 1, col + start + 1);
+        }
+        char c = s.charAt(i);
+        if (c == ')') {
+          i++;
+          break;
+        }
+        if (c == '\t') {
+          throw new YayException("Tab not allowed (use spaces)", filename, lineNum + 1, col + i + 1);
+        }
+        if (c != '\\') {
+          out.append(c);
+          i++;
+          continue;
+        }
+        char e = i + 1 < s.length() ? s.charAt(i + 1) : '\0';
+        int simple = ")\\/bfnrt".indexOf(e);
+        if (e != '\0' && simple >= 0) {
+          out.append(")\\/\b\f\n\r\t".charAt(simple));
+          i += 2;
+          continue;
+        }
+        if (e != 'u' || i + 2 >= s.length() || s.charAt(i + 2) != '{') {
+          throw new YayException("Bad escaped character", filename, lineNum + 1, col + i + 2);
+        }
+        int j = i + 3;
+        int cp = 0;
+        int digits = 0;
+        while (j < s.length() && s.charAt(j) != '}') {
+          int d = Character.digit(s.charAt(j), 16);
+          if (d < 0 || digits == 6) {
+            throw new YayException("Bad Unicode escape", filename, lineNum + 1, col + j + 1);
+          }
+          cp = cp * 16 + d;
+          digits++;
+          j++;
+        }
+        if (j >= s.length() || digits == 0) {
+          throw new YayException("Bad Unicode escape", filename, lineNum + 1, col + j + 1);
+        }
+        if (cp >= 0xD800 && cp <= 0xDFFF) {
+          throw new YayException("Illegal surrogate", filename, lineNum + 1, col + i + 1);
+        }
+        if (cp > 0x10FFFF) {
+          throw new YayException(
+              "Unicode code point out of range", filename, lineNum + 1, col + i + 1);
+        }
+        out.appendCodePoint(cp);
+        i = j + 1;
+      }
+      // After a tag: the end, an inline container going on, or one space before another tag, a
+      // block or a comment
+      char after = i < s.length() ? s.charAt(i) : '\0';
+      if (after == '(') {
+        throw new YayException(
+            "Expected one space before a tag", filename, lineNum + 1, col + i + 1);
+      }
+      if (after != '\0' && after != ',' && after != ']' && after != '}' && after != ' ') {
+        throw new YayException(
+            "Unexpected character \"" + Character.toString(s.codePointAt(i)) + "\"",
+            filename,
+            lineNum + 1,
+            col + i + 1);
+      }
+      if (after == ' '
+          && i + 1 < s.length()
+          && s.charAt(i + 1) == ' '
+          && !(i + 2 < s.length() && (s.charAt(i + 2) == '#' || s.charAt(i + 2) == '('))) {
+        throw new YayException("Unexpected space after \")\"", filename, lineNum + 1, col + i + 1);
+      }
+      end[0] = i;
+      return out.toString();
+    }
+
+    /**
+     * Wrap a value in the tags after it, at s[start], innermost first: each " (tag)". Sets end[0]
+     * past them.
+     */
+    private Object parseSuffix(Object value, String s, int start, int[] end, int lineNum, int col) {
+      int i = start;
+      while (i + 1 < s.length() && s.charAt(i) == ' ' && s.charAt(i + 1) == '(') {
+        int[] tagEnd = new int[1];
+        String tag = readTag(s, i + 1, tagEnd, lineNum, col);
+        value = new Tagged(tag, value);
+        i = tagEnd[0];
+      }
+      if (i < s.length() && s.charAt(i) == '(') {
+        throw new YayException(
+            "Expected one space before a tag", filename, lineNum + 1, col + i + 1);
+      }
+      if (s.startsWith("  (", i)) {
+        throw new YayException("Unexpected space before \"(\"", filename, lineNum + 1, col + i + 2);
+      }
+      end[0] = i;
+      return value;
+    }
+
+    /** The tags before a block, outermost first, at s[start], "("; rest[0] is what follows. */
+    private List<String> parsePrefix(String s, int start, String[] rest, int lineNum, int col) {
+      List<String> tags = new ArrayList<>();
+      int i = start;
+      while (i < s.length() && s.charAt(i) == '(') {
+        int[] end = new int[1];
+        tags.add(readTag(s, i, end, lineNum, col));
+        i = end[0];
+        if (s.startsWith("  (", i)) {
+          throw new YayException(
+              "Unexpected space before \"(\"", filename, lineNum + 1, col + i + 1);
+        }
+        if (i < s.length() && s.charAt(i) == ' ') i++;
+      }
+      // A comment may follow after more than one space
+      String r = s.substring(i);
+      rest[0] = r.stripLeading().startsWith("#") ? "" : r;
+      return tags;
+    }
+
+    /** Wrap a block in a prefix's tags, outermost first. */
+    private static Object wrapPrefix(Object value, List<String> tags) {
+      for (int k = tags.size() - 1; k >= 0; k--) {
+        value = new Tagged(tags.get(k), value);
+      }
+      return value;
+    }
+
+    /** The index of the first tag at s's top level, outside quotes and inline containers, or -1. */
+    private static int findTopLevelTag(String s) {
+      boolean inDouble = false;
+      boolean inSingle = false;
+      boolean escape = false;
+      int depth = 0;
+      for (int i = 0; i < s.length(); i++) {
+        char c = s.charAt(i);
+        if (escape) {
+          escape = false;
+          continue;
+        }
+        if (c == '\\' && (inDouble || inSingle)) {
+          escape = true;
+          continue;
+        }
+        if (inDouble) {
+          if (c == '"') inDouble = false;
+          continue;
+        }
+        if (inSingle) {
+          if (c == '\'') inSingle = false;
+          continue;
+        }
+        if (c == '"') inDouble = true;
+        else if (c == '\'') inSingle = true;
+        else if (referenceEnd(s, i) >= 0) i = referenceEnd(s, i);
+        else if (c == '[' || c == '{') depth++;
+        else if (c == ']' || c == '}') depth--;
+        else if (c == '(') {
+          if (depth == 0) return i;
+          i = skipTag(s, i) - 1;
+        }
+      }
+      return -1;
+    }
+
+    /** The index past the tag at s[start], "(", or s's length if it does not close. */
+    private static int skipTag(String s, int start) {
+      int i = start + 1;
+      while (i < s.length() && s.charAt(i) != ')') {
+        if (s.charAt(i) == '\\') i++;
+        i++;
+      }
+      return Math.min(i + 1, s.length());
+    }
+
+    /** Parse an inline value with tags after it: the value, then its suffix. */
+    private Object parseTaggedScalar(String s, int tagAt, int lineNum, int col) {
+      if (tagAt == 0) {
+        throw new YayException(PREFIX_WITHOUT_BLOCK, filename, lineNum + 1, col + 1);
+      }
+      if (s.charAt(tagAt - 1) != ' ') {
+        throw new YayException(
+            "Expected one space before a tag", filename, lineNum + 1, col + tagAt + 1);
+      }
+      if (tagAt > 1 && s.charAt(tagAt - 2) == ' ') {
+        // At the first space after the value
+        int at = tagAt - 2;
+        while (at > 0 && s.charAt(at - 1) == ' ') at--;
+        throw new YayException("Unexpected space before \"(\"", filename, lineNum + 1, col + at + 1);
+      }
+      Object value = parseScalar(s.substring(0, tagAt - 1), lineNum, col);
+      int[] end = new int[1];
+      value = parseSuffix(value, s, tagAt - 1, end, lineNum, col);
+      if (end[0] != s.length()) {
+        throw new YayException(
+            "Unexpected character \"" + s.charAt(end[0]) + "\"",
+            filename,
+            lineNum + 1,
+            col + end[0] + 1);
+      }
+      return value;
     }
 
     // ====================================================================
@@ -571,6 +827,30 @@ public class Yay {
       }
 
       return out.toString();
+    }
+
+    /**
+     * Read a single-quoted string, the whole of s. Its only escapes are \' and \\; any other
+     * backslash is literal.
+     */
+    private String parseSingleQuotedString(String s, int lineNum, int col) {
+      StringBuilder out = new StringBuilder();
+      for (int k = 1; k < s.length(); k++) {
+        char c = s.charAt(k);
+        char next = k + 1 < s.length() ? s.charAt(k + 1) : 0;
+        if (c == '\\' && (next == '\'' || next == '\\')) {
+          out.append(s.charAt(++k));
+        } else if (c == '\'') {
+          if (k != s.length() - 1) {
+            throw new YayException("Unexpected character \"'\"", filename, lineNum + 1, col + 1);
+          }
+          return out.toString();
+        } else {
+          out.append(c);
+        }
+      }
+      throw new YayException(
+          "Unterminated string", filename, lineNum + 1, col + s.codePointCount(0, s.length()));
     }
 
     private String parseSingleQuotedString(String s) {
@@ -687,6 +967,11 @@ public class Yay {
 
       int end = s.indexOf('>');
 
+      // Check for space after <
+      if (s.length() > 1 && s.charAt(1) == ' ') {
+        throw new YayException("Unexpected space after \"<\"", filename, lineNum + 1, col + 2);
+      }
+
       // Check for space before >
       if (end > 1 && s.charAt(end - 1) == ' ') {
         throw new YayException("Unexpected space before \">\"", filename, lineNum + 1, col + end);
@@ -714,6 +999,14 @@ public class Yay {
     }
 
     private byte[] parseBlockBytes(String firstLine, int baseIndent) {
+      return parseBlockBytes(firstLine, baseIndent, -1);
+    }
+
+    /**
+     * Parse block bytes. On a list item's line, itemIndent is the item's indent, and the block
+     * goes on below at any deeper indent.
+     */
+    private byte[] parseBlockBytes(String firstLine, int baseIndent, int itemIndent) {
       Token first = tokens.get(pos);
       int firstLineNum = first.lineNum;
       int firstCol = first.col;
@@ -722,9 +1015,13 @@ public class Yay {
 
       String hexStart =
           firstLine.startsWith("> ") ? firstLine.substring(2) : firstLine.substring(1);
-      int hashIdx = hexStart.indexOf('#');
-      if (hashIdx >= 0) {
-        hexStart = hexStart.substring(0, hashIdx);
+      if (isProperty) {
+        // Only a comment may follow ">" on the key's line
+        int hashIdx = hexStart.indexOf('#');
+        hexStart = hashIdx >= 0 ? hexStart.substring(0, hashIdx) : hexStart;
+      } else {
+        hexStart =
+            blockHexLine(hexStart, firstLineNum, firstCol + firstLine.length() - hexStart.length());
       }
 
       // Check for empty leader (just ">")
@@ -732,7 +1029,7 @@ public class Yay {
         throw new YayException("Expected hex or comment in hex block", filename);
       }
 
-      StringBuilder hex = new StringBuilder(hexStart.replaceAll("\\s", "").toLowerCase());
+      StringBuilder hex = new StringBuilder(hexStart.replaceAll("\\s", ""));
 
       while (pos < tokens.size()) {
         Token t = tokens.get(pos);
@@ -740,12 +1037,13 @@ public class Yay {
           if (isProperty && t.indent <= baseIndent) {
             break;
           }
-          String line = t.text;
-          int h = line.indexOf('#');
-          if (h >= 0) {
-            line = line.substring(0, h);
-          }
-          hex.append(line.replaceAll("\\s", "").toLowerCase());
+          hex.append(blockHexLine(t.text, t.lineNum, t.col));
+          pos++;
+        } else if (itemIndent >= 0
+            && t.type == TokenType.STOP
+            && pos + 1 < tokens.size()
+            && tokens.get(pos + 1).type == TokenType.TEXT
+            && tokens.get(pos + 1).indent > itemIndent) {
           pos++;
         } else {
           break;
@@ -755,7 +1053,7 @@ public class Yay {
       String hexStr = hex.toString();
       if (hexStr.length() % 2 != 0) {
         throw new YayException(
-            "Odd number of hex digits", filename, firstLineNum + 1, firstCol + 1);
+            "Odd number of hex digits in byte literal", filename, firstLineNum + 1, firstCol + 1);
       }
 
       return hexToBytes(hexStr, firstLineNum, firstCol);
@@ -792,7 +1090,7 @@ public class Yay {
       String hexStr = hex.toString();
       if (hexStr.length() % 2 != 0) {
         throw new YayException(
-            "Odd number of hex digits", filename, first.lineNum + 1, first.col + 1);
+            "Odd number of hex digits in byte literal", filename, first.lineNum + 1, first.col + 1);
       }
 
       return hexToBytes(hexStr, first.lineNum, first.col);
@@ -847,9 +1145,20 @@ public class Yay {
             } else if (next.type == TokenType.START) {
               // Another START token means nested list
               items.add(parseMultilineArray());
-            } else if (next.type == TokenType.TEXT && findColonOutsideQuotes(next.text) > 0) {
+            } else if (next.type == TokenType.TEXT && next.text.startsWith("(")) {
+              // A tagged block: below the item, or a block string or block bytes on its line
+              items.add(parseTaggedItem(next, listItemIndent));
+            } else if (next.type == TokenType.TEXT
+                && !next.text.startsWith("[")
+                && !next.text.startsWith("{")
+                && findColonOutsideQuotes(next.text) > 0) {
               // Object inside array item - parse all key-value pairs at this indent level
               items.add(parseObjectInArrayItem(listItemIndent));
+            } else if (next.type == TokenType.TEXT
+                && next.text.startsWith(">")
+                && !next.text.contains("<")) {
+              // Block bytes on the item's line, going on below it
+              items.add(parseBlockBytes(next.text, -1, listItemIndent));
             } else {
               items.add(parseValue());
             }
@@ -871,9 +1180,42 @@ public class Yay {
       return items;
     }
 
+    private Object parseTaggedItem(Token next, int listItemIndent) {
+      String[] restOut = new String[1];
+      List<String> tags = parsePrefix(next.text, 0, restOut, next.lineNum, next.col);
+      String rest = restOut[0];
+      if (rest.equals("`") || rest.startsWith("` ")) {
+        String firstLine = rest.length() > 2 ? rest.substring(2) : "";
+        return wrapPrefix(parseBlockString(firstLine, next.lineIndent, false), tags);
+      }
+      if (rest.startsWith(">") && !rest.contains("<")) {
+        return wrapPrefix(parseBlockBytes(rest, -1, listItemIndent), tags);
+      }
+      if (rest.isEmpty()) {
+        pos++;
+        skipBreaksAndStops();
+        Token below = pos < tokens.size() ? tokens.get(pos) : null;
+        if (below != null && below.indent > listItemIndent) {
+          if (below.type == TokenType.START) {
+            return wrapPrefix(parseMultilineArrayImpl(below.indent), tags);
+          }
+          if (below.type == TokenType.TEXT && findColonOutsideQuotes(below.text) > 0) {
+            return wrapPrefix(parseNestedObject(listItemIndent), tags);
+          }
+          if (below.type == TokenType.TEXT
+              && (below.text.startsWith("\"") || below.text.startsWith("'"))) {
+            String result = parseConcatenatedStrings(below.indent);
+            if (result != null) return wrapPrefix(result, tags);
+          }
+        }
+      }
+      throw new YayException(PREFIX_WITHOUT_BLOCK, filename, next.lineNum + 1, next.col + 1);
+    }
+
     // Parse an object that appears as an array item
     private Map<String, Object> parseObjectInArrayItem(int listItemIndent) {
       Map<String, Object> obj = new LinkedHashMap<>();
+      Map<String, int[]> seen = new HashMap<>();
       int objectIndent = -1;
 
       while (pos < tokens.size()) {
@@ -901,7 +1243,7 @@ public class Yay {
         if (t.type == TokenType.TEXT && t.indent == objectIndent) {
           int colonIdx = findColonOutsideQuotes(t.text);
           if (colonIdx > 0) {
-            Map<String, Object> pair = parseKeyValuePair(t, colonIdx);
+            Map<String, Object> pair = parseKeyValuePair(t, colonIdx, seen);
             obj.putAll(pair);
           } else {
             pos++;
@@ -1031,6 +1373,10 @@ public class Yay {
     }
 
     private List<Object> parseInlineArray(String s, int lineNum, int col) {
+      return nested(lineNum, col, () -> parseInlineArrayBody(s, lineNum, col));
+    }
+
+    private List<Object> parseInlineArrayBody(String s, int lineNum, int col) {
       // Check for multiline array (no closing bracket)
       if (!s.contains("]")) {
         throw new YayException(
@@ -1092,6 +1438,18 @@ public class Yay {
         if (inDouble) {
           if (ch == '\\') escape = true;
           else if (ch == '"') inDouble = false;
+          continue;
+        }
+
+        if (ch == '(') {
+          // A tag is opaque
+          i = skipTag(s, i) - 1;
+          continue;
+        }
+
+        if (referenceEnd(s, i) >= 0) {
+          // So is a reference
+          i = referenceEnd(s, i);
           continue;
         }
 
@@ -1192,7 +1550,31 @@ public class Yay {
     // Object Parsing
     // ====================================================================
 
+    /**
+     * Records where a key first appears in an object, and refuses it the second time. Each key
+     * keeps its first position, not only its name, so that the error can say where the first one
+     * is.
+     */
+    private void claimKey(Map<String, int[]> seen, String key, int lineNum, int col) {
+      int[] first = seen.get(key);
+      if (first != null) {
+        String firstAt = (first[0] + 1) + ":" + (first[1] + 1);
+        throw new YayException(
+            "Duplicate key \"" + key + "\" (first at " + firstAt + ")",
+            filename,
+            lineNum + 1,
+            col + 1);
+      }
+      seen.put(key, new int[] {lineNum, col});
+    }
+
     private Map<String, Object> parseKeyValuePair(Token t, int colonIdx) {
+      return parseKeyValuePair(t, colonIdx, null);
+    }
+
+    /** Reads one property; with {@code seen}, refuses a key its object already has. */
+    private Map<String, Object> parseKeyValuePair(
+        Token t, int colonIdx, Map<String, int[]> seen) {
       String keyRaw = t.text.substring(0, colonIdx);
       String valueSlice = t.text.substring(colonIdx + 1);
 
@@ -1220,6 +1602,10 @@ public class Yay {
         key = parseDoubleQuotedString(key, t.lineNum, t.col);
       } else if (key.startsWith("'") && key.endsWith("'")) {
         key = parseSingleQuotedString(key);
+      } else if (isReferenceStart(key, 0) || (key.startsWith("<") && key.endsWith(">"))) {
+        // Bytes or a reference is never a key: the colon after it is stray
+        throw new YayException(
+            "Unexpected character \":\"", filename, t.lineNum + 1, t.col + key.length() + 1);
       } else {
         // Validate unquoted key characters (alphanumeric, underscore, hyphen)
         for (int i = 0; i < key.length(); i++) {
@@ -1233,14 +1619,52 @@ public class Yay {
           }
         }
       }
+      if (seen != null) {
+        claimKey(seen, key, t.lineNum, t.col);
+      }
 
+      // A tagged block: read the property without its tags, then tag the value
+      Object value;
+      if (valuePart.startsWith("(")) {
+        String[] rest = new String[1];
+        List<String> tags =
+            parsePrefix(valuePart, 0, rest, t.lineNum, t.col + colonIdx + 2);
+        // A block leader, or text after one that the block refuses
+        boolean blockLeader =
+            rest[0].startsWith("`") || (rest[0].startsWith(">") && !rest[0].contains("<"));
+        if (!rest[0].isEmpty() && !blockLeader) {
+          throw new YayException(
+              PREFIX_WITHOUT_BLOCK, filename, t.lineNum + 1, t.col + colonIdx + 3);
+        }
+        // Below the root, the block must be indented under the key, or be a list at its
+        // column: a sibling item or property after `- a: (t)` is not its block
+        if (rest[0].isEmpty() && t.indent > 0) {
+          int j = pos + 1;
+          while (j < tokens.size()
+              && (tokens.get(j).type == TokenType.BREAK || tokens.get(j).type == TokenType.STOP)) {
+            j++;
+          }
+          if (j >= tokens.size()
+              || tokens.get(j).indent < t.indent
+              || (tokens.get(j).indent == t.indent && tokens.get(j).type != TokenType.START)) {
+            throw new YayException(
+                PREFIX_WITHOUT_BLOCK, filename, t.lineNum + 1, t.col + colonIdx + 3);
+          }
+        }
+        value = wrapPrefix(parsePropertyValue(t, colonIdx, rest[0]), tags);
+      } else {
+        value = parsePropertyValue(t, colonIdx, valuePart);
+      }
       Map<String, Object> obj = new LinkedHashMap<>();
+      obj.put(key, value);
+      return obj;
+    }
 
+    private Object parsePropertyValue(Token t, int colonIdx, String valuePart) {
       // Empty object
       if (valuePart.equals("{}")) {
         pos++;
-        obj.put(key, new LinkedHashMap<>());
-        return obj;
+        return new LinkedHashMap<>();
       }
 
       // Block string
@@ -1255,8 +1679,7 @@ public class Yay {
               t.lineNum + 1,
               t.col + colonIdx + 3);
         }
-        obj.put(key, parseBlockString(firstLine, t.indent, true));
-        return obj;
+        return parseBlockString(firstLine, t.indent, true);
       }
 
       // Block bytes
@@ -1272,8 +1695,7 @@ public class Yay {
                 t.col + colonIdx + 3);
           }
         }
-        obj.put(key, parseBlockBytes(valuePart, t.indent));
-        return obj;
+        return parseBlockBytes(valuePart, t.indent);
       }
 
       // Note: "key: <" without closing ">" is invalid - inline byte arrays must be closed on the
@@ -1282,8 +1704,7 @@ public class Yay {
       // Inline value
       if (!valuePart.isEmpty()) {
         pos++;
-        obj.put(key, parseScalar(valuePart, t.lineNum, t.col + colonIdx + 2));
-        return obj;
+        return parseScalar(valuePart, t.lineNum, t.col + colonIdx + 2);
       }
 
       // Nested content
@@ -1298,10 +1719,17 @@ public class Yay {
 
       Token next = tokens.get(pos);
 
+      // A block array may stand at the key's column. Every other block value must be
+      // indented deeper, so a sibling item or property is no value.
+      if (next.indent < t.indent
+          || (next.indent == t.indent && next.type != TokenType.START)) {
+        throw new YayException(
+            "Expected value after property", filename, t.lineNum + 1, t.col + colonIdx + 2);
+      }
+
       // Named array - pass next.indent so array stops at items below this level
       if (next.type == TokenType.START && (next.text.equals("- ") || next.text.equals("-"))) {
-        obj.put(key, parseMultilineArrayImpl(next.indent));
-        return obj;
+        return parseMultilineArrayImpl(next.indent);
       }
 
       // Block string on next line - this is invalid in strict YAY
@@ -1329,8 +1757,7 @@ public class Yay {
             && findColonOutsideQuotes(trimmed) < 0) {
           String result = parseConcatenatedStrings(next.indent);
           if (result != null) {
-            obj.put(key, result);
-            return obj;
+            return result;
           }
           // Single string on new line is invalid - fall through to error
           throw new YayException("Unexpected indent", filename, next.lineNum + 1, 1);
@@ -1339,8 +1766,7 @@ public class Yay {
 
       // Nested object
       if (next.type == TokenType.TEXT && next.indent > t.indent) {
-        obj.put(key, parseNestedObject(t.indent));
-        return obj;
+        return parseNestedObject(t.indent);
       }
 
       // Empty property with no nested content is invalid
@@ -1350,6 +1776,7 @@ public class Yay {
 
     private Map<String, Object> parseNestedObject(int baseIndent) {
       Map<String, Object> obj = new LinkedHashMap<>();
+      Map<String, int[]> seen = new HashMap<>();
 
       while (pos < tokens.size()) {
         skipBreaksAndStops();
@@ -1368,7 +1795,7 @@ public class Yay {
 
         int colonIdx = findColonOutsideQuotes(t.text);
         if (colonIdx > 0) {
-          Map<String, Object> pair = parseKeyValuePair(t, colonIdx);
+          Map<String, Object> pair = parseKeyValuePair(t, colonIdx, seen);
           obj.putAll(pair);
         } else {
           // Text without colon in nested object context is invalid
@@ -1460,13 +1887,17 @@ public class Yay {
       }
       if (hexStr.length() % 2 != 0) {
         throw new YayException(
-            "Odd number of hex digits", filename, firstLineNum + 1, firstCol + 1);
+            "Odd number of hex digits in byte literal", filename, firstLineNum + 1, firstCol + 1);
       }
 
       return hexToBytes(hexStr, firstLineNum, firstCol);
     }
 
     private Map<String, Object> parseInlineObject(String s, int lineNum, int col) {
+      return nested(lineNum, col, () -> parseInlineObjectBody(s, lineNum, col));
+    }
+
+    private Map<String, Object> parseInlineObjectBody(String s, int lineNum, int col) {
       // Check for multiline object (no closing brace)
       if (!s.contains("}")) {
         throw new YayException(
@@ -1477,6 +1908,7 @@ public class Yay {
       validateInlineObjectWhitespace(s, lineNum, col);
 
       Map<String, Object> obj = new LinkedHashMap<>();
+      Map<String, int[]> seen = new HashMap<>();
 
       if (s.equals("{}")) {
         return obj;
@@ -1537,6 +1969,7 @@ public class Yay {
         if (i >= s.length() || s.charAt(i) != ':') {
           throw new YayException("Expected colon after key", filename, lineNum + 1, col + 1);
         }
+        claimKey(seen, key, lineNum, col + keyStart);
         i++; // Skip colon
 
         // Skip space after colon
@@ -1581,6 +2014,18 @@ public class Yay {
         if (inDouble) {
           if (ch == '\\') escape = true;
           else if (ch == '"') inDouble = false;
+          continue;
+        }
+
+        if (ch == '(') {
+          // A tag is opaque
+          i = skipTag(s, i) - 1;
+          continue;
+        }
+
+        if (referenceEnd(s, i) >= 0) {
+          // So is a reference
+          i = referenceEnd(s, i);
           continue;
         }
 
@@ -1633,7 +2078,13 @@ public class Yay {
     // Inline Value Parsing
     // ====================================================================
 
+    /** An inline value inside an inline container, and the tags after it. */
     private Object parseInlineValue(String s, int start, int[] consumed, int lineNum, int col) {
+      Object value = parseInlineAtom(s, start, consumed, lineNum, col);
+      return parseSuffix(value, s, consumed[0], consumed, lineNum, col);
+    }
+
+    private Object parseInlineAtom(String s, int start, int[] consumed, int lineNum, int col) {
       if (start >= s.length()) {
         consumed[0] = start;
         return null;
@@ -1669,6 +2120,14 @@ public class Yay {
         return parseInlineObject(inner, lineNum, col + start);
       }
 
+      // A reference
+      if (isReferenceStart(s, start)) {
+        int[] n = new int[1];
+        Reference ref = parseReference(s, start, lineNum, col + start, n);
+        consumed[0] = start + n[0];
+        return ref;
+      }
+
       // Bytes
       if (c == '<') {
         int end = s.indexOf('>', start);
@@ -1678,13 +2137,16 @@ public class Yay {
         return parseInlineBytes(inner, lineNum, col + start);
       }
 
-      // Find end of value (comma or closing bracket)
+      // Find end of value (comma or closing bracket), past any tags
       int end = start;
       while (end < s.length()
           && s.charAt(end) != ','
           && s.charAt(end) != ']'
           && s.charAt(end) != '}') {
-        end++;
+        end =
+            s.charAt(end) == '('
+                ? skipTag(s, end)
+                : referenceEnd(s, end) >= 0 ? referenceEnd(s, end) + 1 : end + 1;
       }
 
       String valueStr = s.substring(start, end).trim();
@@ -1694,6 +2156,14 @@ public class Yay {
     }
 
     private String stripInlineComment(String s) {
+      return stripInlineComment(s, -1, -1);
+    }
+
+    /**
+     * Strip an inline comment from a value. A comment after a value takes two spaces before its
+     * "#"; one space is refused.
+     */
+    private String stripInlineComment(String s, int lineNum, int col) {
       boolean inDouble = false;
       boolean inSingle = false;
       boolean escape = false;
@@ -1708,20 +2178,70 @@ public class Yay {
           escape = true;
           continue;
         }
-        if (c == '"' && !inSingle) {
+        if (c == '(' && !inDouble && !inSingle) {
+          // A tag's text is not a comment
+          i = skipTag(s, i) - 1;
+        } else if (!inDouble && !inSingle && referenceEnd(s, i) >= 0) {
+          // Nor is a reference's
+          i = referenceEnd(s, i);
+        } else if (c == '"' && !inSingle) {
           inDouble = !inDouble;
         } else if (c == '\'' && !inDouble) {
           inSingle = !inSingle;
         } else if (c == '#' && !inDouble && !inSingle) {
+          checkCommentSpacing(s, i, lineNum, col);
           return s.substring(0, i).stripTrailing();
         }
       }
       return s;
     }
 
+    /** Refuse a comment, at s[hash], that has one space before it rather than two. */
+    private void checkCommentSpacing(String s, int hash, int lineNum, int col) {
+      if (lineNum >= 0
+          && hash >= 1
+          && s.charAt(hash - 1) == ' '
+          && (hash < 2 || s.charAt(hash - 2) != ' ')) {
+        throw new YayException(
+            "Expected two spaces before a comment",
+            filename,
+            lineNum + 1,
+            col + s.codePointCount(0, hash) + 1);
+      }
+    }
+
+    /**
+     * Read one line of block bytes: hex, then an optional comment after two spaces, or a comment
+     * alone. Returns the hex without its spaces, refusing uppercase digits.
+     */
+    private String blockHexLine(String text, int lineNum, int col) {
+      if (text.startsWith("#")) return "";
+      String body = text;
+      int hash = text.indexOf('#');
+      if (hash >= 0) {
+        checkCommentSpacing(text, hash, lineNum, col);
+        if (hash > 0 && text.charAt(hash - 1) == ' ') {
+          body = text.substring(0, hash).stripTrailing();
+        }
+      }
+      for (int i = 0; i < body.length(); i++) {
+        char c = body.charAt(i);
+        if (c >= 'A' && c <= 'F') {
+          throw new YayException(
+              "Uppercase hex digit (use lowercase)", filename, lineNum + 1, col + i + 1);
+        }
+      }
+      return body.replace(" ", "");
+    }
+
     private Object parseScalar(String s, int lineNum, int col) {
       // Strip inline comments first
-      s = stripInlineComment(s);
+      s = stripInlineComment(s, lineNum, col);
+
+      int tagAt = findTopLevelTag(s);
+      if (tagAt >= 0) {
+        return parseTaggedScalar(s, tagAt, lineNum, col);
+      }
 
       if (s.equals("null")) return null;
       if (s.equals("true")) return Boolean.TRUE;
@@ -1730,12 +2250,26 @@ public class Yay {
       if (s.equals("-infinity")) return Double.NEGATIVE_INFINITY;
       if (s.equals("nan")) return Double.NaN;
 
-      // Quoted string
-      if (s.startsWith("\"") && s.endsWith("\"")) {
+      // Quoted string: closed early, with more after it, or never closed
+      if (s.startsWith("\"")) {
+        if (s.length() < 2 || !s.endsWith("\"")) {
+          int k = 1;
+          while (k < s.length() && s.charAt(k) != '"') k += s.charAt(k) == '\\' ? 2 : 1;
+          if (k < s.length()) {
+            throw new YayException("Unexpected character \"\"\"", filename, lineNum + 1, col + 1);
+          }
+          throw new YayException(
+              "Unterminated string", filename, lineNum + 1, col + s.codePointCount(0, s.length()));
+        }
         return parseDoubleQuotedString(s, lineNum, col);
       }
-      if (s.startsWith("'") && s.endsWith("'")) {
-        return parseSingleQuotedString(s);
+      if (s.startsWith("'")) {
+        return parseSingleQuotedString(s, lineNum, col);
+      }
+
+      // A reference
+      if (isReferenceStart(s, 0)) {
+        return parseWholeReference(s, lineNum, col);
       }
 
       // Bytes
@@ -1746,13 +2280,21 @@ public class Yay {
         return parseInlineBytes(s, lineNum, col);
       }
 
-      // Inline array
-      if (s.startsWith("[") && s.endsWith("]")) {
+      // Inline array, closed on its line
+      if (s.startsWith("[")) {
+        if (!s.endsWith("]")) {
+          throw new YayException(
+              "Unexpected newline in inline array", filename, lineNum + 1, col + 1);
+        }
         return parseInlineArray(s, lineNum, col);
       }
 
-      // Inline object
-      if (s.startsWith("{") && s.endsWith("}")) {
+      // Inline object, closed on its line
+      if (s.startsWith("{")) {
+        if (!s.contains("}")) {
+          throw new YayException(
+              "Unexpected newline in inline object", filename, lineNum + 1, col + 1);
+        }
         return parseInlineObject(s, lineNum, col);
       }
 
@@ -1848,6 +2390,151 @@ public class Yay {
     }
 
     // ====================================================================
+    // References
+    // ====================================================================
+
+    /**
+     * The length of the scheme, colon included, if s at start (the text after "<") begins
+     * [A-Za-z][A-Za-z0-9+.-]*":", or 0. Uppercase letters are matched so that the reader can name
+     * an uppercase scheme rather than call it bad hex.
+     */
+    private static int schemeLen(String s, int start) {
+      if (start >= s.length() || !isAsciiLetter(s.charAt(start))) return 0;
+      for (int i = start + 1; i < s.length(); i++) {
+        char c = s.charAt(i);
+        if (c == ':') return i + 1 - start;
+        if (!isAsciiLetter(c) && !(c >= '0' && c <= '9') && c != '+' && c != '-' && c != '.') {
+          return 0;
+        }
+      }
+      return 0;
+    }
+
+    private static boolean isAsciiLetter(char c) {
+      return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+    }
+
+    /** Whether s at start begins with "<" and a scheme, so is a reference rather than bytes. */
+    private static boolean isReferenceStart(String s, int start) {
+      return start < s.length() && s.charAt(start) == '<' && schemeLen(s, start + 1) > 0;
+    }
+
+    /**
+     * The index of the ">" that closes a reference at s[start], or -1 if there is no reference
+     * there or it does not close. The scanners for quotes, brackets, colons, tags and comments
+     * skip a reference's text with it, since its punctuation is not syntax.
+     */
+    private static int referenceEnd(String s, int start) {
+      return isReferenceStart(s, start) ? s.indexOf('>', start) : -1;
+    }
+
+    /**
+     * Whether a code point may appear in a reference (RFC 3986 and RFC 3987), "%" aside, which
+     * must begin a percent-encoding.
+     */
+    private static boolean isUriCodePoint(int cp) {
+      if (cp < 0x80) {
+        return (cp >= 'a' && cp <= 'z')
+            || (cp >= 'A' && cp <= 'Z')
+            || (cp >= '0' && cp <= '9')
+            || "-._~:/?#[]@!$&'()*+,;=".indexOf(cp) >= 0;
+      }
+      return cp >= 0xA0
+          && !Character.isISOControl(cp)
+          && !Character.isWhitespace(cp)
+          && !Character.isSpaceChar(cp)
+          && cp != 0xFFFE
+          && cp != 0xFFFF;
+    }
+
+    private static boolean isHexDigit(char c) {
+      return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+    }
+
+    /**
+     * Read a reference at s[start], which isReferenceStart accepted, to the first ">", which
+     * always closes it. Sets consumed[0] to the characters read, the ">" included.
+     */
+    private Reference parseReference(String s, int start, int lineNum, int col, int[] consumed) {
+      consumed[0] = scanReference(s, start, lineNum, col, filename);
+      return new Reference(s.substring(start + 1, start + consumed[0] - 1));
+    }
+
+    /**
+     * Why uri cannot be a reference's text, or null if it can: a lowercase scheme, a colon, URI or
+     * IRI characters and well-formed percent-encodings, with nothing after.
+     */
+    static String referenceFault(String uri) {
+      String text = "<" + uri + ">";
+      if (!isReferenceStart(text, 0)) return "A reference needs a scheme";
+      int n;
+      try {
+        n = scanReference(text, 0, 0, 0, null);
+      } catch (YayException e) {
+        String why = e.getMessage().replaceFirst(" at \\d+:\\d+$", "");
+        return why.equals("Unmatched angle bracket") ? "Unexpected line break in reference" : why;
+      }
+      return n == text.length() ? null : "Unexpected character \">\" in reference";
+    }
+
+    /**
+     * Scan a reference at s[start], which isReferenceStart accepted, to the first ">", which
+     * always closes it, and return the characters read, the ">" included.
+     */
+    private static int scanReference(String s, int start, int lineNum, int col, String filename) {
+      int n = schemeLen(s, start + 1) - 1;
+      String scheme = s.substring(start + 1, start + 1 + n);
+      if (!scheme.toLowerCase(Locale.ROOT).equals(scheme)) {
+        throw new YayException(
+            "Uppercase scheme \"" + scheme + "\" in reference (use lowercase)",
+            filename,
+            lineNum + 1,
+            col + 1);
+      }
+      for (int at = start + 1 + n; at < s.length(); ) {
+        int cp = s.codePointAt(at);
+        int column = col + (at - start) + 1;
+        if (cp == '>') {
+          return at + 1 - start;
+        } else if (cp == '%') {
+          if (!(at + 2 < s.length() && isHexDigit(s.charAt(at + 1)) && isHexDigit(s.charAt(at + 2)))) {
+            throw new YayException(
+                "Bad percent-encoding in reference (use % and two hex digits)",
+                filename,
+                lineNum + 1,
+                column);
+          }
+        } else if (cp == '\n' || cp == '\r') {
+          break;
+        } else if (cp == ' ') {
+          throw new YayException("Unexpected space in reference", filename, lineNum + 1, column);
+        } else if (cp == '\t') {
+          throw new YayException("Tab not allowed in reference", filename, lineNum + 1, column);
+        } else if (!isUriCodePoint(cp)) {
+          throw new YayException(
+              "Unexpected character \"" + Character.toString(cp) + "\" in reference",
+              filename,
+              lineNum + 1,
+              column);
+        }
+        at += Character.charCount(cp);
+      }
+      throw new YayException("Unmatched angle bracket", filename, lineNum + 1, col + 1);
+    }
+
+    /** Read a reference that must be all of s. */
+    private Reference parseWholeReference(String s, int lineNum, int col) {
+      int[] consumed = new int[1];
+      Reference ref = parseReference(s, 0, lineNum, col, consumed);
+      int n = consumed[0];
+      if (n < s.length()) {
+        throw new YayException(
+            "Unexpected character \"" + s.charAt(n) + "\"", filename, lineNum + 1, col + n + 1);
+      }
+      return ref;
+    }
+
+    // ====================================================================
     // Utility Methods
     // ====================================================================
 
@@ -1869,7 +2556,13 @@ public class Yay {
           continue;
         }
 
-        if (c == '"' && !inSingle) {
+        if (c == '(' && !inDouble && !inSingle) {
+          // A tag's text is not a property's colon
+          i = skipTag(s, i) - 1;
+        } else if (!inDouble && !inSingle && referenceEnd(s, i) >= 0) {
+          // Nor is a reference's
+          i = referenceEnd(s, i);
+        } else if (c == '"' && !inSingle) {
           inDouble = !inDouble;
         } else if (c == '\'' && !inDouble) {
           inSingle = !inSingle;
@@ -1932,6 +2625,18 @@ public class Yay {
             inString = true;
             stringChar = c;
           }
+          continue;
+        }
+
+        if (!inString && c == '(') {
+          // A tag is opaque
+          i = skipTag(s, i) - 1;
+          continue;
+        }
+
+        if (!inString && referenceEnd(s, i) >= 0) {
+          // So is a reference
+          i = referenceEnd(s, i);
           continue;
         }
 

@@ -1,0 +1,1 @@
+peers: [<ocapn://a.tcp> (Counter), <ocapn://b.tcp>]

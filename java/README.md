@@ -14,7 +14,7 @@ Add the dependency to your `pom.xml`:
 <dependency>
     <groupId>com.kriskowal</groupId>
     <artifactId>yay</artifactId>
-    <version>1.1.1</version>
+    <version>2.0.0</version>
 </dependency>
 ```
 
@@ -48,6 +48,32 @@ Parses YAY-encoded data and returns the result.
 
 Parses YAY-encoded data with a filename for error messages.
 
+### `Tagged(String tag, Object payload)`
+
+A tagged value, `'X-1' (com.example/sku)` or a block below `key: (tag)`:
+a record with the tag, a string, and the payload, any value. Tagged values
+are equal when their tags and payloads are (byte arrays by content); a
+tagged value never equals its payload. YAY gives no tag a meaning.
+
+```java
+Yay.parse("count: 10 (s)\n");
+// {count=Tagged[tag=s, payload=10]}
+```
+
+### `Reference(String uri)`
+
+A reference, `<https://example.com/>`: a record with the URI or IRI, held
+as written, without its angle brackets. YAY never dereferences it.
+References are equal when their texts are; a reference never equals a
+string. The constructor throws an `IllegalArgumentException` for text that
+is not a reference's (a lowercase scheme, a colon, URI or IRI characters
+and well-formed percent-encodings).
+
+```java
+Yay.parse("<ocapn://a.tcp> (Counter)\n");
+// Tagged[tag=Counter, payload=<ocapn://a.tcp>]
+```
+
 ## Type Mapping
 
 | YAY Type | Java Type | Notes |
@@ -60,6 +86,8 @@ Parses YAY-encoded data with a filename for error messages.
 | array | `List<Object>` | |
 | object | `Map<String, Object>` | `LinkedHashMap` preserves insertion order |
 | bytes | `byte[]` | |
+| tagged | `Tagged` | `record Tagged(String tag, Object payload)` |
+| reference | `Reference` | `record Reference(String uri)` |
 
 # YAY Format
 
@@ -801,8 +829,8 @@ Hex and comments on the same lines for inline documentation of byte sequences.
 
 [bytearray-block-hex-and-comment.yay](https://github.com/kriskowal/yay/blob/main/test/yay/bytearray-block-hex-and-comment.yay)
 ```yay
-> b0b5 # first chunk
-  c0ff # second chunk
+> b0b5  # first chunk
+  c0ff  # second chunk
 ```
 
 [bytearray-block-hex-and-comment.java](https://github.com/kriskowal/yay/blob/main/test/java/bytearray-block-hex-and-comment.java)

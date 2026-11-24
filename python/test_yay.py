@@ -20,11 +20,31 @@ def parse_py_value(py_content: str):
     """
     Evaluate an expected-value fixture from test/py/.
 
-    The fixtures are Python literals, plus calls to bytes.fromhex("...") and
-    float("inf"), float("-inf") or float("nan"). Nothing else is evaluated.
+    The fixtures are Python literals, plus calls to bytes.fromhex("..."),
+    float("inf"), float("-inf") or float("nan"), Tagged("tag", payload) and
+    Reference("uri").
+    Nothing else is evaluated.
     """
 
     def evaluate(node):
+        if (
+            isinstance(node, ast.Call)
+            and ast.unparse(node.func) == "Tagged"
+            and len(node.args) == 2
+            and not node.keywords
+        ):
+            tag = ast.literal_eval(node.args[0])
+            if isinstance(tag, str):
+                return yay.Tagged(tag, evaluate(node.args[1]))
+        if (
+            isinstance(node, ast.Call)
+            and ast.unparse(node.func) == "Reference"
+            and len(node.args) == 1
+            and not node.keywords
+        ):
+            uri = ast.literal_eval(node.args[0])
+            if isinstance(uri, str):
+                return yay.Reference(uri)
         if isinstance(node, ast.Call) and len(node.args) == 1 and not node.keywords:
             func = ast.unparse(node.func)
             arg = ast.literal_eval(node.args[0])
@@ -65,6 +85,9 @@ def values_equal(a, b) -> bool:
         if set(a.keys()) != set(b.keys()):
             return False
         return all(values_equal(a[k], b[k]) for k in a)
+
+    if isinstance(a, yay.Tagged):
+        return a.tag == b.tag and values_equal(a.payload, b.payload)
 
     if isinstance(a, list):
         if len(a) != len(b):
@@ -165,41 +188,144 @@ def run_error_tests(test_root: str, verbose: bool = False) -> tuple[int, int, li
             failed += 1
             errors.append((fname, f"Expected error but got result: {result!r}"))
         except yay.YayError as e:
-            # Check if error message matches expected pattern
+            # The whole message, its line and column included, in this port's
+            # form: "(line L, col C)" for " at L:C of <file>", and nothing for
+            # the file name of a message without a location
             error_msg = str(e)
-            if expected_error:
-                # Extract the key part of expected error (before "at X:Y of")
-                # e.g., "Unexpected space after \":\"" from full message
-                match = re.match(r"^(.+?)\s+at\s+\d+:\d+", expected_error)
-                if match:
-                    expected_pattern = match.group(1).strip()
-                    if expected_pattern.lower() in error_msg.lower():
-                        passed += 1
-                        if verbose:
-                            print(f"  {fname}: OK (error: {error_msg})")
-                    else:
-                        failed += 1
-                        errors.append(
-                            (
-                                fname,
-                                f"Error mismatch: got '{error_msg}', expected pattern '{expected_pattern}'",
-                            )
-                        )
-                else:
-                    # No "at X:Y" pattern, just check if any error was raised
+            if expected_error is not None:
+                file = re.escape(f"<{fname}>")
+                expected_msg = re.sub(
+                    rf" at (\d+):(\d+) of {file}$",
+                    r" (line \1, col \2)",
+                    expected_error,
+                )
+                expected_msg = re.sub(rf" {file}$", "", expected_msg)
+                if error_msg == expected_msg:
                     passed += 1
                     if verbose:
                         print(f"  {fname}: OK (error: {error_msg})")
+                else:
+                    failed += 1
+                    errors.append(
+                        (
+                            fname,
+                            f"Error mismatch: got '{error_msg}', expected '{expected_msg}'",
+                        )
+                    )
             else:
                 passed += 1
                 if verbose:
                     print(f"  {fname}: OK (error: {error_msg})")
         except Exception as e:
-            # Other exceptions count as pass (we expected an error)
+            # Any other exception is a defect, not the expected error
+            failed += 1
+            errors.append((fname, f"Unexpected {type(e).__name__}: {e}"))
+
+    return passed, failed, errors
+
+
+def nest_arrays(n, value):
+    for _ in range(n):
+        value = [value]
+    return value
+
+
+def nest_objects(n, value):
+    for _ in range(n):
+        value = {"a": value}
+    return value
+
+
+def nest_mixed(n, value):
+    for _ in range(n):
+        value = [{"a": value}]
+    return value
+
+
+# Documents the shared fixtures do not hold, each with its value, or None
+# where it must be refused.
+PORT_CASES = [
+    # GRAMMAR.md's nested-content: a block string opened below its key with
+    # text on the backtick's line reads as at the root (a backtick alone
+    # there is test/nay's string-block-property-invalid-leader-next-line)
+    ("key:\n  ` First line.\n    more\n", {"key": "First line.\nmore\n"}),
+    ("key:\n  ` text\nnext: 1\n", {"key": "text\n", "next": 1}),
+    ("a:\n  b:\n    ` x\n  c: 1\n", {"a": {"b": "x\n", "c": 1}}),
+    ("key:\n  ` x\n  y: 1\n", None),
+    # Inline arrays and objects nest 256 levels, counted together
+    ("x: " + "[" * 256 + "1" + "]" * 256 + "\n", {"x": nest_arrays(256, 1)}),
+    ("x: " + "{a: " * 256 + "1" + "}" * 256 + "\n", {"x": nest_objects(256, 1)}),
+    ("x: " + "[{a: " * 128 + "1" + "}]" * 128 + "\n", {"x": nest_mixed(128, 1)}),
+]
+
+# Documents refused with the given message, which must be the whole of it
+PORT_ERRORS = [
+    # Deeper nesting is refused at the bracket that goes past 256 levels,
+    # not with Python's RecursionError
+    (
+        "x: " + "[" * 100000 + "1" + "]" * 100000 + "\n",
+        "Inline nesting deeper than 256 levels (line 1, col 260)",
+    ),
+    (
+        "x: " + "{a: " * 100000 + "1" + "}" * 100000 + "\n",
+        "Inline nesting deeper than 256 levels (line 1, col 1028)",
+    ),
+    (
+        "x: " + "[{a: " * 129 + "1" + "}]" * 129 + "\n",
+        "Inline nesting deeper than 256 levels (line 1, col 644)",
+    ),
+]
+
+
+def run_port_cases(verbose: bool = False) -> tuple[int, int, list]:
+    """Run PORT_CASES. Returns (passed, failed, errors)."""
+    passed = 0
+    failed = 0
+    errors = []
+    for source, expected in PORT_CASES:
+        try:
+            result = yay.loads(source)
+        except yay.YayError as e:
+            if expected is None:
+                passed += 1
+            else:
+                failed += 1
+                errors.append((repr(source), str(e)))
+            continue
+        if expected is not None and values_equal(result, expected):
             passed += 1
             if verbose:
-                print(f"  {fname}: OK (exception: {type(e).__name__}: {e})")
+                print(f"  {source!r}: OK -> {result!r}")
+        else:
+            failed += 1
+            errors.append((repr(source), f"got {result!r}, expected {expected!r}"))
+    return passed, failed, errors
 
+
+def run_port_errors(verbose: bool = False) -> tuple[int, int, list]:
+    """Run PORT_ERRORS. Returns (passed, failed, errors)."""
+    passed = 0
+    failed = 0
+    errors = []
+    for source, message in PORT_ERRORS:
+        label = repr(source if len(source) < 60 else source[:57] + "...")
+        try:
+            result = yay.loads(source)
+        except yay.YayError as e:
+            if str(e) == message:
+                passed += 1
+                if verbose:
+                    print(f"  {label}: OK (error: {e})")
+            else:
+                failed += 1
+                errors.append((label, f"got '{e}', expected '{message}'"))
+            continue
+        except RecursionError as e:
+            failed += 1
+            errors.append((label, f"got RecursionError, expected '{message}'"))
+            continue
+        failed += 1
+        errors.append((label, f"Expected error but got result: {result!r}"[:200]))
     return passed, failed, errors
 
 
@@ -251,9 +377,17 @@ def main():
         e_passed, e_failed, e_errors = run_error_tests(test_root, args.verbose)
         print(f"  {e_passed} passed, {e_failed} failed")
 
-        total_passed = v_passed + e_passed
-        total_failed = v_failed + e_failed
-        all_errors = v_errors + e_errors
+        # Run the port's own cases
+        print("\nPort cases:")
+        p_passed, p_failed, p_errors = run_port_cases(args.verbose)
+        q_passed, q_failed, q_errors = run_port_errors(args.verbose)
+        p_passed, p_failed = p_passed + q_passed, p_failed + q_failed
+        p_errors = p_errors + q_errors
+        print(f"  {p_passed} passed, {p_failed} failed")
+
+        total_passed = v_passed + e_passed + p_passed
+        total_failed = v_failed + e_failed + p_failed
+        all_errors = v_errors + e_errors + p_errors
 
         print(f"\nTotal: {total_passed} passed, {total_failed} failed")
 

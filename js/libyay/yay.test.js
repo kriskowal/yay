@@ -2,14 +2,14 @@ import { describe, it } from "node:test";
 import assert from "node:assert";
 import fs from "fs";
 import path from "path";
-import { fileURLToPath } from "node:url";
 
-import { parseYay } from "./yay.js";
+import { parseYay, reference, tagged } from "./yay.js";
+import { casesDir, cases } from "./test-helpers.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const testRoot = path.join(__dirname, "..", "..", "test");
+const testRoot = casesDir("test");
 const yayDir = path.join(testRoot, "yay");
 const nayDir = path.join(testRoot, "nay");
+const mehDir = path.join(testRoot, "meh");
 const jsDir = path.join(testRoot, "js");
 
 /**
@@ -102,20 +102,6 @@ function decodeUtf8(buffer) {
   return s;
 }
 
-// Uint8Array.fromHex may not exist in Node < 22
-if (typeof Uint8Array.fromHex !== "function") {
-  Uint8Array.fromHex = function fromHex(hex) {
-    const str = hex.replace(/\s/g, "");
-    if (str.length % 2 !== 0) throw new RangeError("Odd number of hex digits");
-    if (!/^[0-9a-fA-F]*$/.test(str)) throw new SyntaxError("Invalid hex digit");
-    const bytes = new Uint8Array(str.length / 2);
-    for (let i = 0; i < bytes.length; i++) {
-      bytes[i] = parseInt(str.slice(i * 2, i * 2 + 2), 16);
-    }
-    return bytes;
-  };
-}
-
 function loadFixture(basename) {
   const yayPath = path.join(yayDir, `${basename}.yay`);
   const jsPath = path.join(jsDir, `${basename}.js`);
@@ -126,42 +112,63 @@ function loadFixture(basename) {
 }
 
 describe("parseYay", () => {
-  const yayFiles = fs.readdirSync(yayDir).filter((f) => f.endsWith(".yay"));
+  const yayFiles = cases(yayDir, "yay");
   const basenames = yayFiles.map((f) => path.basename(f, ".yay"));
 
   for (const basename of basenames) {
     it(`fixture ${basename} matches expected value`, () => {
       const { yaySource, expected } = loadFixture(basename);
-      const parsed = parseYay(yaySource);
+      const parsed = parseYay(yaySource, { decodeReference: reference });
       assert.deepStrictEqual(parsed, expected, `fixture ${basename}`);
     });
   }
 });
 
-describe("parseYay JSON parity (.yayson)", () => {
-  const yaysonFiles = fs
-    .readdirSync(yayDir)
-    .filter((f) => f.endsWith(".yayson"));
-  const basenames = yaysonFiles.map((f) => path.basename(f, ".yayson"));
-
-  for (const basename of basenames) {
-    it(`fixture ${basename} matches JSON.parse`, () => {
-      const yaysonPath = path.join(yayDir, `${basename}.yayson`);
-      const yaysonSource = fs.readFileSync(yaysonPath, "utf8");
-      const trimmed = yaysonSource.replace(/\r?\n$/, "");
-      assert.ok(
-        !/[\r\n]/.test(trimmed),
-        `fixture ${basename} must be single-line JSON`,
-      );
-      const parsed = parseYay(yaysonSource);
-      const expected = JSON.parse(yaysonSource);
-      assert.deepStrictEqual(parsed, expected, `fixture ${basename}`);
-    });
+it("decodes hex without Uint8Array.fromHex", () => {
+  const fromHex = Uint8Array.fromHex;
+  Uint8Array.fromHex = () => {
+    throw new Error("the parser used Uint8Array.fromHex");
+  };
+  try {
+    assert.deepStrictEqual(parseYay("<00ff>\n"), new Uint8Array([0, 255]));
+    assert.deepStrictEqual(parseYay("> 00 ff\n"), new Uint8Array([0, 255]));
+  } finally {
+    if (fromHex === undefined) delete Uint8Array.fromHex;
+    else Uint8Array.fromHex = fromHex;
   }
+});
+
+describe("bytes: plain by default, with a hook or immutable mode", () => {
+  it("is a plain Uint8Array by default", () => {
+    const value = parseYay("a: <00ff>\nb: <>\n");
+    assert.ok(value.a instanceof Uint8Array);
+    assert.deepStrictEqual(value.a, new Uint8Array([0, 255]));
+    assert.deepStrictEqual(value.b, new Uint8Array(0));
+  });
+  it("takes a caller's hook for inline, block and empty bytes", () => {
+    const hex = (bytes) =>
+      Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+    const value = parseYay("a: <00ff>\nb: <>\nc: >\n  01 02\n", {
+      bytes: hex,
+    });
+    assert.deepStrictEqual(value, { a: "00ff", b: "", c: "0102" });
+  });
+  it("fails loudly when immutable bytes are unavailable", () => {
+    assert.throws(
+      () => parseYay("<00ff>\n", { bytes: "immutable" }),
+      /Immutable bytes are unavailable/,
+    );
+  });
+  it("refuses an unknown bytes option", () => {
+    assert.throws(
+      () => parseYay("<00ff>\n", { bytes: "freeze" }),
+      /bytes must be "plain", "immutable", or a function/,
+    );
+  });
 });
 
 describe("parseYay negative (invalid .nay)", () => {
-  const nayFiles = fs.readdirSync(nayDir).filter((f) => f.endsWith(".nay"));
+  const nayFiles = cases(nayDir, "nay");
   const basenames = nayFiles.map((f) => path.basename(f, ".nay"));
 
   for (const basename of basenames) {
@@ -176,25 +183,95 @@ describe("parseYay negative (invalid .nay)", () => {
       const expectedMessage = fs.readFileSync(errorPath, "utf8").trim();
       const filename = `${basename}.nay`;
       assert.throws(
-        () => parseYay(naySource, filename),
+        () => parseYay(naySource, { filename, decodeReference: reference }),
         (err) => {
-          // Extract the error type (before "at X:Y of")
-          const match = expectedMessage.match(/^(.+?)\s+at\s+\d+:\d+/);
-          const expectedPattern = match ? match[1].trim() : expectedMessage;
-          // Check if actual error contains expected pattern (case-insensitive)
-          const actualMsg = err.message.trim();
-          const containsPattern = actualMsg
-            .toLowerCase()
-            .includes(expectedPattern.toLowerCase());
-          if (!containsPattern) {
-            assert.fail(
-              `error message for ${basename}: expected to contain "${expectedPattern}", got "${actualMsg}"`,
-            );
-          }
+          // The whole message, its line and column included
+          assert.equal(
+            err.message.trim(),
+            expectedMessage,
+            `error message for ${basename}`,
+          );
           return true;
         },
         `parseYay should throw for ${basename}.nay`,
       );
     });
   }
+});
+
+// test/meh holds MEH's cases: <name>.<variant>.meh reads as MEH to
+// <name>.yay, or is refused with the message in <name>.error. JavaScript has
+// no MEH reader, but YAY is MEH without the leniency, which changes spacing
+// and never meaning. So each <name>.yay is YAY; YAY reads each .meh to the
+// value of its .yay or refuses it; and YAY refuses what MEH refuses.
+describe("parseYay over the MEH corpus (test/meh)", () => {
+  const files = fs.readdirSync(mehDir).sort();
+  const read = (name) => fs.readFileSync(path.join(mehDir, name), "utf8");
+
+  for (const name of files.filter((f) => f.endsWith(".yay"))) {
+    it(`${name} is YAY`, () => {
+      parseYay(read(name), { filename: name, decodeReference: reference });
+    });
+  }
+
+  const mehs = files.filter((f) => f.endsWith(".meh"));
+  it("finds the cases", () => {
+    assert.ok(mehs.length > 0, `MEH cases in ${mehDir}`);
+  });
+  for (const name of mehs) {
+    const stem = name.slice(0, -".meh".length);
+    const test = stem.includes(".")
+      ? stem.slice(0, stem.lastIndexOf("."))
+      : stem;
+    it(`${name} is refused or reads as ${test}.yay`, () => {
+      if (files.includes(`${test}.yay`)) {
+        let value;
+        try {
+          value = parseYay(read(name), {
+            filename: name,
+            decodeReference: reference,
+          });
+        } catch {
+          return;
+        }
+        assert.deepStrictEqual(
+          value,
+          parseYay(read(`${test}.yay`), { decodeReference: reference }),
+        );
+      } else {
+        assert.ok(files.includes(`${test}.error`), `${test}.yay or .error`);
+        assert.throws(() =>
+          parseYay(read(name), {
+            filename: name,
+            decodeReference: reference,
+          }),
+        );
+      }
+    });
+  }
+});
+
+describe("inline nesting limit", () => {
+  it("reads 256 levels of inline arrays and objects", () => {
+    const arrays = "[".repeat(256) + "1" + "]".repeat(256);
+    assert.doesNotThrow(() => parseYay(`a: ${arrays}\n`));
+    const objects = "{a: ".repeat(256) + "1" + "}".repeat(256);
+    assert.doesNotThrow(() => parseYay(`a: ${objects}\n`));
+  });
+  it("refuses deeper nesting with a YAY error, not a RangeError", () => {
+    for (const [open, close] of [
+      ["[", "]"],
+      ["{a: ", "}"],
+    ]) {
+      const deep = open.repeat(100000) + "1" + close.repeat(100000);
+      assert.throws(
+        () => parseYay(`a: ${deep}\n`, { filename: "deep.yay" }),
+        (err) =>
+          !(err instanceof RangeError) &&
+          /^Inline nesting deeper than 256 levels at 1:\d+ of <deep\.yay>$/.test(
+            err.message,
+          ),
+      );
+    }
+  });
 });

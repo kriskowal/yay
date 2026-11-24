@@ -77,6 +77,8 @@ case YAY_STRING:  printf("string: %s\n", v->data.string); break;
 case YAY_BYTES:   printf("bytes: %zu bytes\n", v->data.bytes.length); break;
 case YAY_ARRAY:   printf("array: %zu items\n", v->data.array.length); break;
 case YAY_OBJECT:  printf("object: %zu pairs\n", v->data.object.length); break;
+case YAY_TAGGED:  printf("tagged: (%s)\n", v->data.tagged.tag); break;
+case YAY_REFERENCE: printf("reference: <%s>\n", v->data.reference); break;
 }
 ```
 
@@ -134,6 +136,36 @@ yay_value_t *lookup(yay_value_t *obj, const char *key) {
 }
 ```
 
+### Tagged Values
+
+A tagged value, `'X-1' (com.example/sku)` or a block below `key: (tag)`,
+has type `YAY_TAGGED`: its tag, a UTF-8 string, is `data.tagged.tag`, and its
+payload, any value, is `data.tagged.payload`. `yay_tagged(tag, payload)`
+makes one, copying the tag and taking the payload. Tagged values are equal
+when their tags and payloads are; a tagged value never equals its payload.
+YAY gives no tag a meaning.
+
+```c
+yay_result_t r = yay_parse("count: 10 (s)\n", 0, NULL);
+yay_value_t *count = r.value->data.object.pairs[0].value;
+/* count->type == YAY_TAGGED, tag "s", payload the integer 10 */
+```
+
+### References
+
+A reference, `<https://example.com/>`, a URI or IRI held as written, has
+type `YAY_REFERENCE`, its text, without the angle brackets, in
+`data.reference`. YAY never dereferences it. `yay_reference(uri)` makes one,
+copying the text, and returns `NULL` if the text is not a reference's (a
+lowercase scheme, a colon, URI or IRI characters and well-formed
+percent-encodings). References are equal when their texts are; a
+reference never equals a string.
+
+```c
+yay_result_t r = yay_parse("<ocapn://a.tcp> (Counter)\n", 0, NULL);
+/* r.value->type == YAY_TAGGED, its payload a YAY_REFERENCE */
+```
+
 ## Code Generation
 
 The [`yay` CLI](../CLI.md) can generate C expressions from YAY documents:
@@ -173,6 +205,8 @@ YAY_OBJECT(
 | array | `yay_value_t **` | Array of value pointers |
 | object | `yay_pair_t *` | Array of key-value pairs |
 | bytes | `uint8_t *` | With length field |
+| tagged | `YAY_TAGGED` | `data.tagged.tag` and `data.tagged.payload` |
+| reference | `YAY_REFERENCE` | `data.reference`, from `yay_reference(uri)` |
 
 # YAY Format
 
@@ -953,8 +987,8 @@ Hex and comments on the same lines for inline documentation of byte sequences.
 
 [bytearray-block-hex-and-comment.yay](https://github.com/kriskowal/yay/blob/main/test/yay/bytearray-block-hex-and-comment.yay)
 ```yay
-> b0b5 # first chunk
-  c0ff # second chunk
+> b0b5  # first chunk
+  c0ff  # second chunk
 ```
 
 [bytearray-block-hex-and-comment.c](https://github.com/kriskowal/yay/blob/main/test/c/bytearray-block-hex-and-comment.c)

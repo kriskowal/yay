@@ -4,6 +4,8 @@ use num_bigint::BigInt;
 use std::collections::HashMap;
 use std::fmt;
 
+use crate::reference::{InvalidReference, Reference};
+
 /// A YAY value.
 #[derive(Clone, PartialEq)]
 pub enum Value {
@@ -23,6 +25,13 @@ pub enum Value {
     Object(HashMap<String, Value>),
     /// Byte array.
     Bytes(Vec<u8>),
+    /// Tagged value: a tag (any string) and one payload (any value).
+    Tagged(String, Box<Value>),
+    /// Reference: a URI or IRI, held as written; designates, never
+    /// dereferenced. Never equal to a string. Made with
+    /// [`Value::reference`] or [`Reference::new`], which refuse text that is
+    /// not a reference's.
+    Reference(Reference),
 }
 
 impl Value {
@@ -87,6 +96,29 @@ impl Value {
         }
     }
 
+    /// Returns the tag and payload if this is a `Tagged`.
+    pub fn as_tagged(&self) -> Option<(&str, &Value)> {
+        match self {
+            Value::Tagged(tag, payload) => Some((tag, payload)),
+            _ => None,
+        }
+    }
+
+    /// Makes a reference, refusing text that is not a reference's by the
+    /// reader's own rule: a lowercase scheme, a colon, URI or IRI characters
+    /// and well-formed percent-encodings, with nothing after.
+    pub fn reference(uri: impl Into<String>) -> std::result::Result<Value, InvalidReference> {
+        Reference::new(uri).map(Value::Reference)
+    }
+
+    /// Returns the URI if this is a `Reference`.
+    pub fn as_reference(&self) -> Option<&str> {
+        match self {
+            Value::Reference(uri) => Some(uri),
+            _ => None,
+        }
+    }
+
     /// Returns a description of why this value cannot be represented in JSON,
     /// or `None` if it can be represented.
     ///
@@ -114,6 +146,7 @@ impl Value {
                 }
                 None
             }
+            Value::Tagged(_, payload) => payload.json_incompatibility(),
             _ => None,
         }
     }
@@ -148,6 +181,8 @@ impl fmt::Debug for Value {
                 }
                 write!(f, ">")
             }
+            Value::Tagged(tag, payload) => write!(f, "{:?} ({:?})", payload, tag),
+            Value::Reference(uri) => write!(f, "<{}>", uri),
         }
     }
 }

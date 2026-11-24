@@ -15,7 +15,7 @@ value do not cascade changes into the next or prior line.
 YAY has fewer surprising misfeatures than YAML.
 
 The root document may be any of the value types (null, big integer, float,
-boolean, string, array, object, or bytes).
+boolean, string, array, object, bytes, tagged, or reference).
 The root may use the multi-line form for values that support it: string,
 object, array and byte array.
 
@@ -826,8 +826,8 @@ Hex and comments on the same lines for inline documentation of byte sequences.
 
 [bytearray-block-hex-and-comment.yay](test/yay/bytearray-block-hex-and-comment.yay)
 ```yay
-> b0b5 # first chunk
-  c0ff # second chunk
+> b0b5  # first chunk
+  c0ff  # second chunk
 ```
 
 [bytearray-block-hex-and-comment.js](test/js/bytearray-block-hex-and-comment.js)
@@ -914,6 +914,57 @@ data: <b0b5c0ffeefacade>
 })
 ```
 
+## Tagged Values
+
+A tagged value is a tag, which is any string, and one payload, which is any
+value.
+The tag is written in parentheses: after an inline value with one space, or
+before a block where the block is introduced.
+Inside the parentheses the tag reads as a double-quoted string does, with
+`\)` for a `)` in the tag.
+With several tags, the one nearest the payload is innermost.
+YAY gives no tag a meaning: what a tag means is up to the document and its
+schema.
+
+```yay
+count: 10 (s)
+color: <ff8800ff> (rgba)
+sku: 'X-1' (com.example/sku)
+odd: 3 (a\)b)
+when: '2026-11-03T05:00:00Z' (datetime) (utc)
+point: (point)
+  x: 1
+  y: 2
+- (outer) (inner)
+  name: 'x'
+```
+
+YAY writes exactly one space before each tag.
+MEH accepts any number of spaces, or none, so `yay -f meh -t yay`
+normalizes `'X-1'(sku)` to `'X-1' (sku)`.
+See [GRAMMAR.md](GRAMMAR.md#tagged-values) for the details.
+
+## URI References
+
+A reference is a URI or IRI in angle brackets, with its scheme: a name for
+something elsewhere, which no YAY reader fetches or resolves.
+After `<`, a scheme and a colon make a reference; anything else is bytes.
+The text between the brackets is the URI as written: nothing is escaped, a
+`#` inside is not a comment, and `>` always closes it.
+A reference is never equal to a string with the same text, and takes tags
+as any inline value does.
+
+```yay
+icon: <https://example.com/cat.png>
+peer: <ocapn://a2ef69ddd5f8.tcp-testing-only?host=127.0.0.1&port=22046>
+spec: <urn:ietf:rfc:3986>
+seed: <ff8800>
+thumb: <https://example.com/cat.png> (image/png)
+```
+
+The scheme is lowercase; MEH lowercases it.
+See [GRAMMAR.md](GRAMMAR.md#references) for the details.
+
 # Encoding And Text
 
 ## UTF-8
@@ -940,21 +991,34 @@ A document containing only comments (no value) is invalid.
 
 YSON is a strict superset of JSON that preserves all YAY value types through a
 simple prefix convention.
-YSON is itself a subset of the [Endo SmallCaps](https://endojs.org) encoding.
+YSON is [Endo's smallcaps](https://endojs.org) encoding: `@endo/marshal`
+decodes YAY's YSON and writes it back as the same text.
+Bytes are written `"*<hex>"`, the form
+[endojs/endo#2871](https://github.com/endojs/endo/pull/2871) gives
+byteArrays, which `@endo/marshal` 1.10.0 does not yet decode.
+A reference names its slot by URI, not by index, so it decodes through the
+JavaScript port's CapData bridge (`ysonToCapData`).
 Standard JSON cannot represent big integers (only IEEE 754 doubles), byte
 arrays, or the special float values `infinity`, `-infinity`, and `nan`.
 YSON fills the gap by encoding these types as prefixed strings:
 
 | YAY type   | YSON encoding             | Example              |
 |------------|---------------------------|----------------------|
-| integer    | `"#"` + digits            | `"#42"`, `"#-7"`     |
+| integer    | `"+"` or `"-"` + digits   | `"+42"`, `"-7"`      |
 | float ∞    | `"#Infinity"`             | `"#Infinity"`        |
 | float −∞   | `"#-Infinity"`            | `"#-Infinity"`       |
 | float NaN  | `"#NaN"`                  | `"#NaN"`             |
 | bytes      | `"*"` + hex               | `"*cafe"`, `"*"`     |
+| tagged     | `{"#tag": …, "payload": …}` | `{"#tag": "s", "payload": "+10"}` |
+| reference  | `"$"` + URI               | `"$https://example.com/"` |
 
-Strings that naturally start with `#` or `*` are escaped with a `!` prefix:
-`"!#not an integer"`, `"!*not bytes"`.
+Strings that naturally start with a character from `!` to `/` (`#`, `*`,
+`+`, `-` and the rest) are escaped with a `!` prefix:
+`"!#not an integer"`, `"!*not bytes"`, `"!-dash"`. A tag is a string and
+takes the same escape.
+Object keys that start with `#`, `*` or `!` are escaped the same way, so the
+YAY object `{"#tag": 'x', payload: 1}` is `{"!#tag": "x", "payload": "+1"}`
+in YSON, never a tagged value.
 
 YSON is useful when you need to round-trip YAY data through JSON-only tooling
 (APIs, databases, message queues) without losing type information.

@@ -115,6 +115,60 @@ static bool run_error_test(const error_fixture_t *fixture) {
 }
 
 /* Run all tests */
+/* "x: ", then n repetitions of open, "1" and n of close */
+static char *nest(const char *open, const char *close, int n) {
+    size_t lo = strlen(open), lc = strlen(close);
+    char *s = malloc(3 + (lo + lc) * (size_t)n + 3);
+    char *p = s;
+    memcpy(p, "x: ", 3);
+    p += 3;
+    for (int i = 0; i < n; i++, p += lo) memcpy(p, open, lo);
+    *p++ = '1';
+    for (int i = 0; i < n; i++, p += lc) memcpy(p, close, lc);
+    *p++ = '\n';
+    *p = '\0';
+    return s;
+}
+
+/* Inline arrays and objects nest 256 levels, counted together; deeper is
+ * refused at the bracket that goes past it, not by overflowing the stack */
+static void run_nesting_tests(void) {
+    static const struct {
+        const char *open, *close;
+        int n;
+        const char *error; /* NULL where the document is read */
+    } cases[] = {
+        {"[", "]", 256, NULL},
+        {"{a: ", "}", 256, NULL},
+        {"[{a: ", "}]", 128, NULL},
+        {"[", "]", 100000,
+         "Inline nesting deeper than 256 levels at 1:260 of <deep.yay>"},
+        {"{a: ", "}", 100000,
+         "Inline nesting deeper than 256 levels at 1:1028 of <deep.yay>"},
+        {"[{a: ", "}]", 129,
+         "Inline nesting deeper than 256 levels at 1:644 of <deep.yay>"},
+    };
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        char *src = nest(cases[i].open, cases[i].close, cases[i].n);
+        yay_result_t r = yay_parse(src, strlen(src), "deep.yay");
+        bool ok = cases[i].error
+                      ? r.error && strcmp(r.error->message, cases[i].error) == 0
+                      : r.error == NULL;
+        tests_run++;
+        if (ok) {
+            tests_passed++;
+        } else {
+            tests_failed++;
+            printf("Testing: nesting %d of \"%s\" ... " COLOR_RED "FAIL" COLOR_RESET
+                   " (%s)\n",
+                   cases[i].n, cases[i].open,
+                   r.error ? r.error->message : "no error");
+        }
+        yay_result_free(&r);
+        free(src);
+    }
+}
+
 static void run_all_tests(void) {
     printf("\n");
     printf("========================================\n");
@@ -126,6 +180,8 @@ static void run_all_tests(void) {
         run_test(&test_fixtures[i]);
     }
     
+    run_nesting_tests();
+
     printf("\n--- Error Tests (.nay) ---\n\n");
     for (int i = 0; error_fixtures[i].name != NULL; i++) {
         run_error_test(&error_fixtures[i]);

@@ -114,9 +114,9 @@ run_reformat_tests() {
   echo "=== Reformatter Tests (MEH → YAY) ==="
   echo ""
 
-  local tmp name base expected_file
+  local tmp name base expected_file error_file
   tmp=$(mktemp)
-  trap 'rm -f "$tmp"' RETURN
+  trap 'rm -f "$tmp" "$tmp.err"' RETURN
 
   for meh_file in "$MEH_DIR"/*.meh; do
     [[ -f "$meh_file" ]] || continue
@@ -126,6 +126,22 @@ run_reformat_tests() {
     base=${name%.*}     # remove .meh
     base=${base%.*}.yay # remove variant, add .yay
     expected_file="$MEH_DIR/$base"
+
+    # A <base>.error file instead of <base>.yay: MEH refuses the document,
+    # and the message after the file name is the .error file's text
+    error_file="$MEH_DIR/${base%.yay}.error"
+    if [[ ! -f "$expected_file" && -f "$error_file" ]]; then
+      if "$YAY" -t yay "$meh_file" >"$tmp" 2>"$tmp.err"; then
+        fail "refused/$name (MEH read it)"
+      elif [[ "$(cat "$tmp.err")" == "$meh_file: $(cat "$error_file")" ]]; then
+        pass "refused/$name"
+      else
+        fail "refused/$name (message differs from expected)"
+        echo "  Expected: $meh_file: $(cat "$error_file")"
+        echo "  Got:      $(cat "$tmp.err")"
+      fi
+      continue
+    fi
 
     if [[ ! -f "$expected_file" ]]; then
       skip "reformat/$name (no expected .yay file)"
@@ -691,7 +707,44 @@ run_markdown_tests() {
         fail "markdown/lenient/$name (-f md refused it, or wrote it without one blank line)"
       fi
     fi
+    # A body ends with a newline: Yaydown's refusal names the fix, and
+    # Mehdown adds the newline.
+    if [[ $name == *final-newline* ]]; then
+      if ! "$YAY" -f yd -t yay "$input_file" 2>"$tmp" >/dev/null &&
+        grep -q 'does not end with a newline; end the file with a newline, or put "content" in the front matter as a string' "$tmp"; then
+        pass "markdown/strict/$name (names the fix)"
+      else
+        fail "markdown/strict/$name (the error does not name the fix)"
+      fi
+      if "$YAY" -f md --check "$input_file" >/dev/null 2>&1 &&
+        "$YAY" -f md -t yd "$input_file" >"$tmp" 2>/dev/null &&
+        "$YAY" --check -f yd -t yd "$tmp" >/dev/null 2>&1 &&
+        cmp -s "$tmp" <(cat "$input_file" && echo); then
+        pass "markdown/lenient/$name"
+      else
+        fail "markdown/lenient/$name (-f md refused it, or did not add the final newline)"
+      fi
+    fi
   done
+
+  # Kris's examples: content without a final newline stays in the front
+  # matter, quoted; with one, it is the body.
+  if [[ $(
+    "$YAY" [ --content hi ] -t md
+    echo .
+  ) == $'---\ncontent: "hi"\n---\n.' ]]; then
+    pass "markdown/shon/content-hi"
+  else
+    fail "markdown/shon/content-hi (yay [ --content hi ] -t md)"
+  fi
+  if [[ $(
+    "$YAY" [ --content $'hi\n' ] -t md
+    echo .
+  ) == $'hi\n.' ]]; then
+    pass "markdown/shon/content-hi-newline"
+  else
+    fail "markdown/shon/content-hi-newline (yay [ --content \$'hi\\n' ] -t md)"
+  fi
 
   echo ""
 }
@@ -757,6 +810,10 @@ run_check_tests() {
   expect_message "message/line" 'line 1: expected "a: 1", found "a:   1"' "$meh" --check -f meh -t yay
   expect_message "message/final-newline" 'line 1: the last line must end with a newline' $'a: 1' --check -t yay
 
+  # A tag takes exactly one space before it, and the report names the line
+  expect_message "message/tag-space" "line 2: expected \"b: 'x' (t)\", found \"b: 'x'(t)\"" $'a: 1 (s)\nb: \'x\'(t)\n' --check -f meh -t yay
+  expect_message "message/tag-spaces" 'line 1: expected "a: 1 (a) (b)", found "a: 1  (a)(b)"' $'a: 1  (a)(b)\n' --check -f meh -t yay
+
   # Refused pairs: output that can never be the same bytes as the input
   local pair f t
   for pair in json:yay yson:yay yaml:yay toml:yay json:json yson:yson yay:json yay:yson yay:md yay:yd md:yay yd:yay meh:md; do
@@ -771,7 +828,7 @@ run_check_tests() {
   # -t without --check converts, as always
   local out
   out=$(printf '%s' "$yay" | "$YAY" -t yson 2>/dev/null)
-  if [[ $out == $'{\n  "a": "#1"\n}' ]]; then
+  if [[ $out == $'{\n  "a": "+1"\n}' ]]; then
     pass "check/convert-without-check"
   else
     fail "check/convert-without-check" "got: $out"

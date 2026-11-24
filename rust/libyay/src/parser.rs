@@ -9,6 +9,9 @@
 
 use crate::error::{ParseContext, ParseError, Result};
 use crate::lexer::{Token, TokenType};
+use crate::reference::{
+    is_reference_start, scan_reference, skip_reference, Reference, ReferenceError,
+};
 use crate::value::Value;
 use num_bigint::BigInt;
 use std::collections::HashMap;
@@ -16,6 +19,22 @@ use std::collections::HashMap;
 /// Parse the root of a YAY document.
 pub fn parse_root(tokens: &[Token], ctx: &ParseContext, had_comments: bool) -> Result<Value> {
     let i = skip_breaks_and_stops(tokens, 0);
+
+    // A tagged root block: the tags alone on the first line, the block below
+    // at column 0
+    if i < tokens.len() && tokens[i].typ == TokenType::Text && tokens[i].text.starts_with('(') {
+        let t = &tokens[i];
+        let (tags, rest) = parse_prefix(&t.text, ctx, t.line_num, t.col)?;
+        if !rest.is_empty() {
+            return Err(prefix_without_block(ctx, t.line_num, t.col));
+        }
+        let j = skip_breaks_and_stops(tokens, i + 1);
+        if j >= tokens.len() {
+            return Err(prefix_without_block(ctx, t.line_num, t.col));
+        }
+        let value = parse_root(&tokens[j..], ctx, false)?;
+        return Ok(wrap_prefix(value, tags));
+    }
 
     if i >= tokens.len() {
         // If there were comments but no actual content, error
@@ -37,8 +56,15 @@ pub fn parse_root(tokens: &[Token], ctx: &ParseContext, had_comments: bool) -> R
     }
 
     // Detect root object (key: value at indent 0)
-    // But not inline objects starting with {
-    if t.typ == TokenType::Text && t.text.contains(':') && t.indent == 0 && !t.text.starts_with('{')
+    // But not inline objects or arrays, starting with { or [
+    if t.typ == TokenType::Text
+        && t.text.contains(':')
+        && t.indent == 0
+        && !t.text.starts_with('{')
+        && !t.text.starts_with('[')
+        && !is_reference_start(&t.text)
+        && !(t.text.contains('<') && find_colon_outside_quotes(&t.text).is_none())
+        && !(t.text.contains('(') && find_colon_outside_quotes(&t.text).is_none())
     {
         let (value, next) = parse_root_object(tokens, i, ctx)?;
         return ensure_at_end(value, tokens, next, ctx);
@@ -133,14 +159,45 @@ fn parse_text_value(tokens: &[Token], i: usize, ctx: &ParseContext) -> Result<(V
     let t = &tokens[i];
     let s = &t.text;
 
-    // Try keywords
-    if let Some(v) = parse_keyword(s) {
-        return Ok((v, i + 1));
+    // The block forms, which read the lines below
+    if is_block_string_start(s) {
+        let first_line = extract_block_string_first_line(s);
+        return parse_block_string(tokens, i, first_line);
+    }
+    if s.starts_with('>') {
+        return parse_block_bytes(tokens, i, ctx);
     }
 
+    // An inline array taken for a key
+    if s.starts_with('[') {
+        if let Some(end) = find_matching_bracket(s) {
+            if s[end + 1..].starts_with(':') {
+                return Err(
+                    ParseError::UnexpectedChar(':', String::new()).with_location(
+                        ctx,
+                        t.line_num,
+                        t.col + end + 1,
+                    ),
+                );
+            }
+        }
+    }
+
+    // Bytes before a colon are a key, which bytes never are: the colon is
+    // stray, as at the root
+    if s.starts_with('<') {
+        if let Some(colon_idx) = find_colon_outside_quotes(s) {
+            if s[..colon_idx].trim_end().ends_with('>') {
+                return parse_key_value_pair(tokens, i, colon_idx, ctx);
+            }
+        }
+    }
+
+    let bare = strip_inline_comment(s, ctx, t.line_num, t.col)?;
+
     // Validate number spaces before parsing
-    if looks_like_number(s) {
-        if let Some(space_col) = validate_number_spaces(s) {
+    if looks_like_number(bare) {
+        if let Some(space_col) = validate_number_spaces(bare) {
             return Err(
                 ParseError::UnexpectedSpaceInNumber(String::new()).with_location(
                     ctx,
@@ -151,85 +208,67 @@ fn parse_text_value(tokens: &[Token], i: usize, ctx: &ParseContext) -> Result<(V
         }
     }
 
-    // Check for uppercase E in exponent (must be lowercase)
-    if let Some(e_pos) = s.find('E') {
-        // Only error if it looks like a number with exponent
-        let before_e = &s[..e_pos];
-        let trimmed: String = before_e.chars().filter(|c| *c != ' ').collect();
-        if !trimmed.is_empty()
-            && (trimmed
-                .chars()
-                .all(|c| c.is_ascii_digit() || c == '.' || c == '-'))
-        {
-            return Err(ParseError::UppercaseExponent(String::new()).with_location(
-                ctx,
-                t.line_num,
-                t.col + e_pos,
-            ));
+    // A property on this line: "key: value" or "key:" over a block. An
+    // inline value with tags after it, an inline container, a reference and
+    // bytes never take a key here.
+    let tagged = match mask_tags(bare) {
+        (_, Some(p)) => p > 0 && find_colon_outside_quotes(&bare[..p]).is_none(),
+        _ => false,
+    };
+    if !tagged && !bare.starts_with(['[', '{', '<']) {
+        if let Some(colon_idx) = find_colon_outside_quotes(bare) {
+            return parse_key_value_pair(tokens, i, colon_idx, ctx);
         }
     }
 
-    // Try numbers
-    if let Some(num) = parse_number(s) {
-        return Ok((num, i + 1));
-    }
-
-    // Try block string
-    if is_block_string_start(s) {
-        let first_line = extract_block_string_first_line(s);
-        return parse_block_string(tokens, i, first_line);
-    }
-
-    // Try quoted string, unless the quotes open a property's key
-    if is_quoted_string(s) && find_colon_outside_quotes(s).is_none() {
-        let str_val = parse_quoted_string(s, ctx, t.line_num, t.col)?;
-        return Ok((Value::String(str_val), i + 1));
-    }
-
-    // Try inline array
-    if s.starts_with('[') {
-        return parse_inline_array_value(s, t, i, ctx);
-    }
-
-    // Try inline object
-    if s.starts_with('{') {
-        return parse_inline_object_value(s, t, i, ctx);
-    }
-
-    // Try inline bytes
-    if s.starts_with('<') && s.contains('>') {
-        let bytes = parse_angle_bytes(s, ctx, t.line_num, t.col)?;
-        return Ok((Value::Bytes(bytes), i + 1));
-    }
-
-    // Unclosed angle bracket is invalid
-    if s.starts_with('<') {
-        return Err(ParseError::UnmatchedAngle(String::new()).with_location(ctx, t.line_num, t.col));
-    }
-
-    // Try block bytes (> hex)
-    if s.starts_with('>') {
-        return parse_block_bytes(tokens, i, ctx);
-    }
-
-    // Try key:value pair
-    if let Some(colon_idx) = find_colon_outside_quotes(s) {
-        return parse_key_value_pair(tokens, i, colon_idx, ctx);
-    }
-
-    // Fall back to scalar (strip inline comments first)
-    let s_no_comment = strip_inline_comment(s);
-    let scalar = parse_scalar(s_no_comment, ctx, t.line_num, t.col)?;
-    Ok((scalar, i + 1))
+    // Every inline value reads as a property's does
+    Ok((parse_scalar(bare, ctx, t.line_num, t.col)?, i + 1))
 }
 
 // ============================================================================
 // Comment Handling
 // ============================================================================
 
-/// Strip inline comments from a string.
-/// Returns the value part (trimmed) without the comment.
-fn strip_inline_comment(s: &str) -> &str {
+/// Strip an inline comment from a value. A comment after a value takes two
+/// spaces before its `#`; one space is refused.
+fn strip_inline_comment<'a>(
+    s: &'a str,
+    ctx: &ParseContext,
+    line_num: usize,
+    col: usize,
+) -> Result<&'a str> {
+    let (masked, _) = mask_tags(s);
+    let end = strip_inline_comment_raw(&masked).len();
+    if end < s.len() {
+        let hash = end + s[end..].find('#').unwrap_or(0);
+        check_comment_spacing(s, hash, ctx, line_num, col)?;
+    }
+    Ok(&s[..end])
+}
+
+/// Refuse a comment, at byte `hash` of `s`, that has one space before it
+/// rather than two.
+fn check_comment_spacing(
+    s: &str,
+    hash: usize,
+    ctx: &ParseContext,
+    line_num: usize,
+    col: usize,
+) -> Result<()> {
+    let b = s.as_bytes();
+    if hash >= 1 && b[hash - 1] == b' ' && (hash < 2 || b[hash - 2] != b' ') {
+        return Err(
+            ParseError::Generic("Expected two spaces before a comment".to_string()).with_location(
+                ctx,
+                line_num,
+                col + s[..hash].chars().count(),
+            ),
+        );
+    }
+    Ok(())
+}
+
+fn strip_inline_comment_raw(s: &str) -> &str {
     // Find # not inside quotes
     let mut in_double = false;
     let mut in_single = false;
@@ -417,54 +456,50 @@ fn extract_block_string_first_line(s: &str) -> &str {
     }
 }
 
-/// Check if s is a quoted string (double or single).
-fn is_quoted_string(s: &str) -> bool {
-    (s.starts_with('"') && s.len() > 1) || (s.starts_with('\'') && s.len() > 1)
-}
-
 /// Parse a quoted string value.
-fn parse_quoted_string(s: &str, ctx: &ParseContext, line_num: usize, col: usize) -> Result<String> {
+pub(crate) fn parse_quoted_string(
+    s: &str,
+    ctx: &ParseContext,
+    line_num: usize,
+    col: usize,
+) -> Result<String> {
     if s.starts_with('"') {
         parse_double_quoted_string(s, ctx, line_num, col)
     } else if s.starts_with('\'') {
-        // Single-quoted strings are literal (no escapes except \' and \\)
-        if !s.ends_with('\'') || s.len() < 2 {
-            return Err(
-                ParseError::UnterminatedString(String::new()).with_location(ctx, line_num, col)
-            );
-        }
-        Ok(parse_single_quoted_content(&s[1..s.len() - 1]))
+        parse_single_quoted_string(s, ctx, line_num, col)
     } else {
         Ok(s.to_string())
     }
 }
 
-/// Parse content of a single-quoted string, handling \' and \\ escapes.
-fn parse_single_quoted_content(s: &str) -> String {
+/// Read a single-quoted string, the whole of `s`. Its only escapes are `\'`
+/// and `\\`; any other backslash is literal.
+fn parse_single_quoted_string(
+    s: &str,
+    ctx: &ParseContext,
+    line_num: usize,
+    col: usize,
+) -> Result<String> {
     let mut result = String::new();
-    let mut chars = s.chars().peekable();
-
-    while let Some(c) = chars.next() {
-        if c == '\\' {
-            match chars.peek() {
-                Some('\'') => {
-                    result.push('\'');
-                    chars.next();
-                }
-                Some('\\') => {
-                    result.push('\\');
-                    chars.next();
-                }
-                _ => {
-                    result.push('\\');
-                }
+    let mut chars = s.char_indices().skip(1).peekable();
+    while let Some((k, c)) = chars.next() {
+        if c == '\\' && matches!(chars.peek(), Some((_, '\'')) | Some((_, '\\'))) {
+            result.push(chars.next().map(|(_, e)| e).unwrap_or(c));
+        } else if c == '\'' {
+            if k + 1 != s.len() {
+                return Err(ParseError::UnexpectedChar('\'', String::new())
+                    .with_location(ctx, line_num, col));
             }
+            return Ok(result);
         } else {
             result.push(c);
         }
     }
-
-    result
+    Err(ParseError::UnterminatedString(String::new()).with_location(
+        ctx,
+        line_num,
+        col + s.chars().count() - 1,
+    ))
 }
 
 /// Parse a JSON-style double-quoted string.
@@ -755,23 +790,6 @@ fn build_block_string_result(first_line: &str, trimmed: &[String]) -> String {
 // Inline Array Parsing
 // ============================================================================
 
-/// Parse an inline array from a text token.
-fn parse_inline_array_value(
-    s: &str,
-    t: &Token,
-    i: usize,
-    ctx: &ParseContext,
-) -> Result<(Value, usize)> {
-    if !s.contains(']') {
-        return Err(
-            ParseError::UnexpectedNewline("array".to_string(), String::new())
-                .with_location(ctx, t.line_num, t.col),
-        );
-    }
-    let arr = parse_inline_array(s, ctx, t.line_num, t.col)?;
-    Ok((Value::Array(arr), i + 1))
-}
-
 /// Validate inline array/object whitespace rules.
 fn validate_inline_syntax(
     s: &str,
@@ -781,7 +799,8 @@ fn validate_inline_syntax(
     open_char: char,
     close_char: char,
 ) -> Result<()> {
-    let chars: Vec<char> = s.chars().collect();
+    let (masked, _) = mask_tags(s);
+    let chars: Vec<char> = masked.chars().collect();
     let mut in_single = false;
     let mut in_double = false;
     let mut escape = false;
@@ -826,6 +845,15 @@ fn validate_inline_syntax(
         if ch == '"' {
             in_double = true;
             continue;
+        }
+        if ch == '<' && i + 1 < chars.len() && chars[i + 1] == ' ' {
+            return Err(
+                ParseError::UnexpectedSpaceAfter("<".to_string(), String::new()).with_location(
+                    ctx,
+                    line_num,
+                    col + i + 1,
+                ),
+            );
         }
         if ch == open_char {
             depth += 1;
@@ -941,6 +969,7 @@ fn parse_inline_array(
     line_num: usize,
     col: usize,
 ) -> Result<Vec<Value>> {
+    let _level = ctx.enter_inline(line_num, col)?;
     let s = s.trim();
     if !s.starts_with('[') || !s.ends_with(']') {
         return Err(ParseError::UnmatchedBracket(String::new()).with_location(ctx, line_num, col));
@@ -961,7 +990,8 @@ fn parse_inline_array(
     while !remaining.is_empty() {
         remaining = remaining.trim_start();
 
-        let (value, consumed) = parse_inline_value(remaining, ctx, line_num, col)?;
+        let value_col = col + 1 + inner[..inner.len() - remaining.len()].chars().count();
+        let (value, consumed) = parse_inline_value(remaining, ctx, line_num, value_col)?;
         result.push(value);
         remaining = &remaining[consumed..];
         remaining = remaining.trim_start();
@@ -975,23 +1005,6 @@ fn parse_inline_array(
     Ok(result)
 }
 
-/// Parse an inline object from a text token.
-fn parse_inline_object_value(
-    s: &str,
-    t: &Token,
-    i: usize,
-    ctx: &ParseContext,
-) -> Result<(Value, usize)> {
-    if !s.contains('}') {
-        return Err(
-            ParseError::UnexpectedNewline("object".to_string(), String::new())
-                .with_location(ctx, t.line_num, t.col),
-        );
-    }
-    let obj = parse_inline_object(s, ctx, t.line_num, t.col)?;
-    Ok((Value::Object(obj), i + 1))
-}
-
 /// Parse an inline object in brace notation.
 fn parse_inline_object(
     s: &str,
@@ -999,6 +1012,7 @@ fn parse_inline_object(
     line_num: usize,
     col: usize,
 ) -> Result<HashMap<String, Value>> {
+    let _level = ctx.enter_inline(line_num, col)?;
     let s = s.trim();
     if !s.starts_with('{') || !s.ends_with('}') {
         return Err(ParseError::UnmatchedBrace(String::new()).with_location(ctx, line_num, col));
@@ -1014,12 +1028,14 @@ fn parse_inline_object(
     }
 
     let mut result = HashMap::new();
+    let mut seen = SeenKeys::new();
     let mut remaining = inner;
 
     while !remaining.is_empty() {
         remaining = remaining.trim_start();
 
         // Parse key
+        let key_col = col + 1 + inner[..inner.len() - remaining.len()].chars().count();
         let (key, key_len) = parse_inline_key(remaining, ctx, line_num, col)?;
         remaining = &remaining[key_len..];
         remaining = remaining.trim_start();
@@ -1028,11 +1044,13 @@ fn parse_inline_object(
         if !remaining.starts_with(':') {
             return Err(ParseError::ExpectedColon(String::new()).with_location(ctx, line_num, col));
         }
+        claim_key(&mut seen, &key, ctx, line_num, key_col)?;
         remaining = &remaining[1..];
         remaining = remaining.trim_start();
 
         // Parse value
-        let (value, consumed) = parse_inline_value(remaining, ctx, line_num, col)?;
+        let value_col = col + 1 + inner[..inner.len() - remaining.len()].chars().count();
+        let (value, consumed) = parse_inline_value(remaining, ctx, line_num, value_col)?;
         result.insert(key, value);
         remaining = &remaining[consumed..];
         remaining = remaining.trim_start();
@@ -1044,6 +1062,31 @@ fn parse_inline_object(
     }
 
     Ok(result)
+}
+
+/// Where each key of an object first appears, as a zero-based line and
+/// column. Each key keeps its first position, not only its name, so that the
+/// error can say where the first one is.
+type SeenKeys = HashMap<String, (usize, usize)>;
+
+/// Record where a key first appears in an object, and refuse it the second
+/// time.
+fn claim_key(
+    seen: &mut SeenKeys,
+    key: &str,
+    ctx: &ParseContext,
+    line_num: usize,
+    col: usize,
+) -> Result<()> {
+    if let Some(&(first_line, first_col)) = seen.get(key) {
+        return Err(ParseError::DuplicateKey(
+            Box::new((key.to_string(), first_line + 1, first_col + 1)),
+            String::new(),
+        )
+        .with_location(ctx, line_num, col));
+    }
+    seen.insert(key.to_string(), (line_num, col));
+    Ok(())
 }
 
 /// Parse an object key (unquoted identifier or quoted string).
@@ -1081,6 +1124,17 @@ fn parse_inline_value(
     line_num: usize,
     col: usize,
 ) -> Result<(Value, usize)> {
+    let (value, consumed) = parse_inline_atom(s, ctx, line_num, col)?;
+    let (tags, n) = parse_suffix(&s[consumed..], ctx, line_num, col + consumed)?;
+    Ok((wrap_tags(value, tags), consumed + n))
+}
+
+fn parse_inline_atom(
+    s: &str,
+    ctx: &ParseContext,
+    line_num: usize,
+    col: usize,
+) -> Result<(Value, usize)> {
     if s.starts_with('[') {
         let end = find_matching_bracket(s).ok_or_else(|| {
             ParseError::UnmatchedBracket(String::new()).with_location(ctx, line_num, col)
@@ -1095,6 +1149,10 @@ fn parse_inline_value(
         })?;
         let obj = parse_inline_object(&s[..=end], ctx, line_num, col)?;
         return Ok((Value::Object(obj), end + 1));
+    }
+
+    if is_reference_start(s) {
+        return parse_reference(s, ctx, line_num, col);
     }
 
     if s.starts_with('<') {
@@ -1166,6 +1224,8 @@ fn parse_inline_byte_array(s: &str) -> Result<Vec<u8>> {
 
 /// Find the index of the closing bracket.
 fn find_matching_bracket(s: &str) -> Option<usize> {
+    let (masked, _) = mask_tags(s);
+    let s = masked.as_str();
     let mut depth = 0;
     let mut in_string = false;
     let mut string_char = '\0';
@@ -1207,6 +1267,8 @@ fn find_matching_bracket(s: &str) -> Option<usize> {
 
 /// Find the index of the closing brace.
 fn find_matching_brace(s: &str) -> Option<usize> {
+    let (masked, _) = mask_tags(s);
+    let s = masked.as_str();
     let mut depth = 0;
     let mut in_string = false;
     let mut string_char = '\0';
@@ -1482,8 +1544,19 @@ fn parse_angle_bytes(s: &str, ctx: &ParseContext, line_num: usize, col: usize) -
         return Ok(Vec::new());
     }
 
-    // Check for space before closing >
+    // Check for space after opening <
     let chars: Vec<char> = s.chars().collect();
+    if chars.len() >= 2 && chars[1] == ' ' {
+        return Err(
+            ParseError::UnexpectedSpaceAfter("<".to_string(), String::new()).with_location(
+                ctx,
+                line_num,
+                col + 1,
+            ),
+        );
+    }
+
+    // Check for space before closing >
     if chars.len() >= 2 && chars[chars.len() - 2] == ' ' && chars[chars.len() - 1] == '>' {
         return Err(
             ParseError::UnexpectedSpaceBefore(">".to_string(), String::new()).with_location(
@@ -1520,12 +1593,30 @@ fn parse_angle_bytes(s: &str, ctx: &ParseContext, line_num: usize, col: usize) -
 // The "< hex" syntax (without closing ">") is invalid - inline byte arrays must be closed on the same line.
 
 /// Remove a # comment from a line.
-fn strip_comment(line: &str) -> &str {
-    if let Some(idx) = line.find('#') {
-        &line[..idx]
-    } else {
-        line
+/// Read one line of block bytes: hex, then an optional comment after two
+/// spaces, or a comment alone. Returns the hex without its spaces, refusing
+/// uppercase digits.
+fn block_hex_line(text: &str, ctx: &ParseContext, line_num: usize, col: usize) -> Result<String> {
+    if text.starts_with('#') {
+        return Ok(String::new());
     }
+    let mut body = text;
+    if let Some(hash) = text.find('#') {
+        check_comment_spacing(text, hash, ctx, line_num, col)?;
+        if text[..hash].ends_with(' ') {
+            body = text[..hash].trim_end();
+        }
+    }
+    for (j, c) in body.chars().enumerate() {
+        if c.is_ascii_uppercase() && c.is_ascii_hexdigit() {
+            return Err(ParseError::UppercaseHex(String::new()).with_location(
+                ctx,
+                line_num,
+                col + j,
+            ));
+        }
+    }
+    Ok(body.chars().filter(|c| !c.is_whitespace()).collect())
 }
 
 /// Parse block bytes starting with > (e.g., "> b0b5" or "> " followed by indented hex)
@@ -1547,42 +1638,13 @@ fn parse_block_bytes(tokens: &[Token], mut i: usize, ctx: &ParseContext) -> Resu
         return Err(ParseError::ExpectedHexInBlock);
     }
 
-    let hex_part = strip_comment(hex_part);
-
-    // Check for uppercase hex digits
-    for (j, c) in hex_part.chars().enumerate() {
-        if c.is_ascii_uppercase() && c.is_ascii_hexdigit() {
-            return Err(ParseError::UppercaseHex(String::new()).with_location(
-                ctx,
-                first.line_num,
-                first.col + 2 + j,
-            ));
-        }
-    }
-
-    let hex_part: String = hex_part.chars().filter(|c| !c.is_whitespace()).collect();
-
-    let mut hex_str = hex_part;
+    let mut hex_str = block_hex_line(hex_part, ctx, first.line_num, first.col + 2)?;
     i += 1;
 
     // Collect continuation lines
     while i < tokens.len() && tokens[i].typ == TokenType::Text && tokens[i].indent > base_indent {
         let t = &tokens[i];
-        let line = strip_comment(&t.text);
-
-        // Check for uppercase hex digits
-        for (j, c) in line.chars().enumerate() {
-            if c.is_ascii_uppercase() && c.is_ascii_hexdigit() {
-                return Err(ParseError::UppercaseHex(String::new()).with_location(
-                    ctx,
-                    t.line_num,
-                    t.col + j,
-                ));
-            }
-        }
-
-        let line: String = line.chars().filter(|c| !c.is_whitespace()).collect();
-        hex_str.push_str(&line);
+        hex_str.push_str(&block_hex_line(&t.text, ctx, t.line_num, t.col)?);
         i += 1;
     }
 
@@ -1618,21 +1680,7 @@ fn parse_block_bytes_from_property(
     let mut hex_str = String::new();
     while i < tokens.len() && tokens[i].typ == TokenType::Text && tokens[i].indent > key_indent {
         let t = &tokens[i];
-        let line = strip_comment(&t.text);
-
-        // Check for uppercase hex digits
-        for (j, c) in line.chars().enumerate() {
-            if c.is_ascii_uppercase() && c.is_ascii_hexdigit() {
-                return Err(ParseError::UppercaseHex(String::new()).with_location(
-                    ctx,
-                    t.line_num,
-                    t.col + j,
-                ));
-            }
-        }
-
-        let line: String = line.chars().filter(|c| !c.is_whitespace()).collect();
-        hex_str.push_str(&line);
+        hex_str.push_str(&block_hex_line(&t.text, ctx, t.line_num, t.col)?);
         i += 1;
     }
 
@@ -1718,9 +1766,12 @@ fn parse_block_string_from_property(
 
     // Join with newlines and add trailing newline
     let mut result = lines.join("\n");
-    if !result.is_empty() {
-        result.push('\n');
+    if result.is_empty() {
+        return Err(ParseError::Generic(
+            "Empty block string not allowed (use \"\" or \"\\n\" explicitly)".to_string(),
+        ));
     }
+    result.push('\n');
 
     Ok((Value::String(result), i))
 }
@@ -1854,6 +1905,30 @@ fn parse_array_item(
 
     let next = &tokens[i];
 
+    // A tagged block: the item's content follows the tags
+    if next.typ == TokenType::Text && next.text.starts_with('(') {
+        let (tags, rest) = parse_prefix(&next.text, ctx, next.line_num, next.col)?;
+        if rest.is_empty() {
+            let j = skip_breaks(tokens, i + 1);
+            if j >= tokens.len()
+                || tokens[j].typ == TokenType::Stop
+                || tokens[j].indent <= list_indent
+            {
+                return Err(prefix_without_block(ctx, next.line_num, next.col));
+            }
+            let (value, k) = parse_array_item(tokens, j, list_indent, ctx)?;
+            return Ok((wrap_prefix(value, tags), k));
+        }
+        if !prefix_takes(rest) {
+            return Err(prefix_without_block(ctx, next.line_num, next.col));
+        }
+        let mut retokened = tokens.to_vec();
+        retokened[i].col += next.text.len() - rest.len();
+        retokened[i].text = rest.to_string();
+        let (value, k) = parse_array_item(&retokened, i, list_indent, ctx)?;
+        return Ok((wrap_prefix(value, tags), k));
+    }
+
     // Nested array: empty text followed by list start
     if next.typ == TokenType::Text
         && next.text.is_empty()
@@ -1902,7 +1977,7 @@ fn parse_nested_inline_bullet(
         return Ok(Value::Array(vec![inner_value]));
     }
     // Otherwise, parse as a scalar (strip inline comments first)
-    let text_no_comment = strip_inline_comment(text);
+    let text_no_comment = strip_inline_comment(text, ctx, line_num, col)?;
     parse_scalar(text_no_comment, ctx, line_num, col)
 }
 
@@ -1972,7 +2047,7 @@ fn parse_array_item_value(
 
     // If value is an object, check for additional properties at the same level
     if let Value::Object(ref mut obj) = value {
-        j = merge_additional_object_properties(tokens, j, list_indent, obj, ctx)?;
+        j = merge_additional_object_properties(tokens, i, j, list_indent, obj, ctx)?;
     }
 
     // Check for nested list items after this value
@@ -1993,11 +2068,17 @@ fn parse_array_item_value(
 /// Merge additional properties into an object.
 fn merge_additional_object_properties(
     tokens: &[Token],
+    i: usize,
     mut j: usize,
     list_indent: usize,
     obj: &mut HashMap<String, Value>,
     ctx: &ParseContext,
 ) -> Result<usize> {
+    // The object so far was read from the item's first line
+    let mut seen: SeenKeys = obj
+        .keys()
+        .map(|k| (k.clone(), (tokens[i].line_num, tokens[i].col)))
+        .collect();
     loop {
         j = skip_breaks(tokens, j);
         if j >= tokens.len() {
@@ -2012,6 +2093,7 @@ fn merge_additional_object_properties(
             let (prop_val, next_j) = parse_value(tokens, j, ctx)?;
             if let Value::Object(prop_obj) = prop_val {
                 for (k, v) in prop_obj {
+                    claim_key(&mut seen, &k, ctx, t.line_num, t.col)?;
                     obj.insert(k, v);
                 }
             }
@@ -2067,6 +2149,7 @@ fn parse_key_value_pair(
     let t = &tokens[i];
     let s = &t.text;
 
+    check_colon_spaces(s, colon_idx, ctx, t.line_num, t.col)?;
     let key_raw = s[..colon_idx].trim();
     let key = parse_key_name(key_raw, ctx, t.line_num, t.col)?;
     // A quoted empty key ("") is a key; only a missing one is not.
@@ -2077,6 +2160,41 @@ fn parse_key_value_pair(
     let leading_spaces = after_colon.len() - after_colon.trim_start().len();
     let value_col = t.col + colon_idx + 1 + leading_spaces;
     let value_part = after_colon.trim();
+
+    // A tagged block: read the line without its tags, then tag the value
+    if value_part.starts_with('(') && has_key {
+        let (tags, rest) = parse_prefix(value_part, ctx, t.line_num, value_col)?;
+        if !prefix_takes(rest) {
+            return Err(prefix_without_block(ctx, t.line_num, value_col));
+        }
+        // The block must be indented under the key, or be a list at its
+        // column: a sibling item or property after `- a: (t)` is not its block
+        if rest.is_empty() {
+            let j = skip_breaks_and_stops(tokens, i + 1);
+            let key_col = key_column(tokens, i);
+            if j >= tokens.len()
+                || tokens[j].indent < key_col
+                || (tokens[j].indent == key_col && tokens[j].typ != TokenType::Start)
+            {
+                return Err(prefix_without_block(ctx, t.line_num, value_col));
+            }
+        }
+        let mut retokened = tokens.to_vec();
+        retokened[i].text = if rest.is_empty() {
+            format!("{}:", &s[..colon_idx])
+        } else {
+            format!("{}: {}", &s[..colon_idx], rest)
+        };
+        let (mut value, next) = parse_key_value_pair(&retokened, i, colon_idx, ctx)?;
+        if let Value::Object(ref mut obj) = value {
+            let payload = obj.remove(&key).unwrap_or(Value::Null);
+            if payload.is_null() {
+                return Err(prefix_without_block(ctx, t.line_num, value_col));
+            }
+            obj.insert(key, wrap_prefix(payload, tags));
+        }
+        return Ok((value, next));
+    }
 
     // Empty value part means nested content follows
     if value_part.is_empty() && has_key {
@@ -2099,10 +2217,15 @@ fn parse_key_value_pair(
         return Ok((Value::Object(obj), next));
     }
 
+    // The backtick stands alone after the key
+    if value_part.starts_with('`') && has_key {
+        return Err(ParseError::ExpectedNewlineAfterBlockLeader);
+    }
+
     // Note: "key: <" without closing ">" is invalid - inline byte arrays must be closed on the same line
 
     // Inline value (strip inline comments first)
-    let value_part_no_comment = strip_inline_comment(value_part);
+    let value_part_no_comment = strip_inline_comment(value_part, ctx, t.line_num, value_col)?;
     if has_key {
         let value = if !value_part_no_comment.is_empty() {
             parse_scalar(value_part_no_comment, ctx, t.line_num, value_col)?
@@ -2117,8 +2240,42 @@ fn parse_key_value_pair(
     Ok((Value::Null, i + 1))
 }
 
+/// Refuse a space before a property's colon, or more than one after it,
+/// as the root object does.
+fn check_colon_spaces(
+    s: &str,
+    colon_idx: usize,
+    ctx: &ParseContext,
+    line_num: usize,
+    col: usize,
+) -> Result<()> {
+    if s[..colon_idx].ends_with(' ') {
+        return Err(
+            ParseError::UnexpectedSpaceBefore(":".to_string(), String::new()).with_location(
+                ctx,
+                line_num,
+                col + colon_idx - 1,
+            ),
+        );
+    }
+    if s[colon_idx + 1..].starts_with("  ") {
+        return Err(
+            ParseError::UnexpectedSpaceAfter(":".to_string(), String::new()).with_location(
+                ctx,
+                line_num,
+                col + colon_idx + 2,
+            ),
+        );
+    }
+    Ok(())
+}
+
 /// Find the first colon not inside quotes.
 fn find_colon_outside_quotes(s: &str) -> Option<usize> {
+    find_colon_outside_quotes_raw(&mask_tags(s).0)
+}
+
+fn find_colon_outside_quotes_raw(s: &str) -> Option<usize> {
     let mut in_double = false;
     let mut in_single = false;
     let mut escape = false;
@@ -2159,7 +2316,18 @@ fn parse_key_name(s: &str, ctx: &ParseContext, line_num: usize, col: usize) -> R
 
     // Single-quoted key
     if s.starts_with('\'') && s.ends_with('\'') && s.len() >= 2 {
-        return Ok(s[1..s.len() - 1].to_string());
+        return parse_single_quoted_string(s, ctx, line_num, col);
+    }
+
+    // Bytes or a reference is a value, never a key: the colon is stray
+    if s.starts_with('<') && s.ends_with('>') {
+        return Err(
+            ParseError::UnexpectedChar(':', String::new()).with_location(
+                ctx,
+                line_num,
+                col + s.len(),
+            ),
+        );
     }
 
     Ok(s.to_string())
@@ -2172,6 +2340,9 @@ fn parse_object_or_named_array(
     key: &str,
     ctx: &ParseContext,
 ) -> Result<(Value, usize)> {
+    let key_token = &tokens[i];
+    let key_col = key_column(tokens, i);
+    let colon_idx = find_colon_outside_quotes(&key_token.text).unwrap_or(key.len());
     i += 1;
 
     // Skip to next content
@@ -2188,13 +2359,25 @@ fn parse_object_or_named_array(
         return Err(
             ParseError::ExpectedValueAfterProperty(String::new()).with_location(
                 ctx,
-                0,
-                key.len() + 1,
+                key_token.line_num,
+                key_token.col + colon_idx + 1,
             ),
         );
     }
 
     let first = &tokens[i];
+
+    // A block array may stand at the key's column. Every other block value
+    // must be indented deeper, so a sibling item or property is no value.
+    if first.indent < key_col || (first.indent == key_col && first.typ != TokenType::Start) {
+        return Err(
+            ParseError::ExpectedValueAfterProperty(String::new()).with_location(
+                ctx,
+                key_token.line_num,
+                key_token.col + colon_idx + 1,
+            ),
+        );
+    }
 
     // Named array
     if first.typ == TokenType::Start && first.text == "- " {
@@ -2241,6 +2424,7 @@ fn parse_nested_object_content(
     ctx: &ParseContext,
 ) -> Result<(HashMap<String, Value>, usize)> {
     let mut obj = HashMap::new();
+    let mut seen = SeenKeys::new();
 
     while i < tokens.len() {
         let t = &tokens[i];
@@ -2267,6 +2451,7 @@ fn parse_nested_object_content(
                 break;
             }
 
+            check_colon_spaces(&t.text, colon_idx, ctx, t.line_num, t.col)?;
             let k_raw = t.text[..colon_idx].trim();
             let k = parse_key_name(k_raw, ctx, t.line_num, t.col)?;
             let v_part = t.text[colon_idx + 1..].trim();
@@ -2276,6 +2461,7 @@ fn parse_nested_object_content(
                 i += 1;
                 continue;
             }
+            claim_key(&mut seen, &k, ctx, t.line_num, t.col)?;
 
             let (value, next_i) = parse_object_property_value(tokens, i, t, v_part, ctx)?;
             obj.insert(k, value);
@@ -2299,6 +2485,20 @@ fn parse_object_property_value(
     v_part: &str,
     ctx: &ParseContext,
 ) -> Result<(Value, usize)> {
+    // A tagged block
+    if v_part.starts_with('(') {
+        let col = t.col + t.text.len() - v_part.len();
+        let (tags, rest) = parse_prefix(v_part, ctx, t.line_num, col)?;
+        if !prefix_takes(rest) {
+            return Err(prefix_without_block(ctx, t.line_num, col));
+        }
+        let (value, next) = parse_object_property_value(tokens, i, t, rest, ctx)?;
+        if rest.is_empty() && value.is_null() {
+            return Err(prefix_without_block(ctx, t.line_num, col));
+        }
+        return Ok((wrap_prefix(value, tags), next));
+    }
+
     // Empty object
     if v_part == "{}" {
         return Ok((Value::Object(HashMap::new()), i + 1));
@@ -2310,14 +2510,18 @@ fn parse_object_property_value(
         return Ok((bytes, next));
     }
 
-    // Block string
+    // Block string, the backtick alone after the key
     if v_part == "`" {
         let (body, next) = parse_block_string_from_property(tokens, i, key_column(tokens, i))?;
         return Ok((body, next));
     }
+    if v_part.starts_with('`') {
+        return Err(ParseError::ExpectedNewlineAfterBlockLeader);
+    }
 
     // Inline value (strip inline comments first)
-    let v_part_no_comment = strip_inline_comment(v_part);
+    let v_col = t.col + t.text[..t.text.len() - v_part.len()].chars().count();
+    let v_part_no_comment = strip_inline_comment(v_part, ctx, t.line_num, v_col)?;
     if !v_part_no_comment.is_empty() {
         let scalar = parse_scalar(v_part_no_comment, ctx, t.line_num, t.col)?;
         return Ok((scalar, i + 1));
@@ -2370,6 +2574,7 @@ fn parse_object_property_value(
 /// Parse an object at the document root level.
 fn parse_root_object(tokens: &[Token], mut i: usize, ctx: &ParseContext) -> Result<(Value, usize)> {
     let mut obj = HashMap::new();
+    let mut seen = SeenKeys::new();
 
     while i < tokens.len() {
         let t = &tokens[i];
@@ -2457,6 +2662,7 @@ fn parse_root_object(tokens: &[Token], mut i: usize, ctx: &ParseContext) -> Resu
         let value_col = t.col + colon_idx + 1 + leading_spaces;
         let v_part = after_colon.trim();
 
+        claim_key(&mut seen, &k, ctx, t.line_num, t.col)?;
         let (value, next_i) = parse_root_object_property(tokens, i, t, v_part, value_col, ctx)?;
         obj.insert(k, value);
         i = next_i;
@@ -2474,13 +2680,21 @@ fn parse_root_object_property(
     value_col: usize,
     ctx: &ParseContext,
 ) -> Result<(Value, usize)> {
+    // A tagged block
+    if v_part.starts_with('(') {
+        let (tags, rest) = parse_prefix(v_part, ctx, t.line_num, value_col)?;
+        if !prefix_takes(rest) {
+            return Err(prefix_without_block(ctx, t.line_num, value_col));
+        }
+        let rest_col = value_col + v_part.len() - rest.len();
+        let (value, next) = parse_root_object_property(tokens, i, t, rest, rest_col, ctx)?;
+        return Ok((wrap_prefix(value, tags), next));
+    }
+
     // Check for block leader followed by non-comment content on same line (invalid in property context)
     // Block string: ` followed by content (not a comment)
-    if v_part.starts_with('`') && v_part.len() > 1 && v_part.chars().nth(1) == Some(' ') {
-        let after_backtick = v_part[2..].trim();
-        if !after_backtick.is_empty() && !after_backtick.starts_with('#') {
-            return Err(ParseError::ExpectedNewlineAfterBlockLeader);
-        }
+    if v_part.starts_with('`') && v_part != "`" {
+        return Err(ParseError::ExpectedNewlineAfterBlockLeader);
     }
     // Block bytes: > followed by any non-comment content on same line (in property context)
     if v_part.starts_with('>') && v_part.len() > 1 && v_part.chars().nth(1) == Some(' ') {
@@ -2511,7 +2725,7 @@ fn parse_root_object_property(
     }
 
     // Strip inline comments
-    let v_part_no_comment = strip_inline_comment(v_part);
+    let v_part_no_comment = strip_inline_comment(v_part, ctx, t.line_num, value_col)?;
 
     // Nested content
     if v_part_no_comment.is_empty() {
@@ -2639,6 +2853,27 @@ fn parse_root_nested_content(
 
 /// Parse a scalar value from a string.
 fn parse_scalar(s: &str, ctx: &ParseContext, line_num: usize, col: usize) -> Result<Value> {
+    if let (_, Some(p)) = mask_tags(s) {
+        if p == 0 {
+            return Err(prefix_without_block(ctx, line_num, col));
+        }
+        let atom_end = s[..p].trim_end_matches(' ').len();
+        let (tags, n) = parse_suffix(&s[atom_end..], ctx, line_num, col + atom_end)?;
+        if atom_end + n != s.len() {
+            let c = s[atom_end + n..].chars().next().unwrap_or('?');
+            return Err(ParseError::UnexpectedChar(c, String::new()).with_location(
+                ctx,
+                line_num,
+                col + atom_end + n,
+            ));
+        }
+        let value = parse_scalar_atom(&s[..atom_end], ctx, line_num, col)?;
+        return Ok(wrap_tags(value, tags));
+    }
+    parse_scalar_atom(s, ctx, line_num, col)
+}
+
+fn parse_scalar_atom(s: &str, ctx: &ParseContext, line_num: usize, col: usize) -> Result<Value> {
     // Keywords
     if let Some(v) = parse_keyword(s) {
         return Ok(v);
@@ -2666,26 +2901,63 @@ fn parse_scalar(s: &str, ctx: &ParseContext, line_num: usize, col: usize) -> Res
         return Ok(num);
     }
 
-    // Double-quoted string
-    if s.starts_with('"') && s.ends_with('"') {
+    // Double-quoted string: closed early, with more after it, or never closed
+    if s.starts_with('"') {
+        if s.len() < 2 || !s.ends_with('"') {
+            let b = s.as_bytes();
+            let mut k = 1;
+            while k < b.len() && b[k] != b'"' {
+                k += if b[k] == b'\\' { 2 } else { 1 };
+            }
+            if k < b.len() {
+                return Err(ParseError::UnexpectedChar('"', String::new())
+                    .with_location(ctx, line_num, col));
+            }
+        }
         return Ok(Value::String(parse_quoted_string(s, ctx, line_num, col)?));
     }
 
     // Single-quoted string
-    if s.starts_with('\'') && s.ends_with('\'') {
-        return Ok(Value::String(parse_single_quoted_content(
-            &s[1..s.len() - 1],
-        )));
+    if s.starts_with('\'') {
+        return Ok(Value::String(parse_single_quoted_string(
+            s, ctx, line_num, col,
+        )?));
     }
 
-    // Inline array
+    // Inline array, closed on its line
     if s.starts_with('[') {
+        if !s.ends_with(']') {
+            return Err(
+                ParseError::UnexpectedNewline("array".to_string(), String::new())
+                    .with_location(ctx, line_num, col),
+            );
+        }
         return Ok(Value::Array(parse_inline_array(s, ctx, line_num, col)?));
     }
 
-    // Inline object
+    // Inline object, closed on its line
     if s.starts_with('{') {
+        if !s.contains('}') {
+            return Err(
+                ParseError::UnexpectedNewline("object".to_string(), String::new())
+                    .with_location(ctx, line_num, col),
+            );
+        }
         return Ok(Value::Object(parse_inline_object(s, ctx, line_num, col)?));
+    }
+
+    // Reference
+    if is_reference_start(s) {
+        let (value, n) = parse_reference(s, ctx, line_num, col)?;
+        if n != s.len() {
+            let c = s[n..].chars().next().unwrap_or('?');
+            return Err(ParseError::UnexpectedChar(c, String::new()).with_location(
+                ctx,
+                line_num,
+                col + n,
+            ));
+        }
+        return Ok(value);
     }
 
     // Inline bytes
@@ -2729,6 +3001,289 @@ mod hex {
 
 // Most parser functionality is tested via fixtures
 // These unit tests cover internal helper functions
+// ============================================================================
+// Tagged Values
+// ============================================================================
+
+/// Replace the text inside each tag's parentheses (outside quotes) with `x`,
+/// byte for byte, so that the scanners for quotes, brackets, colons and
+/// comments see no punctuation a tag holds. Also returns the offset of the
+/// first `(` outside quotes, brackets and braces.
+pub(crate) fn mask_tags(s: &str) -> (String, Option<usize>) {
+    let bytes = s.as_bytes();
+    let mut out = bytes.to_vec();
+    let mut first = None;
+    let mut quote = 0u8;
+    let mut depth = 0i32;
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if quote != 0 {
+            if b == b'\\' {
+                i += 2;
+                continue;
+            }
+            if b == quote {
+                quote = 0;
+            }
+            i += 1;
+            continue;
+        }
+        if b == b'<' {
+            if let Some(n) = skip_reference(&s[i..]) {
+                for b in &mut out[i + 1..i + n - 1] {
+                    *b = b'x';
+                }
+                i += n;
+                continue;
+            }
+        }
+        match b {
+            b'"' | b'\'' => quote = b,
+            b'[' | b'{' => depth += 1,
+            b']' | b'}' => depth -= 1,
+            b'(' => {
+                if depth == 0 && first.is_none() {
+                    first = Some(i);
+                }
+                i += 1;
+                while i < bytes.len() && bytes[i] != b')' {
+                    let n = if bytes[i] == b'\\' { 2 } else { 1 };
+                    for b in &mut out[i..(i + n).min(bytes.len())] {
+                        *b = b'x';
+                    }
+                    i += n;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    // Only ASCII bytes were replaced, and only whole characters: a tag's
+    // text runs from one ASCII delimiter to another.
+    (
+        String::from_utf8(out).unwrap_or_else(|_| s.to_string()),
+        first,
+    )
+}
+
+/// Parse a reference at the start of `s`, which begins with `<` and a
+/// scheme. Returns the value and the bytes consumed, the `>` included.
+fn parse_reference(
+    s: &str,
+    ctx: &ParseContext,
+    line_num: usize,
+    col: usize,
+) -> Result<(Value, usize)> {
+    match scan_reference(s, false) {
+        Ok((uri, n)) => Ok((Value::Reference(Reference::checked(uri)), n)),
+        Err(ReferenceError::Unclosed) => {
+            Err(ParseError::UnmatchedAngle(String::new()).with_location(ctx, line_num, col))
+        }
+        Err(e) => {
+            let at = s[..e.offset()].chars().count();
+            Err(ParseError::Generic(e.message()).with_location(ctx, line_num, col + at))
+        }
+    }
+}
+
+/// Parse one tag at the start of `s`, which begins with `(`. Returns the tag
+/// and the number of bytes consumed, the closing `)` included.
+fn parse_tag(s: &str, ctx: &ParseContext, line_num: usize, col: usize) -> Result<(String, usize)> {
+    let mut out = String::new();
+    let mut it = s.char_indices().skip(1);
+    while let Some((i, c)) = it.next() {
+        match c {
+            ')' => return Ok((out, i + 1)),
+            '\t' => {
+                return Err(ParseError::TabNotAllowed(String::new()).with_location(
+                    ctx,
+                    line_num,
+                    col + i,
+                ))
+            }
+            '\\' => {
+                let bad = || {
+                    ParseError::BadEscapedChar(String::new()).with_location(
+                        ctx,
+                        line_num,
+                        col + i + 1,
+                    )
+                };
+                let (_, e) = it.next().ok_or_else(bad)?;
+                match e {
+                    ')' => out.push(')'),
+                    '\\' => out.push('\\'),
+                    '/' => out.push('/'),
+                    'b' => out.push('\x08'),
+                    'f' => out.push('\x0C'),
+                    'n' => out.push('\n'),
+                    'r' => out.push('\r'),
+                    't' => out.push('\t'),
+                    'u' => {
+                        let bad_u = || {
+                            ParseError::BadUnicodeEscape(String::new()).with_location(
+                                ctx,
+                                line_num,
+                                col + i + 2,
+                            )
+                        };
+                        if it.next().map(|(_, c)| c) != Some('{') {
+                            return Err(bad());
+                        }
+                        let mut hex = String::new();
+                        loop {
+                            match it.next() {
+                                Some((_, '}')) => break,
+                                Some((_, h)) if h.is_ascii_hexdigit() && hex.len() < 6 => {
+                                    hex.push(h)
+                                }
+                                _ => return Err(bad_u()),
+                            }
+                        }
+                        if hex.is_empty() {
+                            return Err(bad_u());
+                        }
+                        let code = u32::from_str_radix(&hex, 16).unwrap();
+                        if (0xD800..=0xDFFF).contains(&code) {
+                            return Err(ParseError::IllegalSurrogate(String::new()).with_location(
+                                ctx,
+                                line_num,
+                                col + i + 2,
+                            ));
+                        }
+                        let ch = char::from_u32(code).ok_or_else(|| {
+                            ParseError::UnicodeOutOfRange(String::new()).with_location(
+                                ctx,
+                                line_num,
+                                col + i + 2,
+                            )
+                        })?;
+                        out.push(ch);
+                    }
+                    _ => return Err(bad()),
+                }
+            }
+            _ => out.push(c),
+        }
+    }
+    Err(ParseError::UnterminatedString(String::new()).with_location(ctx, line_num, col))
+}
+
+/// Parse one tag at the start of `s`, for the MEH formatter, which reports
+/// errors as text.
+pub(crate) fn parse_tag_text(s: &str) -> std::result::Result<(String, usize), String> {
+    let ctx = ParseContext::new(None);
+    parse_tag(s, &ctx, 0, 0).map_err(|e| e.to_string())
+}
+
+/// Parse a run of tags after a value: each one space, then a tag. Returns the
+/// tags, innermost first, and the number of bytes consumed. A tag fused to
+/// its value or after two spaces is refused.
+fn parse_suffix(
+    s: &str,
+    ctx: &ParseContext,
+    line_num: usize,
+    col: usize,
+) -> Result<(Vec<String>, usize)> {
+    let mut tags = Vec::new();
+    let mut pos = 0;
+    loop {
+        let rest = &s[pos..];
+        let spaces = rest.len() - rest.trim_start_matches(' ').len();
+        if !rest[spaces..].starts_with('(') {
+            break;
+        }
+        if spaces != 1 {
+            let err = if spaces == 0 {
+                ParseError::Generic("Expected one space before a tag".to_string())
+            } else {
+                ParseError::UnexpectedSpaceBefore("(".to_string(), String::new())
+            };
+            return Err(err.with_location(ctx, line_num, col + pos));
+        }
+        let (tag, n) = parse_tag(&rest[1..], ctx, line_num, col + pos + 1)?;
+        tags.push(tag);
+        pos += 1 + n;
+    }
+    Ok((tags, pos))
+}
+
+/// Parse a run of tags before a block: tags separated by one space. Returns
+/// the tags, outermost first, and what follows the last one (after its
+/// space, or a comment, which is the empty string).
+fn parse_prefix<'a>(
+    s: &'a str,
+    ctx: &ParseContext,
+    line_num: usize,
+    col: usize,
+) -> Result<(Vec<String>, &'a str)> {
+    let (first, n) = parse_tag(s, ctx, line_num, col)?;
+    let (mut tags, m) = parse_suffix(&s[n..], ctx, line_num, col + n)?;
+    tags.insert(0, first);
+    let rest = &s[n + m..];
+    if rest.is_empty() || rest.starts_with("  #") {
+        return Ok((tags, ""));
+    }
+    match rest.strip_prefix(' ') {
+        Some(r) if !r.starts_with(' ') => Ok((tags, r)),
+        _ => Err(
+            ParseError::UnexpectedSpaceAfter(")".to_string(), String::new()).with_location(
+                ctx,
+                line_num,
+                col + n + m,
+            ),
+        ),
+    }
+}
+
+/// Wrap a payload in tags, innermost first.
+fn wrap_tags(value: Value, tags: Vec<String>) -> Value {
+    tags.into_iter()
+        .fold(value, |v, tag| Value::Tagged(tag, Box::new(v)))
+}
+
+/// Wrap a payload in a prefix's tags, outermost first.
+fn wrap_prefix(value: Value, mut tags: Vec<String>) -> Value {
+    tags.reverse();
+    wrap_tags(value, tags)
+}
+
+/// What follows a line's prefix of tags, or `None` if it has none.
+pub(crate) fn after_prefix(s: &str) -> Option<&str> {
+    if !s.starts_with('(') {
+        return None;
+    }
+    parse_prefix(s, &ParseContext::new(None), 0, 0)
+        .ok()
+        .map(|(_, rest)| rest)
+}
+
+/// Whether a line is a property whose tags introduce a block string, as in
+/// `key: (tag) \``.
+pub(crate) fn is_tagged_property_opener(s: &str) -> bool {
+    match find_colon_outside_quotes(s) {
+        Some(colon) if s[colon + 1..].starts_with(" (") => {
+            after_prefix(&s[colon + 2..]) == Some("`")
+        }
+        _ => false,
+    }
+}
+
+/// Is `rest`, what follows a prefix, a block it may introduce on its own line?
+fn prefix_takes(rest: &str) -> bool {
+    rest.is_empty() || rest.starts_with('`') || rest.starts_with('>')
+}
+
+/// The error for a prefix that introduces no block.
+fn prefix_without_block(ctx: &ParseContext, line_num: usize, col: usize) -> ParseError {
+    ParseError::Generic(
+        "A tag before a value needs a block below it; write the tag after an inline value"
+            .to_string(),
+    )
+    .with_location(ctx, line_num, col)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

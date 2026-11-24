@@ -1,0 +1,1 @@
+(("color" . (make-tagged "rgba" (bytevector 255 136 0 255))) ("count" . (make-tagged "s" 10)) ("odd" . (make-tagged "a)b" 3)) ("sku" . (make-tagged "com.example/sku" "X-1")) ("when" . (make-tagged "utc" (make-tagged "datetime" "2026-11-03T05:00:00Z"))))

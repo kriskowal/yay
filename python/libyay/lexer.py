@@ -6,6 +6,28 @@ import re
 from dataclasses import dataclass
 from typing import Iterator
 from .errors import YaySyntaxError
+from .reference import Reference, check_uri, scheme_len
+
+
+SCALAR_KINDS = ("NULL", "BOOL", "INT", "FLOAT", "STRING", "BYTES", "REFERENCE")
+
+
+def trailing_text_error(source: str, line: int, col: int) -> YaySyntaxError:
+    """The error for a scalar at line and col with text fused after it, as
+    the reference names it: by the scalar's first character."""
+    lines = source.split("\n")
+    text = lines[line - 1] if line <= len(lines) else ""
+    ch = text[col - 1] if 0 < col <= len(text) else ""
+    # A reference: the character after its ">"
+    if ch == "<" and scheme_len(text, col) is not None:
+        end = text.find(">", col)
+        if end >= 0:
+            after = text[end + 1 : end + 2]
+            return YaySyntaxError(f'Unexpected character "{after}"', line, end + 2)
+    # An inline bytes token begins after its "<"
+    if ch == "<" or (1 < col <= len(text) + 1 and text[col - 2] == "<"):
+        return YaySyntaxError("Unmatched angle bracket", line, col)
+    return YaySyntaxError(f'Unexpected character "{ch}"', line, col)
 
 
 @dataclass
@@ -49,6 +71,13 @@ class Lexer:
 
     def error(self, message: str) -> YaySyntaxError:
         return YaySyntaxError(message, self.line, self.col)
+
+    def check_comment_spacing(self) -> None:
+        """Refuse a comment, at the current "#", with one space before it
+        rather than two."""
+        before = self.source[max(0, self.pos - 2) : self.pos]
+        if before.endswith(" ") and before != "  ":
+            raise self.error("Expected two spaces before a comment")
 
     @staticmethod
     def _is_allowed_code_point(cp: int) -> bool:
@@ -149,7 +178,12 @@ class Lexer:
         # The text before the backtick on its line: a property ("key: `") or
         # a bare opener at root or after list leaders ("`", "- `").
         line_start = self.source.rfind("\n", 0, self.pos) + 1
-        prefix = self.source[line_start : self.pos]
+        if self._last_token is not None and self._last_token.kind == "TAG":
+            # A tagged block string: the tags before the backtick are not
+            # its leader
+            prefix = self.source[line_start : self._tag_run_start]
+        else:
+            prefix = self.source[line_start : self.pos]
         in_property = prefix.rstrip().endswith(":")
         if in_property:
             # The block ends at the key's column, past any list leaders.
@@ -258,8 +292,9 @@ class Lexer:
             lines.pop(0)
 
         if not lines:
-            # Empty block string is not allowed
-            raise self.error(
+            # Empty block string is not allowed; the shared corpus gives
+            # this error no location
+            raise YaySyntaxError(
                 'Empty block string not allowed (use "" or "\\n" explicitly)'
             )
 
@@ -291,7 +326,8 @@ class Lexer:
             if not has_content and start_col == 1:
                 # > alone at the start of a line (root level) is invalid
                 # In property context (start_col > 1), it's valid
-                raise self.error("Expected hex or comment in hex block")
+                # The shared corpus gives this error no location
+                raise YaySyntaxError("Expected hex or comment in hex block")
             if next_ch == "\n":
                 self.advance()
                 self.at_line_start = True
@@ -300,11 +336,13 @@ class Lexer:
             self.current_line_indent if hasattr(self, "current_line_indent") else 0
         )
         hex_chars = []
+        bad = False
 
         # Read first line (after > or > )
         while self.peek() and self.peek() not in "\n":
             ch = self.peek()
             if ch == "#":
+                self.check_comment_spacing()
                 self.skip_to_eol()
                 break
             if ch == " ":
@@ -317,7 +355,9 @@ class Lexer:
                     "Uppercase hex digit (use lowercase)", self.line, self.col
                 )
             else:
-                raise self.error(f"Invalid character in byte array: {ch!r}")
+                # Counted, then refused after the odd-length check, as Rust does
+                bad = True
+                hex_chars.append(self.advance())
 
         if self.peek() == "\n":
             self.advance()
@@ -356,6 +396,7 @@ class Lexer:
             while self.peek() and self.peek() not in "\n":
                 ch = self.peek()
                 if ch == "#":
+                    self.check_comment_spacing()
                     self.skip_to_eol()
                     break
                 if ch == " ":
@@ -368,7 +409,8 @@ class Lexer:
                         "Uppercase hex digit (use lowercase)", self.line, self.col
                     )
                 else:
-                    raise self.error(f"Invalid character in byte array: {ch!r}")
+                    bad = True
+                    hex_chars.append(self.advance())
 
             if self.peek() == "\n":
                 self.advance()
@@ -376,7 +418,12 @@ class Lexer:
 
         hex_str = "".join(hex_chars)
         if len(hex_str) % 2 != 0:
-            raise self.error("Odd number of hex digits in byte literal")
+            # At the start of the line that opens the block
+            raise YaySyntaxError(
+                "Odd number of hex digits in byte literal", start_line, base_indent + 1
+            )
+        if bad:
+            raise YaySyntaxError("Invalid hex digit", start_line, start_col)
 
         try:
             value = bytes.fromhex(hex_str)
@@ -417,40 +464,49 @@ class Lexer:
                 elif esc == '"':
                     chars.append('"')
                 elif esc == "u":
+                    # A malformed escape is at its "u", and a bad code point
+                    # at its "{", as the other ports place them
+                    esc_line, u_col = self.line, self.col
+
+                    def escape_error(message: str, col: int) -> YaySyntaxError:
+                        return YaySyntaxError(message, esc_line, col)
+
                     self.advance()  # consume 'u'
                     # YAY uses \u{XXXXXX} syntax (variable-length with braces)
                     if self.peek() != "{":
-                        raise self.error("Bad escaped character")
+                        raise escape_error("Bad escaped character", u_col)
+                    brace_col = self.col
                     self.advance()  # consume '{'
                     hex_chars = ""
                     while self.peek() and self.peek() != "}":
                         h = self.peek()
                         if h not in "0123456789abcdefABCDEF":
-                            raise self.error("Bad Unicode escape")
+                            raise escape_error("Bad Unicode escape", brace_col)
                         hex_chars += self.advance()
                         # Max 6 hex digits
                         if len(hex_chars) > 6:
-                            raise self.error("Bad Unicode escape")
+                            raise escape_error("Bad Unicode escape", brace_col)
                     if self.peek() != "}":
-                        raise self.error("Bad Unicode escape")
+                        raise escape_error("Bad Unicode escape", brace_col)
                     self.advance()  # consume '}'
                     if not hex_chars:
-                        raise self.error("Bad Unicode escape")
+                        raise escape_error("Bad Unicode escape", brace_col)
                     codepoint = int(hex_chars, 16)
                     # Check for surrogate code points (U+D800 to U+DFFF)
                     if 0xD800 <= codepoint <= 0xDFFF:
-                        raise self.error("Illegal surrogate")
+                        raise escape_error("Illegal surrogate", brace_col)
                     if codepoint > 0x10FFFF:
-                        raise self.error("Unicode code point out of range")
+                        raise escape_error("Unicode code point out of range", brace_col)
                     chars.append(chr(codepoint))
                     continue
                 else:
                     raise self.error("Bad escaped character")
                 self.advance()
             elif ord(ch) < 0x20:
-                # Newline means unterminated string, other control chars are bad
+                # Newline means unterminated string, at the line's last
+                # character; other control chars are bad
                 if ch == "\n" or ch == "\r":
-                    raise self.error("Unterminated string")
+                    raise YaySyntaxError("Unterminated string", self.line, self.col - 1)
                 raise self.error("Bad character in string")
             else:
                 chars.append(self.advance())
@@ -458,24 +514,25 @@ class Lexer:
         return Token("STRING", "".join(chars), start_line, start_col)
 
     def _read_single_quoted_string(self, start_line: int, start_col: int) -> Token:
-        """Read a single-quoted string (literal, no escape sequences except '')."""
+        """Read a single-quoted string: literal but for the escapes \\' and
+        \\\\; any other backslash is content."""
         chars = []
         while True:
             ch = self.peek()
             if ch == "":
-                raise self.error("Unterminated string")
+                raise YaySyntaxError("Unterminated string", self.line, self.col - 1)
+            if ch == "\\" and self.peek(1) in ("'", "\\"):
+                self.advance()
+                chars.append(self.advance())
+                continue
             if ch == "'":
                 self.advance()
-                if self.peek() == "'":
-                    # Escaped single quote ''
-                    chars.append("'")
-                    self.advance()
-                else:
-                    break
+                break
             elif ord(ch) < 0x20:
-                # Newline means unterminated string, other control chars are bad
+                # Newline means unterminated string, at the line's last
+                # character; other control chars are bad
                 if ch == "\n" or ch == "\r":
-                    raise self.error("Unterminated string")
+                    raise YaySyntaxError("Unterminated string", self.line, self.col - 1)
                 raise self.error("Bad character in string")
             else:
                 # Single-quoted strings are literal - no backslash escapes
@@ -577,10 +634,14 @@ class Lexer:
         start_line = self.line
         start_col = self.col
 
-        if not already_consumed_open:
+        if already_consumed_open:
+            # The literal, and its errors, begin at its "<"
+            start_col -= 1
+        else:
             self.advance()  # consume '<'
 
         hex_chars = []
+        bad = False
         last_was_space = False
         space_col = 0
         while True:
@@ -638,14 +699,18 @@ class Lexer:
                     "Uppercase hex digit (use lowercase)", self.line, self.col
                 )
             else:
-                if block_mode:
-                    # Unknown char ends block mode
-                    break
-                raise self.error(f"Invalid character in byte array: {ch!r}")
+                # Counted, then refused after the odd-length check, as the
+                # block form and the other ports do
+                bad = True
+                hex_chars.append(self.advance())
 
         hex_str = "".join(hex_chars)
         if len(hex_str) % 2 != 0:
-            raise self.error("Odd number of hex digits in byte literal")
+            raise YaySyntaxError(
+                "Odd number of hex digits in byte literal", start_line, start_col
+            )
+        if bad:
+            raise YaySyntaxError("Invalid hex digit", start_line, start_col)
 
         try:
             value = bytes.fromhex(hex_str)
@@ -653,6 +718,112 @@ class Lexer:
             raise self.error(f"Invalid hex: {e}")
 
         return Token("BYTES", value, start_line, start_col)
+
+    def read_reference(self) -> Token:
+        """Read a reference, "<" and a scheme to the next ">" on the line,
+        which always closes it. Its text is the URI, verbatim."""
+        start_line = self.line
+        start_col = self.col
+        end = self.source.find(">", self.pos)
+        newline = self.source.find("\n", self.pos)
+        if end < 0 or 0 <= newline < end:
+            raise YaySyntaxError("Unmatched angle bracket", start_line, start_col)
+        uri = self.source[self.pos + 1 : end]
+        fault = check_uri(uri)
+        if fault is not None:
+            message, offset = fault
+            col = start_col if offset == 0 else start_col + 1 + offset
+            raise YaySyntaxError(message, start_line, col)
+        self.advance(end + 1 - self.pos)
+        return Token("REFERENCE", Reference(uri), start_line, start_col)
+
+    def read_tag(self) -> Token:
+        """Read a tag, "(" to ")", escaped as a double-quoted string is but
+        with \\) in the place of \\". One space comes before a tag unless it
+        begins its line, and after it the line ends, an inline container goes
+        on, another tag or a block follows after one space, or an inline
+        comment begins."""
+        start_line = self.line
+        start_col = self.col
+        if self.pos > 0 and self.source[self.pos - 1] != "\n":
+            if self.source[self.pos - 1] != " ":
+                raise self.error("Expected one space before a tag")
+            if self.pos > 1 and self.source[self.pos - 2] == " ":
+                # At the first of the spaces
+                spaces = 2
+                while self.pos > spaces and self.source[self.pos - spaces - 1] == " ":
+                    spaces += 1
+                raise YaySyntaxError(
+                    'Unexpected space before "("', self.line, self.col - spaces
+                )
+        self.advance()  # consume '('
+        chars = []
+        while True:
+            ch = self.peek()
+            if ch == "" or ch == "\n":
+                raise YaySyntaxError("Unterminated string", start_line, start_col)
+            if ch == ")":
+                self.advance()
+                break
+            if ch == "\t":
+                raise self.error("Tab not allowed (use spaces)")
+            if ch == "\\":
+                self.advance()
+                esc = self.peek()
+                simple = {
+                    ")": ")",
+                    "\\": "\\",
+                    "/": "/",
+                    "b": "\b",
+                    "f": "\f",
+                    "n": "\n",
+                    "r": "\r",
+                    "t": "\t",
+                }
+                if esc in simple:
+                    chars.append(simple[esc])
+                    self.advance()
+                    continue
+                if esc != "u":
+                    raise self.error("Bad escaped character")
+                # As in a double-quoted string: a malformed escape is at its
+                # "u", and a bad code point at its "{"
+                if self.peek(1) != "{":
+                    raise self.error("Bad escaped character")
+                self.advance()  # consume 'u'
+                brace_line, brace_col = self.line, self.col
+                self.advance()  # consume '{'
+                hex_chars = ""
+                while self.peek() != "}":
+                    h = self.peek()
+                    hex_digit = h != "" and h in "0123456789abcdefABCDEF"
+                    if not hex_digit or len(hex_chars) == 6:
+                        raise YaySyntaxError(
+                            "Bad Unicode escape", brace_line, brace_col
+                        )
+                    hex_chars += self.advance()
+                self.advance()  # consume '}'
+                if not hex_chars:
+                    raise YaySyntaxError("Bad Unicode escape", brace_line, brace_col)
+                codepoint = int(hex_chars, 16)
+                if 0xD800 <= codepoint <= 0xDFFF:
+                    raise YaySyntaxError("Illegal surrogate", brace_line, brace_col)
+                if codepoint > 0x10FFFF:
+                    raise YaySyntaxError(
+                        "Unicode code point out of range", brace_line, brace_col
+                    )
+                chars.append(chr(codepoint))
+                continue
+            chars.append(self.advance())
+
+        after = self.peek()
+        if after == "(":
+            raise self.error("Expected one space before a tag")
+        if after not in ("", "\n", ",", "]", "}", " "):
+            raise self.error(f'Unexpected character "{after}"')
+        if after == " " and self.peek(1) == " " and self.peek(2) not in ("#", "("):
+            raise self.error('Unexpected space after ")"')
+        return Token("TAG", "".join(chars), start_line, start_col)
 
     def read_identifier(self) -> Token:
         """Read an identifier or keyword."""
@@ -686,6 +857,9 @@ class Lexer:
     def tokenize(self) -> Iterator[Token]:
         """Generate tokens from the source."""
         self._last_token = None
+        # The columns of the open inline objects' braces
+        braces: list[int] = []
+        self._tag_run_start = 0
 
         def emit(token):
             self._last_token = token
@@ -711,6 +885,10 @@ class Lexer:
                     continue
                 if ch == "":
                     break
+                # A lone quote on an indented line is no value, as an
+                # inline value under a key is none
+                if indent > 0 and ch == '"' and self.peek(1) in ("\n", ""):
+                    raise YaySyntaxError("Unexpected indent", self.line, 1)
 
                 # Emit indent/dedent tokens
                 self.current_line_indent = indent
@@ -732,6 +910,7 @@ class Lexer:
                 continue
 
             if ch == "#":
+                self.check_comment_spacing()
                 self.skip_to_eol()
                 continue
 
@@ -755,6 +934,9 @@ class Lexer:
 
             # Bytes - inline byte array <hex>
             if ch == "<":
+                if scheme_len(self.source, self.pos + 1) is not None:
+                    yield emit(self.read_reference())
+                    continue
                 start_col = self.col
                 self.advance()  # consume '<'
                 next_ch = self.peek()
@@ -773,7 +955,10 @@ class Lexer:
                     raise YaySyntaxError(
                         "Uppercase hex digit (use lowercase)", self.line, self.col
                     )
-                elif next_ch in " " or next_ch in "0123456789abcdef":
+                elif next_ch == " ":
+                    # GRAMMAR.md: no space after the opening "<"
+                    raise self.error('Unexpected space after "<"')
+                elif next_ch in "0123456789abcdef":
                     # Inline byte array - read until closing >
                     # already_consumed_open=True since we already consumed '<'
                     # allow_multiline=False since inline byte arrays must close on same line
@@ -784,7 +969,22 @@ class Lexer:
                     )
                     continue
                 else:
-                    raise self.error(f"Invalid character after '<': {next_ch!r}")
+                    # Neither a reference nor bytes: refused as the Rust port
+                    # refuses it, reading the rest of the line as bytes
+                    end = self.source.find("\n", self.pos)
+                    text = self.source[self.pos : end if end >= 0 else None]
+                    text = text.split("#", 1)[0].rstrip(" ")
+                    if not text.endswith(">"):
+                        raise YaySyntaxError(
+                            "Unmatched angle bracket", self.line, start_col
+                        )
+                    if len("".join(text[:-1].split())) % 2 != 0:
+                        raise YaySyntaxError(
+                            "Odd number of hex digits in byte literal",
+                            self.line,
+                            start_col,
+                        )
+                    raise YaySyntaxError("Invalid hex digit", self.line, start_col)
 
             # Number (starts with digit, dot, or minus followed by digit/dot)
             if ch.isdigit() or ch == ".":
@@ -811,6 +1011,13 @@ class Lexer:
                     self.advance()
                     continue
 
+            # Tag, in parentheses
+            if ch == "(":
+                if self._last_token is None or self._last_token.kind != "TAG":
+                    self._tag_run_start = self.pos
+                yield emit(self.read_tag())
+                continue
+
             # Punctuation
             if ch == ":":
                 yield emit(Token("COLON", ":", self.line, self.col))
@@ -833,11 +1040,14 @@ class Lexer:
                 continue
 
             if ch == "{":
+                braces.append(self.col)
                 yield emit(Token("LBRACE", "{", self.line, self.col))
                 self.advance()
                 continue
 
             if ch == "}":
+                if braces:
+                    braces.pop()
                 yield emit(Token("RBRACE", "}", self.line, self.col))
                 self.advance()
                 continue
@@ -850,7 +1060,14 @@ class Lexer:
             # Check if we're in a context where this might be an invalid key
             # (after { or , in an inline object)
             if self._last_token and self._last_token.kind in ("LBRACE", "COMMA"):
-                raise self.error("Invalid key")
+                # At the inline object's "{", as the other ports place it
+                col = braces[-1] if braces else self.col
+                raise YaySyntaxError("Invalid key", self.line, col)
+
+            # Text after a scalar on its line: the scalar is not one
+            last = self._last_token
+            if last and last.line == self.line and last.kind in SCALAR_KINDS:
+                raise trailing_text_error(self.source, last.line, last.col)
 
             raise self.error(f'Unexpected character "{ch}"')
 

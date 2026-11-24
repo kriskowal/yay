@@ -53,6 +53,10 @@ func main() {
 
 		// The .go file contains a raw Go expression, not a full source file
 		expr := strings.TrimSpace(string(src))
+		// binyay writes Go for a client of the package; the fixtures are
+		// compiled inside it
+		expr = strings.ReplaceAll(expr, "yay.Tagged{", "Tagged{")
+		expr = strings.ReplaceAll(expr, "yay.MustReference(", "MustReference(")
 		fixtures = append(fixtures, fixture{
 			name: baseName,
 			expr: expr,

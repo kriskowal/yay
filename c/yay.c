@@ -58,7 +58,14 @@ typedef struct {
     
     /* Error */
     yay_error_t *error;
+
+    /* Inline arrays and objects enclosing the one being read */
+    int inline_depth;
 } parse_ctx_t;
+
+/* The deepest inline arrays and objects may nest, one in another, counted
+ * together. Deeper nesting is refused rather than overflowing the stack. */
+#define MAX_INLINE_DEPTH 256
 
 /* ============================================================================
  * Memory Helpers
@@ -148,6 +155,28 @@ yay_value_t *yay_string_len(const char *str, size_t len) {
     return v;
 }
 
+yay_value_t *yay_reference(const char *uri) {
+    return yay_reference_len(uri, strlen(uri));
+}
+
+static bool is_reference_text(const char *uri, size_t len);
+static yay_value_t *make_reference_len(const char *uri, size_t len);
+
+yay_value_t *yay_reference_len(const char *uri, size_t len) {
+    if (!is_reference_text(uri, len)) return NULL;
+    return make_reference_len(uri, len);
+}
+
+/* A reference whose text the parser has already checked */
+static yay_value_t *make_reference_len(const char *uri, size_t len) {
+    yay_value_t *v = calloc(1, sizeof(yay_value_t));
+    if (v) {
+        v->type = YAY_REFERENCE;
+        v->data.reference = str_dup_len(uri, len);
+    }
+    return v;
+}
+
 yay_value_t *yay_bytes(const uint8_t *data, size_t length) {
     yay_value_t *v = calloc(1, sizeof(yay_value_t));
     if (v) {
@@ -209,6 +238,15 @@ yay_value_t *yay_object(void) {
         v->data.object.capacity = 8;
         v->data.object.pairs = calloc(8, sizeof(yay_pair_t));
     }
+    return v;
+}
+
+yay_value_t *yay_tagged(const char *tag, yay_value_t *payload) {
+    yay_value_t *v = malloc(sizeof(yay_value_t));
+    if (!v) return NULL;
+    v->type = YAY_TAGGED;
+    v->data.tagged.tag = str_dup(tag);
+    v->data.tagged.payload = payload;
     return v;
 }
 
@@ -285,6 +323,9 @@ void yay_free(yay_value_t *value) {
         case YAY_STRING:
             free(value->data.string);
             break;
+        case YAY_REFERENCE:
+            free(value->data.reference);
+            break;
         case YAY_BYTES:
             free(value->data.bytes.data);
             break;
@@ -300,6 +341,10 @@ void yay_free(yay_value_t *value) {
                 yay_free(value->data.object.pairs[i].value);
             }
             free(value->data.object.pairs);
+            break;
+        case YAY_TAGGED:
+            free(value->data.tagged.tag);
+            yay_free(value->data.tagged.payload);
             break;
         default:
             break;
@@ -342,6 +387,9 @@ bool yay_equal(const yay_value_t *a, const yay_value_t *b) {
             return a->data.number == b->data.number;
         case YAY_STRING:
             return strcmp(a->data.string, b->data.string) == 0;
+        case YAY_REFERENCE:
+            /* By text, never equal to a string */
+            return strcmp(a->data.reference, b->data.reference) == 0;
         case YAY_BYTES:
             if (a->data.bytes.length != b->data.bytes.length) return false;
             return memcmp(a->data.bytes.data, b->data.bytes.data, 
@@ -373,6 +421,9 @@ bool yay_equal(const yay_value_t *a, const yay_value_t *b) {
                 if (!found) return false;
             }
             return true;
+        case YAY_TAGGED:
+            return strcmp(a->data.tagged.tag, b->data.tagged.tag) == 0 &&
+                   yay_equal(a->data.tagged.payload, b->data.tagged.payload);
     }
     return false;
 }
@@ -456,6 +507,17 @@ static void value_to_string_impl(const yay_value_t *v, char **buf,
             }
             append_str(buf, len, cap, "}");
             break;
+        case YAY_TAGGED:
+            value_to_string_impl(v->data.tagged.payload, buf, len, cap);
+            append_str(buf, len, cap, " (");
+            append_str(buf, len, cap, v->data.tagged.tag);
+            append_str(buf, len, cap, ")");
+            break;
+        case YAY_REFERENCE:
+            append_str(buf, len, cap, "<");
+            append_str(buf, len, cap, v->data.reference);
+            append_str(buf, len, cap, ">");
+            break;
     }
 }
 
@@ -501,6 +563,57 @@ static yay_error_t *make_error(parse_ctx_t *ctx, int line, int col,
     return err;
 }
 
+/* Where each key of an object first appears, as a zero-based line and
+ * column. Each key keeps its first position, not only its name, so that the
+ * error can say where the first one is. */
+typedef struct {
+    char **keys;
+    int *lines;
+    int *cols;
+    size_t length;
+    size_t capacity;
+} seen_keys_t;
+
+static void seen_keys_free(seen_keys_t *seen) {
+    for (size_t i = 0; i < seen->length; i++) free(seen->keys[i]);
+    free(seen->keys);
+    free(seen->lines);
+    free(seen->cols);
+}
+
+/* Record where a key first appears in an object, and refuse it the second
+ * time: false, with ctx->error set. */
+static bool claim_key(parse_ctx_t *ctx, seen_keys_t *seen, const char *key,
+                      int line, int col) {
+    for (size_t i = 0; i < seen->length; i++) {
+        if (strcmp(seen->keys[i], key) == 0) {
+            ctx->error = make_error(ctx, line, col,
+                                    "Duplicate key \"%s\" (first at %d:%d)",
+                                    key, seen->lines[i] + 1, seen->cols[i] + 1);
+            return false;
+        }
+    }
+    if (seen->length == seen->capacity) {
+        size_t cap = seen->capacity ? seen->capacity * 2 : 8;
+        char **keys = realloc(seen->keys, cap * sizeof(char *));
+        if (keys) seen->keys = keys;
+        int *lines = realloc(seen->lines, cap * sizeof(int));
+        if (lines) seen->lines = lines;
+        int *cols = realloc(seen->cols, cap * sizeof(int));
+        if (cols) seen->cols = cols;
+        if (!keys || !lines || !cols) {
+            ctx->error = make_error(ctx, line, col, "Out of memory");
+            return false;
+        }
+        seen->capacity = cap;
+    }
+    seen->keys[seen->length] = str_dup(key);
+    seen->lines[seen->length] = line;
+    seen->cols[seen->length] = col;
+    seen->length++;
+    return true;
+}
+
 /* ============================================================================
  * Phase 1: Scanner
  * ============================================================================ */
@@ -524,6 +637,41 @@ static void add_scan_line(parse_ctx_t *ctx, const char *line, int indent,
 static bool is_bare_block_opener(const char *content, size_t content_len) {
     return (content_len == 1 && content[0] == '`') ||
            (content_len >= 2 && content[0] == '`' && content[1] == ' ');
+}
+
+/* Past the tags, each "(...)" and one space, at the start of content */
+static const char *skip_prefix_tags(const char *content, size_t content_len) {
+    size_t i = 0;
+    while (i < content_len && content[i] == '(') {
+        size_t j = i + 1;
+        while (j < content_len && content[j] != ')') {
+            if (content[j] == '\\' && j + 1 < content_len) j++;
+            j++;
+        }
+        if (j >= content_len) return content + i;
+        j++;
+        if (j < content_len && content[j] == ' ') j++;
+        i = j;
+    }
+    return content + i;
+}
+
+/* Whether a line's content is a property whose tags precede a block string
+ * leader: "key: (tag) `" */
+static bool is_tagged_property_opener(const char *content, size_t content_len) {
+    if (content_len < 5 || content[content_len - 1] != '`') return false;
+    for (size_t i = 0; i + 2 < content_len; i++) {
+        if (content[i] == '"' || content[i] == '\'' || content[i] == '(') {
+            return false;
+        }
+        if (content[i] == ':' && content[i + 1] == ' ' && content[i + 2] == '(') {
+            const char *after = content + i + 2;
+            size_t after_len = content_len - i - 2;
+            const char *rest = skip_prefix_tags(after, after_len);
+            return rest != after && (size_t)(rest - content) == content_len - 1;
+        }
+    }
+    return false;
 }
 
 static bool scan(parse_ctx_t *ctx) {
@@ -670,10 +818,14 @@ static bool scan(parse_ctx_t *ctx) {
             return false;
         }
         
-        if (is_bare_block_opener(content, content_len)) {
+        const char *untagged = skip_prefix_tags(content, content_len);
+        size_t untagged_len = content_len - (size_t)(untagged - content);
+        if (is_bare_block_opener(content, content_len) ||
+            is_bare_block_opener(untagged, untagged_len)) {
             block_opener = indent;
-        } else if (content_len >= 3 &&
-                   memcmp(content + content_len - 3, ": `", 3) == 0) {
+        } else if ((content_len >= 3 &&
+                    memcmp(content + content_len - 3, ": `", 3) == 0) ||
+                   is_tagged_property_opener(content, content_len)) {
             block_opener = indent + (int)(content - rest);
         }
         
@@ -743,8 +895,9 @@ static void outline_lex(parse_ctx_t *ctx) {
         /* Emit text or break. Every blank line is a break, so that a block
          * string keeps a run of blank lines. */
         if (strlen(sl->line) > 0) {
-            add_token(ctx, TOKEN_TEXT, sl->line, sl->indent, 
-                     sl->line_num, sl->indent);
+            /* The text's column follows the list leader, if any */
+            add_token(ctx, TOKEN_TEXT, sl->line, sl->indent,
+                     sl->line_num, sl->indent + (int)strlen(sl->leader));
         } else {
             add_token(ctx, TOKEN_BREAK, "", sl->line_num, sl->indent, 0);
         }
@@ -796,9 +949,181 @@ static size_t skip_stops(parse_ctx_t *ctx, size_t i) {
 }
 
 /* Find colon outside quotes */
+
+static int utf8_len(unsigned char c);
+
+static yay_value_t *parse_single_quoted_string(parse_ctx_t *ctx, const char *s,
+                                               int line_num, int col);
+
+static int check_comment_spacing(parse_ctx_t *ctx, const char *s, size_t hash,
+                                 int line_num, int col);
+
+/* The number of characters, not bytes, in a UTF-8 string */
+static int utf8_count(const char *s) {
+    int n = 0;
+    for (; *s; s++) {
+        if (((unsigned char)*s & 0xc0) != 0x80) n++;
+    }
+    return n;
+}
+/* ============================================================================
+ * References
+ * ============================================================================ */
+
+/* The length of the scheme, colon included, if s (the text after "<")
+ * begins [A-Za-z][A-Za-z0-9+.-]*":", or 0. Uppercase letters are matched so
+ * that the reader can name an uppercase scheme rather than call it bad hex. */
+static size_t scheme_len(const char *s) {
+    if (!isalpha((unsigned char)s[0])) return 0;
+    for (size_t i = 1; s[i]; i++) {
+        char c = s[i];
+        if (c == ':') return i + 1;
+        if (!isalnum((unsigned char)c) && c != '+' && c != '-' && c != '.') {
+            return 0;
+        }
+    }
+    return 0;
+}
+
+/* Whether s begins with "<" and a scheme, so is a reference rather than
+ * bytes */
+static bool is_reference_start(const char *s) {
+    return s[0] == '<' && scheme_len(s + 1) > 0;
+}
+
+/* The offset of the ">" that closes a reference at the start of s, or 0 if
+ * s is no reference or the reference is not closed. The scanners for
+ * quotes, brackets, colons, tags and comments skip a reference's text with
+ * it, since its punctuation is not syntax. */
+static int reference_end(const char *s) {
+    if (!is_reference_start(s)) return 0;
+    const char *end = strchr(s, '>');
+    return end ? (int)(end - s) : 0;
+}
+
+/* Whether a non-ASCII code point may appear in a reference (RFC 3987),
+ * as the other ports have it: from U+00A0, but no white space, nor U+FFFE
+ * or U+FFFF */
+static bool is_iri_code_point(uint32_t cp) {
+    return cp > 0xA0 && cp != 0x1680 && !(cp >= 0x2000 && cp <= 0x200A) &&
+           cp != 0x2028 && cp != 0x2029 && cp != 0x202F && cp != 0x205F &&
+           cp != 0x3000 && cp != 0xFFFE && cp != 0xFFFF;
+}
+
+/* Read a reference at the start of s, which is_reference_start accepted, to
+ * the first ">", which always closes it. Sets *consumed to the bytes read,
+ * the ">" included. */
+static yay_value_t *parse_reference(parse_ctx_t *ctx, const char *s,
+                                    size_t *consumed, int line_num, int col) {
+    size_t n = scheme_len(s + 1) - 1;
+    for (size_t k = 1; k <= n; k++) {
+        if (isupper((unsigned char)s[k])) {
+            ctx->error = make_error(ctx, line_num, col,
+                "Uppercase scheme \"%.*s\" in reference (use lowercase)",
+                (int)n, s + 1);
+            return NULL;
+        }
+    }
+    for (size_t at = 1 + n; s[at]; at++) {
+        unsigned char c = (unsigned char)s[at];
+        if (c == '>') {
+            *consumed = at + 1;
+            return make_reference_len(s + 1, at - 1);
+        }
+        if (c == '%') {
+            if (!isxdigit((unsigned char)s[at + 1]) ||
+                !isxdigit((unsigned char)s[at + 2])) {
+                ctx->error = make_error(ctx, line_num, col + (int)at,
+                    "Bad percent-encoding in reference (use %% and two hex digits)");
+                return NULL;
+            }
+            continue;
+        }
+        if (c == '\n' || c == '\r') break;
+        if (c == ' ') {
+            ctx->error = make_error(ctx, line_num, col + (int)at,
+                                    "Unexpected space in reference");
+            return NULL;
+        }
+        if (c == '\t') {
+            ctx->error = make_error(ctx, line_num, col + (int)at,
+                                    "Tab not allowed in reference");
+            return NULL;
+        }
+        if (c >= 0x80) {
+            /* A non-ASCII character, decoded from its UTF-8 */
+            int len = utf8_len(c);
+            uint32_t cp = c & (0xFF >> (len + 1));
+            int k = 1;
+            for (; k < len && ((unsigned char)s[at + k] & 0xC0) == 0x80; k++) {
+                cp = (cp << 6) | ((unsigned char)s[at + k] & 0x3F);
+            }
+            if (k == len && is_iri_code_point(cp)) {
+                at += len - 1;
+                continue;
+            }
+            ctx->error = make_error(ctx, line_num, col + (int)at,
+                                    "Unexpected character \"%.*s\" in reference",
+                                    k, s + at);
+            return NULL;
+        }
+        if (isalnum(c) || strchr("-._~:/?#[]@!$&'()*+,;=", c)) continue;
+        ctx->error = make_error(ctx, line_num, col + (int)at,
+                                "Unexpected character \"%c\" in reference", c);
+        return NULL;
+    }
+    ctx->error = make_error(ctx, line_num, col, "Unmatched angle bracket");
+    return NULL;
+}
+
+/* Whether the len bytes at uri are a reference's text, by the parser's own
+ * rule: a lowercase scheme, a colon, URI or IRI characters and well-formed
+ * percent-encodings, with nothing after (no ">" and no NUL) */
+static bool is_reference_text(const char *uri, size_t len) {
+    if (!uri || memchr(uri, '\0', len)) return false;
+    char *text = malloc(len + 3);
+    if (!text) return false;
+    text[0] = '<';
+    memcpy(text + 1, uri, len);
+    text[len + 1] = '>';
+    text[len + 2] = '\0';
+    bool ok = false;
+    if (is_reference_start(text)) {
+        parse_ctx_t ctx = {0};
+        size_t n = 0;
+        yay_value_t *ref = parse_reference(&ctx, text, &n, 0, 0);
+        ok = ref && n == len + 2;
+        yay_free(ref);
+        yay_error_free(ctx.error);
+    }
+    free(text);
+    return ok;
+}
+
+/* Read a reference that must be all of s */
+static yay_value_t *parse_whole_reference(parse_ctx_t *ctx, const char *s,
+                                          int line_num, int col) {
+    size_t n;
+    yay_value_t *ref = parse_reference(ctx, s, &n, line_num, col);
+    if (!ref) return NULL;
+    if (s[n] != '\0') {
+        if (s[n] == ':') {
+            ctx->error = make_error(ctx, line_num, col + (int)n,
+                                   "Unexpected character \":\"");
+        } else {
+            ctx->error = make_error(ctx, line_num, col + (int)n,
+                                    "Unexpected character \"%c\"", s[n]);
+        }
+        yay_free(ref);
+        return NULL;
+    }
+    return ref;
+}
+
 static int find_colon_outside_quotes(const char *s) {
     bool in_double = false;
     bool in_single = false;
+    bool in_tag = false;
     bool escape = false;
     
     for (int i = 0; s[i]; i++) {
@@ -809,12 +1134,20 @@ static int find_colon_outside_quotes(const char *s) {
             continue;
         }
         
-        if (c == '\\' && (in_double || in_single)) {
+        if (c == '\\' && (in_double || in_single || in_tag)) {
             escape = true;
             continue;
         }
         
-        if (c == '"' && !in_single) {
+        if (in_tag) {
+            if (c == ')') in_tag = false;
+            continue;
+        }
+        if (c == '<' && !in_double && !in_single && reference_end(s + i)) {
+            i += reference_end(s + i);
+        } else if (c == '(' && !in_double && !in_single) {
+            in_tag = true;
+        } else if (c == '"' && !in_single) {
             in_double = !in_double;
         } else if (c == '\'' && !in_double) {
             in_single = !in_single;
@@ -828,6 +1161,270 @@ static int find_colon_outside_quotes(const char *s) {
 
 static yay_value_t *parse_double_quoted_string(parse_ctx_t *ctx, const char *s,
                                                 int line_num, int col);
+
+/* ============================================================================
+ * Tags
+ * ============================================================================ */
+
+#define PREFIX_WITHOUT_BLOCK \
+    "A tag before a value needs a block below it; write the tag after an inline value"
+
+/* The length of the UTF-8 sequence a lead byte begins */
+static int utf8_len(unsigned char c) {
+    if (c >= 0xF0) return 4;
+    if (c >= 0xE0) return 3;
+    if (c >= 0xC0) return 2;
+    return 1;
+}
+
+static void append_utf8(char *buf, size_t *n, uint32_t cp) {
+    if (cp < 0x80) {
+        buf[(*n)++] = (char)cp;
+    } else if (cp < 0x800) {
+        buf[(*n)++] = (char)(0xC0 | (cp >> 6));
+        buf[(*n)++] = (char)(0x80 | (cp & 0x3F));
+    } else if (cp < 0x10000) {
+        buf[(*n)++] = (char)(0xE0 | (cp >> 12));
+        buf[(*n)++] = (char)(0x80 | ((cp >> 6) & 0x3F));
+        buf[(*n)++] = (char)(0x80 | (cp & 0x3F));
+    } else {
+        buf[(*n)++] = (char)(0xF0 | (cp >> 18));
+        buf[(*n)++] = (char)(0x80 | ((cp >> 12) & 0x3F));
+        buf[(*n)++] = (char)(0x80 | ((cp >> 6) & 0x3F));
+        buf[(*n)++] = (char)(0x80 | (cp & 0x3F));
+    }
+}
+
+/* Read a tag at s, which begins with "(", escaped as a double-quoted string
+ * is but with \) in the place of \". Sets *consumed past the ")". Returns the
+ * tag, or NULL with ctx->error set. */
+static char *read_tag(parse_ctx_t *ctx, const char *s, size_t *consumed,
+                      int line_num, int col) {
+    size_t cap = strlen(s) * 4 + 1;
+    char *buf = malloc(cap);
+    size_t n = 0;
+    size_t i = 1;
+    for (;;) {
+        char c = s[i];
+        if (c == '\0' || c == '\n') {
+            ctx->error = make_error(ctx, line_num, col, "Unterminated string");
+            free(buf);
+            return NULL;
+        }
+        if (c == ')') {
+            i++;
+            break;
+        }
+        if (c == '\t') {
+            ctx->error = make_error(ctx, line_num, col + (int)i,
+                                    "Tab not allowed (use spaces)");
+            free(buf);
+            return NULL;
+        }
+        if (c != '\\') {
+            buf[n++] = c;
+            i++;
+            continue;
+        }
+        char e = s[i + 1];
+        const char *simple = strchr(")\\/bfnrt", e);
+        if (e != '\0' && simple) {
+            static const char out[] = ")\\/\b\f\n\r\t";
+            buf[n++] = out[simple - ")\\/bfnrt"];
+            i += 2;
+            continue;
+        }
+        if (e != 'u' || s[i + 2] != '{') {
+            ctx->error = make_error(ctx, line_num, col + (int)i + 1,
+                                    "Bad escaped character");
+            free(buf);
+            return NULL;
+        }
+        size_t j = i + 3;
+        uint32_t cp = 0;
+        int digits = 0;
+        while (s[j] != '}') {
+            int d = hex_digit(s[j]);
+            if (d < 0 || digits == 6) {
+                ctx->error = make_error(ctx, line_num, col + (int)j,
+                                        "Bad Unicode escape");
+                free(buf);
+                return NULL;
+            }
+            cp = cp * 16 + (uint32_t)d;
+            digits++;
+            j++;
+        }
+        if (digits == 0) {
+            ctx->error = make_error(ctx, line_num, col + (int)j,
+                                    "Bad Unicode escape");
+            free(buf);
+            return NULL;
+        }
+        if (cp >= 0xD800 && cp <= 0xDFFF) {
+            ctx->error = make_error(ctx, line_num, col + (int)i,
+                                    "Illegal surrogate");
+            free(buf);
+            return NULL;
+        }
+        if (cp > 0x10FFFF) {
+            ctx->error = make_error(ctx, line_num, col + (int)i,
+                                    "Unicode code point out of range");
+            free(buf);
+            return NULL;
+        }
+        append_utf8(buf, &n, cp);
+        i = j + 1;
+    }
+    /* After a tag: the end, an inline container going on, or one space
+     * before another tag, a block or a comment */
+    char after = s[i];
+    if (after == '(') {
+        ctx->error = make_error(ctx, line_num, col + (int)i,
+                                "Expected one space before a tag");
+        free(buf);
+        return NULL;
+    }
+    if (after != '\0' && after != ',' && after != ']' && after != '}' &&
+        after != ' ') {
+        ctx->error = make_error(ctx, line_num, col + (int)i,
+                                "Unexpected character \"%.*s\"",
+                                utf8_len((unsigned char)after), s + i);
+        free(buf);
+        return NULL;
+    }
+    if (after == ' ' && s[i + 1] == ' ' && s[i + 2] != '#' && s[i + 2] != '(') {
+        ctx->error = make_error(ctx, line_num, col + (int)i,
+                                "Unexpected space after \")\"");
+        free(buf);
+        return NULL;
+    }
+    buf[n] = '\0';
+    *consumed = i;
+    return buf;
+}
+
+/* Wrap a value in the tags after it, at s, innermost first: each " (tag)".
+ * Sets *consumed to the length read. Returns the value, tagged, or NULL with
+ * ctx->error set (and the value freed). */
+static yay_value_t *parse_suffix(parse_ctx_t *ctx, yay_value_t *value,
+                                 const char *s, size_t *consumed,
+                                 int line_num, int col) {
+    size_t i = 0;
+    while (s[i] == ' ' && s[i + 1] == '(') {
+        size_t n;
+        char *tag = read_tag(ctx, s + i + 1, &n, line_num, col + (int)i + 1);
+        if (!tag) {
+            yay_free(value);
+            return NULL;
+        }
+        value = yay_tagged(tag, value);
+        free(tag);
+        i += 1 + n;
+    }
+    if (s[i] == ' ' && s[i + 1] == ' ' && s[i + 2] == '(') {
+        ctx->error = make_error(ctx, line_num, col + (int)i + 1,
+                                "Unexpected space before \"(\"");
+        yay_free(value);
+        return NULL;
+    }
+    *consumed = i;
+    return value;
+}
+
+/* Read the tags before a block, outermost first, at s, which begins with
+ * "(". Returns the count, the tags in *tags_out, and *rest after them and
+ * the one space that follows; -1 with ctx->error set on a bad tag. */
+static void free_tags(char **tags, int count);
+
+static int parse_prefix(parse_ctx_t *ctx, const char *s, char ***tags_out,
+                        const char **rest, int line_num, int col) {
+    char **tags = NULL;
+    int count = 0;
+    size_t i = 0;
+    while (s[i] == '(') {
+        size_t n;
+        char *tag = read_tag(ctx, s + i, &n, line_num, col + (int)i);
+        if (!tag) {
+            for (int k = 0; k < count; k++) free(tags[k]);
+            free(tags);
+            return -1;
+        }
+        tags = realloc(tags, sizeof(char *) * (size_t)(count + 1));
+        tags[count++] = tag;
+        i += n;
+        if (s[i] == ' ' && s[i + 1] == ' ' && s[i + 2] == '(') {
+            ctx->error = make_error(ctx, line_num, col + (int)i,
+                                    "Unexpected space before \"(\"");
+            free_tags(tags, count);
+            return -1;
+        }
+        if (s[i] == ' ') i++;
+    }
+    /* A comment may follow after more than one space */
+    while (s[i] == ' ' && s[i + 1] == ' ') i++;
+    if (s[i] == ' ' && s[i + 1] == '#') i++;
+    *tags_out = tags;
+    *rest = s + i;
+    return count;
+}
+
+/* Wrap a block in a prefix's tags, outermost first, and free the tags */
+static yay_value_t *wrap_prefix(yay_value_t *value, char **tags, int count) {
+    for (int k = count - 1; k >= 0; k--) {
+        if (value) value = yay_tagged(tags[k], value);
+        free(tags[k]);
+    }
+    free(tags);
+    return value;
+}
+
+static void free_tags(char **tags, int count) {
+    for (int k = 0; k < count; k++) free(tags[k]);
+    free(tags);
+}
+
+/* The index of the first tag at s's top level, outside quotes and inline
+ * containers, or -1 */
+static int find_top_level_tag(const char *s) {
+    bool in_double = false;
+    bool in_single = false;
+    bool escape = false;
+    int depth = 0;
+    for (int i = 0; s[i]; i++) {
+        char c = s[i];
+        if (escape) {
+            escape = false;
+            continue;
+        }
+        if (c == '\\' && (in_double || in_single)) {
+            escape = true;
+            continue;
+        }
+        if (in_double) {
+            if (c == '"') in_double = false;
+            continue;
+        }
+        if (in_single) {
+            if (c == '\'') in_single = false;
+            continue;
+        }
+        if (c == '"') in_double = true;
+        else if (c == '\'') in_single = true;
+        else if (c == '<' && reference_end(s + i)) i += reference_end(s + i);
+        else if (c == '[' || c == '{') depth++;
+        else if (c == ']' || c == '}') depth--;
+        else if (c == '(') {
+            if (depth == 0) return i;
+            /* Skip a tag inside a container */
+            for (i++; s[i] && s[i] != ')'; i++) {
+                if (s[i] == '\\' && s[i + 1]) i++;
+            }
+            if (!s[i]) return -1;
+        }
+    }
+    return -1;
+}
 
 /* Parse key name (handles quoted keys) */
 static char *parse_key_name(const char *s) {
@@ -852,6 +1449,15 @@ static char *parse_key_name(const char *s) {
     
     /* Single-quoted key */
     if (len >= 2 && s[0] == '\'' && s[len-1] == '\'') {
+        parse_ctx_t key_ctx = {0};
+        yay_value_t *parsed = parse_single_quoted_string(&key_ctx, s, 0, 0);
+        if (parsed && parsed->type == YAY_STRING) {
+            char *key = str_dup(parsed->data.string);
+            yay_free(parsed);
+            return key;
+        }
+        if (parsed) yay_free(parsed);
+        if (key_ctx.error) yay_error_free(key_ctx.error);
         return str_dup_len(s + 1, len - 2);
     }
     
@@ -1114,12 +1720,35 @@ static yay_value_t *parse_double_quoted_string(parse_ctx_t *ctx, const char *s,
     return v;
 }
 
-static yay_value_t *parse_single_quoted_string(const char *s) {
+/* Read a single-quoted string, the whole of s. Its only escapes are \' and
+ * \\; any other backslash is literal. */
+static yay_value_t *parse_single_quoted_string(parse_ctx_t *ctx, const char *s,
+                                               int line_num, int col) {
     size_t len = strlen(s);
-    if (len < 2 || s[0] != '\'' || s[len-1] != '\'') {
-        return yay_string(s);
+    char *out = malloc(len + 1);
+    size_t n = 0;
+    for (size_t k = 1; k < len; k++) {
+        char c = s[k];
+        if (c == '\\' && (s[k + 1] == '\'' || s[k + 1] == '\\')) {
+            out[n++] = s[++k];
+        } else if (c == '\'') {
+            if (k != len - 1) {
+                free(out);
+                ctx->error = make_error(ctx, line_num, col,
+                                        "Unexpected character \"'\"");
+                return NULL;
+            }
+            yay_value_t *v = yay_string_len(out, n);
+            free(out);
+            return v;
+        } else {
+            out[n++] = c;
+        }
     }
-    return yay_string_len(s + 1, len - 2);
+    free(out);
+    ctx->error = make_error(ctx, line_num, col + utf8_count(s) - 1,
+                            "Unterminated string");
+    return NULL;
 }
 
 /* ============================================================================
@@ -1167,7 +1796,7 @@ static yay_value_t *parse_concatenated_strings(parse_ctx_t *ctx, size_t *idx, in
         if (is_double_quoted) {
             parsed = parse_double_quoted_string(ctx, trimmed, t->line_num, t->col);
         } else {
-            parsed = parse_single_quoted_string(trimmed);
+            parsed = parse_single_quoted_string(ctx, trimmed, t->line_num, t->col);
         }
         
         if (parsed == NULL) {
@@ -1400,174 +2029,104 @@ static int key_column(parse_ctx_t *ctx, size_t i) {
  * ============================================================================ */
 
 /* Parse block bytes starting with > */
+/* Read one line of block bytes onto hex: hex digits, then an optional
+ * comment after two spaces, or a comment alone. Refuses uppercase digits
+ * and a comment with one space before it; returns 0 with ctx->error set. */
+static int block_hex_line(parse_ctx_t *ctx, const char *text, int line_num,
+                          int col, char **hex, size_t *hex_len,
+                          size_t *hex_cap) {
+    if (text[0] == '#') return 1;
+    size_t end = strlen(text);
+    const char *hash = strchr(text, '#');
+    if (hash) {
+        size_t at = (size_t)(hash - text);
+        if (!check_comment_spacing(ctx, text, at, line_num, col)) return 0;
+        if (at > 0 && text[at - 1] == ' ') end = at;
+    }
+    for (size_t k = 0; k < end; k++) {
+        char c = text[k];
+        if (c == ' ') continue;
+        if (is_uppercase_hex(c)) {
+            ctx->error = make_error(ctx, line_num, col + (int)k,
+                                    "Uppercase hex digit (use lowercase)");
+            return 0;
+        }
+        if (*hex_len >= *hex_cap - 1) {
+            *hex_cap *= 2;
+            *hex = realloc(*hex, *hex_cap);
+        }
+        (*hex)[(*hex_len)++] = c;
+    }
+    return 1;
+}
+
+/* The hex of block bytes, the leader's line (from first) and the lines
+ * indented below it, decoded */
+static yay_value_t *block_bytes_value(parse_ctx_t *ctx, size_t *idx,
+                                      const char *first, int first_col) {
+    token_t *t = &ctx->tokens[*idx];
+    int base_indent = t->indent;
+    size_t hex_cap = 256;
+    size_t hex_len = 0;
+    char *hex = malloc(hex_cap);
+    if (!block_hex_line(ctx, first, t->line_num, first_col, &hex, &hex_len,
+                        &hex_cap)) {
+        free(hex);
+        return NULL;
+    }
+    (*idx)++;
+    while (*idx < ctx->token_count &&
+           ctx->tokens[*idx].type == TOKEN_TEXT &&
+           ctx->tokens[*idx].indent > base_indent) {
+        token_t *line_tok = &ctx->tokens[*idx];
+        if (!block_hex_line(ctx, line_tok->text, line_tok->line_num,
+                            line_tok->col, &hex, &hex_len, &hex_cap)) {
+            free(hex);
+            return NULL;
+        }
+        (*idx)++;
+    }
+    hex[hex_len] = '\0';
+    if (hex_len % 2 != 0) {
+        ctx->error = make_error(ctx, t->line_num, t->col,
+                               "Odd number of hex digits in byte literal");
+        free(hex);
+        return NULL;
+    }
+    yay_value_t *v = yay_bytes_from_hex(hex);
+    free(hex);
+    return v;
+}
+
 static yay_value_t *parse_block_bytes(parse_ctx_t *ctx, size_t *idx) {
     token_t *t = &ctx->tokens[*idx];
     const char *s = t->text;
-    int base_indent = t->indent;
-    
-    /* Extract hex from first line (after >) */
+
+    /* The hex or comment on the leader's line, after ">" */
     const char *hex_start = s + 1;
     int hex_col_offset = 1;
     if (*hex_start == ' ') {
         hex_start++;
         hex_col_offset = 2;
     }
-    
-    /* Strip comment */
-    char *first_hex = str_dup(hex_start);
-    char *comment = strchr(first_hex, '#');
-    if (comment) *comment = '\0';
-    
-    /* Trim whitespace from first_hex */
-    char *trimmed = first_hex;
-    while (*trimmed == ' ') trimmed++;
-    size_t trimmed_len = strlen(trimmed);
-    while (trimmed_len > 0 && trimmed[trimmed_len - 1] == ' ') {
-        trimmed[--trimmed_len] = '\0';
-    }
-    
-    /* Check for empty leader (just ">" with no hex or comment) */
-    if (*trimmed == '\0' && comment == NULL) {
+    const char *rest = hex_start;
+    while (*rest == ' ') rest++;
+    if (*rest == '\0') {
         ctx->error = calloc(1, sizeof(yay_error_t));
         ctx->error->message = str_dup("Expected hex or comment in hex block");
-        free(first_hex);
         return NULL;
     }
-    
-    size_t hex_cap = 256;
-    size_t hex_len = 0;
-    char *hex = malloc(hex_cap);
-    
-    /* Add hex from first line, checking for uppercase */
-    for (char *p = first_hex; *p; p++) {
-        if (*p != ' ') {
-            if (is_uppercase_hex(*p)) {
-                ctx->error = make_error(ctx, t->line_num, t->col + hex_col_offset + (int)(p - first_hex),
-                                       "Uppercase hex digit (use lowercase)");
-                free(first_hex);
-                free(hex);
-                return NULL;
-            }
-            if (hex_len >= hex_cap - 1) {
-                hex_cap *= 2;
-                hex = realloc(hex, hex_cap);
-            }
-            hex[hex_len++] = *p;
-        }
-    }
-    free(first_hex);
-    
-    (*idx)++;
-    
-    /* Collect continuation lines */
-    while (*idx < ctx->token_count && 
-           ctx->tokens[*idx].type == TOKEN_TEXT &&
-           ctx->tokens[*idx].indent > base_indent) {
-        token_t *line_tok = &ctx->tokens[*idx];
-        char *line = str_dup(line_tok->text);
-        char *line_comment = strchr(line, '#');
-        if (line_comment) *line_comment = '\0';
-        
-        for (char *p = line; *p; p++) {
-            if (*p != ' ') {
-                if (is_uppercase_hex(*p)) {
-                    ctx->error = make_error(ctx, line_tok->line_num, line_tok->col + (int)(p - line),
-                                           "Uppercase hex digit (use lowercase)");
-                    free(line);
-                    free(hex);
-                    return NULL;
-                }
-                if (hex_len >= hex_cap - 1) {
-                    hex_cap *= 2;
-                    hex = realloc(hex, hex_cap);
-                }
-                hex[hex_len++] = *p;
-            }
-        }
-        free(line);
-        (*idx)++;
-    }
-    
-    hex[hex_len] = '\0';
-    
-    if (hex_len % 2 != 0) {
-        ctx->error = make_error(ctx, t->line_num, t->col,
-                               "Odd number of hex digits in byte literal");
-        free(hex);
-        return NULL;
-    }
-    
-    yay_value_t *v = yay_bytes_from_hex(hex);
-    free(hex);
-    return v;
+    return block_bytes_value(ctx, idx, hex_start, t->col + hex_col_offset);
 }
 
 /* Parse block bytes in property context (key: > hex) */
 static yay_value_t *parse_property_block_bytes(parse_ctx_t *ctx, size_t *idx, 
                                                 const char *v_part) {
-    token_t *t = &ctx->tokens[*idx];
-    int base_indent = t->indent;
-    
-    /* Extract hex from first line (after >) */
+    /* Only a comment may follow ">" on the key's line */
     const char *hex_start = v_part + 1;
     if (*hex_start == ' ') hex_start++;
-    
-    /* Strip comment */
-    char *first_hex = str_dup(hex_start);
-    char *comment = strchr(first_hex, '#');
-    if (comment) *comment = '\0';
-    
-    size_t hex_cap = 256;
-    size_t hex_len = 0;
-    char *hex = malloc(hex_cap);
-    
-    /* Add hex from first line */
-    for (char *p = first_hex; *p; p++) {
-        if (*p != ' ') {
-            if (hex_len >= hex_cap - 1) {
-                hex_cap *= 2;
-                hex = realloc(hex, hex_cap);
-            }
-            hex[hex_len++] = tolower(*p);
-        }
-    }
-    free(first_hex);
-    
-    (*idx)++;
-    
-    /* Collect continuation lines */
-    while (*idx < ctx->token_count && 
-           ctx->tokens[*idx].type == TOKEN_TEXT &&
-           ctx->tokens[*idx].indent > base_indent) {
-        char *line = str_dup(ctx->tokens[*idx].text);
-        char *line_comment = strchr(line, '#');
-        if (line_comment) *line_comment = '\0';
-        
-        for (char *p = line; *p; p++) {
-            if (*p != ' ') {
-                if (hex_len >= hex_cap - 1) {
-                    hex_cap *= 2;
-                    hex = realloc(hex, hex_cap);
-                }
-                hex[hex_len++] = tolower(*p);
-            }
-        }
-        free(line);
-        (*idx)++;
-    }
-    
-    hex[hex_len] = '\0';
-    
-    if (hex_len % 2 != 0) {
-        ctx->error = make_error(ctx, t->line_num, t->col,
-                               "Odd number of hex digits in byte literal");
-        free(hex);
-        return NULL;
-    }
-    
-    yay_value_t *v = yay_bytes_from_hex(hex);
-    free(hex);
-    return v;
+    if (*hex_start != '#') hex_start = "";
+    return block_bytes_value(ctx, idx, hex_start, 0);
 }
 
 /* ============================================================================
@@ -1613,6 +2172,17 @@ static bool validate_inline_syntax(parse_ctx_t *ctx, const char *s,
             continue;
         }
         
+        if (c == '<' && reference_end(s + i)) {
+            /* A reference: its punctuation is its own */
+            i += reference_end(s + i);
+            continue;
+        }
+        if (c == '(') {
+            /* A tag: opaque like a string, closed by ")" */
+            in_string = true;
+            string_char = ')';
+            continue;
+        }
         if (c == '"' || c == '\'') {
             in_string = true;
             string_char = c;
@@ -1728,6 +2298,10 @@ static bool validate_inline_syntax(parse_ctx_t *ctx, const char *s,
                         }
                         continue;
                     }
+                    if (s[j] == '<' && reference_end(s + j)) {
+                        j += reference_end(s + j);
+                        continue;
+                    }
                     if (s[j] == '"' || s[j] == '\'') {
                         la_in_string = true;
                         la_string_char = s[j];
@@ -1812,6 +2386,22 @@ static int find_matching_bracket(const char *s) {
             escape = true;
             continue;
         }
+        /* A reference is opaque */
+        if (!in_string && s[i] == '<' && reference_end(s + i)) {
+            i += reference_end(s + i);
+            continue;
+        }
+        /* A tag, "(" to ")", is opaque like a string */
+        if (!in_string && s[i] == '(') {
+            in_string = true;
+            string_char = ')';
+            continue;
+        }
+        if (in_string && string_char == ')' && s[i] == ')') {
+            in_string = false;
+            string_char = 0;
+            continue;
+        }
         if ((s[i] == '"' || s[i] == '\'') && (!in_string || s[i] == string_char)) {
             if (in_string) {
                 in_string = false;
@@ -1846,6 +2436,22 @@ static int find_matching_brace(const char *s) {
         }
         if (s[i] == '\\' && in_string) {
             escape = true;
+            continue;
+        }
+        /* A reference is opaque */
+        if (!in_string && s[i] == '<' && reference_end(s + i)) {
+            i += reference_end(s + i);
+            continue;
+        }
+        /* A tag, "(" to ")", is opaque like a string */
+        if (!in_string && s[i] == '(') {
+            in_string = true;
+            string_char = ')';
+            continue;
+        }
+        if (in_string && string_char == ')' && s[i] == ')') {
+            in_string = false;
+            string_char = 0;
             continue;
         }
         if ((s[i] == '"' || s[i] == '\'') && (!in_string || s[i] == string_char)) {
@@ -2046,14 +2652,64 @@ static yay_value_t *parse_inline_value(parse_ctx_t *ctx, const char *s,
     return parse_inline_value_impl(ctx, s, consumed, line_num, col);
 }
 
+static yay_value_t *parse_inline_atom(parse_ctx_t *ctx, const char *s,
+                                      size_t *consumed, int line_num, int col);
+
+/* An inline value and the tags after it */
 static yay_value_t *parse_inline_value_impl(parse_ctx_t *ctx, const char *s, 
                                              size_t *consumed, int line_num, int col) {
     /* Skip whitespace */
     while (*s == ' ') { s++; col++; }
     
+    yay_value_t *value = parse_inline_atom(ctx, s, consumed, line_num, col);
+    if (!value) return NULL;
+    if (s[*consumed] == '(') {
+        ctx->error = make_error(ctx, line_num, col + (int)*consumed,
+                                "Expected one space before a tag");
+        yay_free(value);
+        return NULL;
+    }
+    size_t n;
+    value = parse_suffix(ctx, value, s + *consumed, &n, line_num,
+                         col + (int)*consumed);
+    *consumed += n;
+    return value;
+}
+
+static yay_value_t *parse_inline_atom_body(parse_ctx_t *ctx, const char *s,
+                                           size_t *consumed, int line_num,
+                                           int col);
+
+/* An inline value without its tags, counting a level of inline nesting for
+ * an array or object and refusing more than MAX_INLINE_DEPTH levels */
+static yay_value_t *parse_inline_atom(parse_ctx_t *ctx, const char *s,
+                                      size_t *consumed, int line_num, int col) {
+    if (s[0] != '[' && s[0] != '{') {
+        return parse_inline_atom_body(ctx, s, consumed, line_num, col);
+    }
+    if (ctx->inline_depth >= MAX_INLINE_DEPTH) {
+        ctx->error = make_error(ctx, line_num, col,
+                                "Inline nesting deeper than %d levels",
+                                MAX_INLINE_DEPTH);
+        return NULL;
+    }
+    ctx->inline_depth++;
+    yay_value_t *value = parse_inline_atom_body(ctx, s, consumed, line_num, col);
+    ctx->inline_depth--;
+    return value;
+}
+
+static yay_value_t *parse_inline_atom_body(parse_ctx_t *ctx, const char *s,
+                                           size_t *consumed, int line_num,
+                                           int col) {
     if (s[0] == '[') {
         int end = find_matching_bracket(s);
         if (end < 0) return NULL;
+        if (s[end + 1] == ':') {
+            ctx->error = make_error(ctx, line_num, col + end + 1,
+                                    "Unexpected character \":\"");
+            return NULL;
+        }
         
         yay_value_t *arr = yay_array();
         const char *inner = s + 1;
@@ -2084,6 +2740,7 @@ static yay_value_t *parse_inline_value_impl(parse_ctx_t *ctx, const char *s,
         if (end < 0) return NULL;
         
         yay_value_t *obj = yay_object();
+        seen_keys_t seen = {0};
         const char *inner = s + 1;
         int inner_col = col + 1;
         
@@ -2092,6 +2749,7 @@ static yay_value_t *parse_inline_value_impl(parse_ctx_t *ctx, const char *s,
             if (*inner == '}') break;
             
             /* Parse key */
+            int key_col = inner_col;
             char *key = NULL;
             if (*inner == '"' || *inner == '\'') {
                 size_t key_consumed;
@@ -2099,6 +2757,7 @@ static yay_value_t *parse_inline_value_impl(parse_ctx_t *ctx, const char *s,
                                                            line_num, inner_col);
                 if (!key_val) {
                     yay_free(obj);
+                    seen_keys_free(&seen);
                     return NULL;
                 }
                 key = str_dup(key_val->data.string);
@@ -2112,6 +2771,7 @@ static yay_value_t *parse_inline_value_impl(parse_ctx_t *ctx, const char *s,
                     /* Invalid key character at start */
                     ctx->error = make_error(ctx, line_num, col, "Invalid key");
                     yay_free(obj);
+                    seen_keys_free(&seen);
                     return NULL;
                 }
                 while (*inner && (isalnum(*inner) || *inner == '_' || *inner == '-')) { inner++; inner_col++; }
@@ -2124,6 +2784,13 @@ static yay_value_t *parse_inline_value_impl(parse_ctx_t *ctx, const char *s,
                 ctx->error = make_error(ctx, line_num, col, "Expected colon after key");
                 free(key);
                 yay_free(obj);
+                seen_keys_free(&seen);
+                return NULL;
+            }
+            if (!claim_key(ctx, &seen, key, line_num, key_col)) {
+                free(key);
+                yay_free(obj);
+                seen_keys_free(&seen);
                 return NULL;
             }
             inner++; inner_col++;
@@ -2136,6 +2803,7 @@ static yay_value_t *parse_inline_value_impl(parse_ctx_t *ctx, const char *s,
             if (!val) {
                 free(key);
                 yay_free(obj);
+                seen_keys_free(&seen);
                 return NULL;
             }
             
@@ -2145,8 +2813,13 @@ static yay_value_t *parse_inline_value_impl(parse_ctx_t *ctx, const char *s,
             inner_col += val_consumed;
         }
         
+        seen_keys_free(&seen);
         *consumed = end + 1;
         return obj;
+    }
+    
+    if (is_reference_start(s)) {
+        return parse_reference(ctx, s, consumed, line_num, col);
     }
     
     if (s[0] == '<') {
@@ -2234,6 +2907,7 @@ static yay_value_t *parse_angle_bytes(parse_ctx_t *ctx, const char *s,
     /* Extract hex, removing spaces, and validate hex digits */
     char *hex = malloc(len);
     size_t hex_len = 0;
+    bool bad = false;
     
     for (size_t i = 1; i < len - 1; i++) {
         if (s[i] != ' ') {
@@ -2245,11 +2919,9 @@ static yay_value_t *parse_angle_bytes(parse_ctx_t *ctx, const char *s,
                 free(hex);
                 return NULL;
             }
-            /* Validate hex digit */
+            /* Count a non-hex digit; refuse it after the length, as Rust does */
             if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) {
-                ctx->error = make_error(ctx, line_num, col, "Invalid hex digit");
-                free(hex);
-                return NULL;
+                bad = true;
             }
             hex[hex_len++] = c;
         }
@@ -2259,6 +2931,11 @@ static yay_value_t *parse_angle_bytes(parse_ctx_t *ctx, const char *s,
     if (hex_len % 2 != 0) {
         ctx->error = make_error(ctx, line_num, col,
                                "Odd number of hex digits in byte literal");
+        free(hex);
+        return NULL;
+    }
+    if (bad) {
+        ctx->error = make_error(ctx, line_num, col, "Invalid hex digit");
         free(hex);
         return NULL;
     }
@@ -2272,10 +2949,28 @@ static yay_value_t *parse_angle_bytes(parse_ctx_t *ctx, const char *s,
  * Comment Handling
  * ============================================================================ */
 
-/* Strip inline comment from a string (modifies in place, returns pointer to start) */
-static char *strip_inline_comment(char *s) {
+/* Refuse a comment, at s[hash], that has one space before it rather than
+ * two. Returns 0 with ctx->error set when it does. */
+static int check_comment_spacing(parse_ctx_t *ctx, const char *s, size_t hash,
+                                 int line_num, int col) {
+    if (hash >= 1 && s[hash - 1] == ' ' && (hash < 2 || s[hash - 2] != ' ')) {
+        char *head = str_dup_len(s, hash);
+        ctx->error = make_error(ctx, line_num, col + utf8_count(head),
+                                "Expected two spaces before a comment");
+        free(head);
+        return 0;
+    }
+    return 1;
+}
+
+/* Strip an inline comment from a value, in place. A comment after a value
+ * takes two spaces before its "#"; one space is refused, and then this
+ * returns 0 with ctx->error set. */
+static int strip_inline_comment(parse_ctx_t *ctx, char *s, int line_num,
+                                int col) {
     int in_double = 0;
     int in_single = 0;
+    int in_tag = 0;
     int escape = 0;
     
     for (char *p = s; *p; p++) {
@@ -2287,19 +2982,30 @@ static char *strip_inline_comment(char *s) {
             escape = 1;
             continue;
         }
-        if (*p == '"' && !in_single) {
+        if (in_tag) {
+            if (*p == ')') in_tag = 0;
+            continue;
+        }
+        if (*p == '<' && !in_double && !in_single && reference_end(p)) {
+            p += reference_end(p);
+        } else if (*p == '(' && !in_double && !in_single) {
+            in_tag = 1;
+        } else if (*p == '"' && !in_single) {
             in_double = !in_double;
         } else if (*p == '\'' && !in_double) {
             in_single = !in_single;
         } else if (*p == '#' && !in_double && !in_single) {
+            if (!check_comment_spacing(ctx, s, (size_t)(p - s), line_num, col)) {
+                return 0;
+            }
             /* Trim trailing whitespace before comment */
             char *end = p;
             while (end > s && *(end-1) == ' ') end--;
             *end = '\0';
-            return s;
+            return 1;
         }
     }
-    return s;
+    return 1;
 }
 
 /* ============================================================================
@@ -2313,8 +3019,54 @@ static yay_value_t *parse_scalar(parse_ctx_t *ctx, const char *s,
                                   int line_num, int col) {
     /* Strip inline comments first */
     char *s_copy = str_dup(s);
-    strip_inline_comment(s_copy);
-    yay_value_t *result = parse_scalar_impl(ctx, s_copy, line_num, col);
+    if (!strip_inline_comment(ctx, s_copy, line_num, col)) {
+        free(s_copy);
+        return NULL;
+    }
+    int tag_at = find_top_level_tag(s_copy);
+    if (tag_at < 0) {
+        yay_value_t *result = parse_scalar_impl(ctx, s_copy, line_num, col);
+        free(s_copy);
+        return result;
+    }
+    /* A tagged inline value: the tags after it, one space before each */
+    if (tag_at == 0) {
+        ctx->error = make_error(ctx, line_num, col, PREFIX_WITHOUT_BLOCK);
+        free(s_copy);
+        return NULL;
+    }
+    if (s_copy[tag_at - 1] != ' ') {
+        ctx->error = make_error(ctx, line_num, col + tag_at,
+                                "Expected one space before a tag");
+        free(s_copy);
+        return NULL;
+    }
+    if (tag_at > 1 && s_copy[tag_at - 2] == ' ') {
+        /* At the first space after the value */
+        int at = tag_at - 2;
+        while (at > 0 && s_copy[at - 1] == ' ') at--;
+        ctx->error = make_error(ctx, line_num, col + at,
+                                "Unexpected space before \"(\"");
+        free(s_copy);
+        return NULL;
+    }
+    char *atom = str_dup_len(s_copy, (size_t)tag_at - 1);
+    yay_value_t *result = parse_scalar_impl(ctx, atom, line_num, col);
+    free(atom);
+    if (!result) {
+        free(s_copy);
+        return NULL;
+    }
+    size_t n;
+    result = parse_suffix(ctx, result, s_copy + tag_at - 1, &n, line_num,
+                          col + tag_at - 1);
+    if (result && s_copy[tag_at - 1 + (int)n] != '\0') {
+        ctx->error = make_error(ctx, line_num, col + tag_at - 1 + (int)n,
+                                "Unexpected character \"%c\"",
+                                s_copy[tag_at - 1 + (int)n]);
+        yay_free(result);
+        result = NULL;
+    }
     free(s_copy);
     return result;
 }
@@ -2341,9 +3093,16 @@ static yay_value_t *parse_scalar_impl(parse_ctx_t *ctx, const char *s,
     if (s[0] == '"') {
         size_t slen = strlen(s);
         if (slen < 2 || s[slen-1] != '"') {
-            /* Unterminated string - report at end of string */
-            ctx->error = make_error(ctx, line_num, col + (int)(slen > 0 ? slen - 1 : 0),
-                                   "Unterminated string");
+            /* Text after the string, or no closing quote */
+            size_t k = 1;
+            while (k < slen && s[k] != '"') k += (s[k] == '\\' && k + 1 < slen) ? 2 : 1;
+            if (k < slen) {
+                ctx->error = make_error(ctx, line_num, col,
+                                        "Unexpected character \"%c\"", s[0]);
+            } else {
+                ctx->error = make_error(ctx, line_num, col + utf8_count(s) - 1,
+                                        "Unterminated string");
+            }
             return NULL;
         }
         return parse_double_quoted_string(ctx, s, line_num, col);
@@ -2351,14 +3110,7 @@ static yay_value_t *parse_scalar_impl(parse_ctx_t *ctx, const char *s,
     
     /* Single-quoted string */
     if (s[0] == '\'') {
-        size_t slen = strlen(s);
-        if (slen < 2 || s[slen-1] != '\'') {
-            /* Unterminated string - report at end of string */
-            ctx->error = make_error(ctx, line_num, col + (int)(slen > 0 ? slen - 1 : 0),
-                                   "Unterminated string");
-            return NULL;
-        }
-        return parse_single_quoted_string(s);
+        return parse_single_quoted_string(ctx, s, line_num, col);
     }
     
     /* Inline array - must close on same line */
@@ -2384,6 +3136,11 @@ static yay_value_t *parse_scalar_impl(parse_ctx_t *ctx, const char *s,
         }
         size_t consumed;
         return parse_inline_value_impl(ctx, s, &consumed, line_num, col);
+    }
+    
+    /* A reference */
+    if (is_reference_start(s)) {
+        return parse_whole_reference(ctx, s, line_num, col);
     }
     
     /* Inline bytes */
@@ -2413,6 +3170,45 @@ static yay_value_t *parse_nested_object(parse_ctx_t *ctx, size_t *idx,
 static yay_value_t *parse_object_property_value(parse_ctx_t *ctx, size_t *idx,
                                                  token_t *t, const char *v_part,
                                                  int v_col) {
+    int key_col = key_column(ctx, *idx);
+    /* A tagged block: read the property without its tags, then tag the
+     * value */
+    if (v_part[0] == '(') {
+        char **tags;
+        const char *rest;
+        int count = parse_prefix(ctx, v_part, &tags, &rest, t->line_num, v_col);
+        if (count < 0) return NULL;
+        if (rest[0] == '#') rest = "";
+        /* A block leader, or text after one that the block refuses */
+        bool block_leader = rest[0] == '`' ||
+                            (rest[0] == '>' && !strchr(rest, '<'));
+        if (rest[0] != '\0' && !block_leader) {
+            free_tags(tags, count);
+            ctx->error = make_error(ctx, t->line_num, v_col, PREFIX_WITHOUT_BLOCK);
+            return NULL;
+        }
+        /* Below the root, the block must be indented under the key, or be a
+         * list at its column: a sibling item or property after `- a: (t)` is
+         * not its block */
+        if (rest[0] == '\0' && key_col > 0) {
+            size_t j = skip_breaks_and_stops(ctx, *idx + 1);
+            if (j >= ctx->token_count || ctx->tokens[j].indent < key_col ||
+                (ctx->tokens[j].indent == key_col &&
+                 ctx->tokens[j].type != TOKEN_START)) {
+                free_tags(tags, count);
+                ctx->error = make_error(ctx, t->line_num, v_col, PREFIX_WITHOUT_BLOCK);
+                return NULL;
+            }
+        }
+        yay_value_t *value = parse_object_property_value(ctx, idx, t, rest,
+                                                         v_col + (int)(rest - v_part));
+        if (!value) {
+            free_tags(tags, count);
+            return NULL;
+        }
+        return wrap_prefix(value, tags, count);
+    }
+    
     /* Empty object */
     if (strcmp(v_part, "{}") == 0) {
         (*idx)++;
@@ -2474,6 +3270,15 @@ static yay_value_t *parse_object_property_value(parse_ctx_t *ctx, size_t *idx,
     }
     
     token_t *next_t = &ctx->tokens[j];
+
+    /* A block array may stand at the key's column. Every other block value
+     * must be indented deeper, so a sibling item or property is no value. */
+    if (next_t->indent < key_col ||
+        (next_t->indent == key_col && next_t->type != TOKEN_START)) {
+        ctx->error = make_error(ctx, t->line_num, t->col + colon_idx + 1,
+                               "Expected value after property");
+        return NULL;
+    }
     
     /* Named array - pass next_t->indent so array stops at items below this level */
     if (next_t->type == TOKEN_START && strcmp(next_t->text, "- ") == 0) {
@@ -2572,6 +3377,14 @@ static bool validate_object_property(parse_ctx_t *ctx, const char *text,
         return false;
     }
     
+    /* Bytes or a reference is never a key: the colon after it is stray */
+    if (is_reference_start(text) ||
+        (text[0] == '<' && colon_idx >= 2 && text[colon_idx - 1] == '>')) {
+        ctx->error = make_error(ctx, line_num, col + colon_idx,
+                               "Unexpected character \":\"");
+        return false;
+    }
+    
     /* Validate key characters for unquoted keys */
     if (text[0] != '"' && text[0] != '\'') {
         for (int ki = 0; ki < colon_idx; ki++) {
@@ -2593,6 +3406,7 @@ static bool validate_object_property(parse_ctx_t *ctx, const char *text,
 static yay_value_t *parse_nested_object(parse_ctx_t *ctx, size_t *idx, 
                                          int base_indent, int item_line) {
     yay_value_t *obj = yay_object();
+    seen_keys_t seen = {0};
     
     while (*idx < ctx->token_count) {
         token_t *t = &ctx->tokens[*idx];
@@ -2618,6 +3432,7 @@ static yay_value_t *parse_nested_object(parse_ctx_t *ctx, size_t *idx,
         /* Validate object property syntax */
         if (!validate_object_property(ctx, t->text, colon_idx, t->line_num, t->col)) {
             yay_free(obj);
+            seen_keys_free(&seen);
             return NULL;
         }
         
@@ -2636,11 +3451,18 @@ static yay_value_t *parse_nested_object(parse_ctx_t *ctx, size_t *idx,
             (*idx)++;
             continue;
         }
+        if (!claim_key(ctx, &seen, key, t->line_num, t->col)) {
+            free(key);
+            yay_free(obj);
+            seen_keys_free(&seen);
+            return NULL;
+        }
         
         yay_value_t *value = parse_object_property_value(ctx, idx, t, v_part, v_col);
         if (ctx->error) {
             free(key);
             yay_free(obj);
+            seen_keys_free(&seen);
             return NULL;
         }
         
@@ -2648,6 +3470,7 @@ static yay_value_t *parse_nested_object(parse_ctx_t *ctx, size_t *idx,
         free(key);
     }
     
+    seen_keys_free(&seen);
     return obj;
 }
 
@@ -2702,6 +3525,54 @@ static yay_value_t *parse_nested_inline_bullet(parse_ctx_t *ctx, const char *tex
 
 /* Forward declaration with min_indent parameter */
 static yay_value_t *parse_multiline_array_impl(parse_ctx_t *ctx, size_t *idx, int min_indent);
+
+static yay_value_t *parse_tagged_item(parse_ctx_t *ctx, size_t *idx,
+                                      token_t *next, int list_indent) {
+    char **tags;
+    const char *rest;
+    int count = parse_prefix(ctx, next->text, &tags, &rest, next->line_num,
+                             next->col);
+    if (count < 0) return NULL;
+    if (rest[0] == '#') rest = "";
+    yay_value_t *value = NULL;
+    if (strcmp(rest, "`") == 0 || (rest[0] == '`' && rest[1] == ' ')) {
+        const char *first_line = strlen(rest) > 2 ? rest + 2 : "";
+        value = parse_block_string_impl(ctx, idx, first_line, list_indent, false);
+    } else if (rest[0] == '>' && !strchr(rest, '<')) {
+        /* Read the block bytes as if the tags were not on the line */
+        char *orig = next->text;
+        next->text = str_dup(rest);
+        value = parse_block_bytes(ctx, idx);
+        free(next->text);
+        next->text = orig;
+    } else if (rest[0] == '\0') {
+        size_t j = skip_breaks_and_stops(ctx, *idx + 1);
+        token_t *below = j < ctx->token_count ? &ctx->tokens[j] : NULL;
+        if (below && below->indent > list_indent) {
+            if (below->type == TOKEN_START && strcmp(below->text, "- ") == 0) {
+                *idx = j;
+                value = parse_multiline_array_impl(ctx, idx, below->indent);
+            } else if (below->type == TOKEN_TEXT &&
+                       find_colon_outside_quotes(below->text) >= 0) {
+                *idx = j;
+                value = parse_nested_object(ctx, idx, below->indent, -1);
+            } else if (below->type == TOKEN_TEXT &&
+                       (below->text[0] == '"' || below->text[0] == '\'')) {
+                *idx = j;
+                value = parse_concatenated_strings(ctx, idx, below->indent);
+            }
+        }
+    }
+    if (!value) {
+        if (!ctx->error) {
+            ctx->error = make_error(ctx, next->line_num, next->col,
+                                    PREFIX_WITHOUT_BLOCK);
+        }
+        free_tags(tags, count);
+        return NULL;
+    }
+    return wrap_prefix(value, tags, count);
+}
 
 static yay_value_t *parse_multiline_array(parse_ctx_t *ctx, size_t *idx) {
     return parse_multiline_array_impl(ctx, idx, -1);
@@ -2791,8 +3662,20 @@ static yay_value_t *parse_multiline_array_impl(parse_ctx_t *ctx, size_t *idx, in
             
             yay_array_push(arr, nested);
         }
+        /* A tagged block: below the item, or a block string or block bytes
+         * on its line */
+        else if (next->type == TOKEN_TEXT && next->text[0] == '(') {
+            yay_value_t *value = parse_tagged_item(ctx, idx, next, list_indent);
+            if (!value) {
+                yay_free(arr);
+                return NULL;
+            }
+            yay_array_push(arr, value);
+        }
         /* Object in array */
-        else if (next->type == TOKEN_TEXT && find_colon_outside_quotes(next->text) >= 0) {
+        else if (next->type == TOKEN_TEXT && next->text[0] != '[' &&
+                 next->text[0] != '{' &&
+                 find_colon_outside_quotes(next->text) >= 0) {
             /* Use list_indent as base so sibling properties at higher indent are included */
             yay_value_t *obj = parse_nested_object(ctx, idx, list_indent, next->line_num);
             if (ctx->error) {
@@ -2868,107 +3751,37 @@ static yay_value_t *parse_value(parse_ctx_t *ctx, size_t *idx) {
     if (t->type == TOKEN_TEXT) {
         const char *s = t->text;
         
-        /* Keywords */
-        if (strcmp(s, "null") == 0) { (*idx)++; return yay_null(); }
-        if (strcmp(s, "true") == 0) { (*idx)++; return yay_bool(true); }
-        if (strcmp(s, "false") == 0) { (*idx)++; return yay_bool(false); }
-        if (strcmp(s, "nan") == 0) { (*idx)++; return yay_float(NAN); }
-        if (strcmp(s, "infinity") == 0) { (*idx)++; return yay_float(INFINITY); }
-        if (strcmp(s, "-infinity") == 0) { (*idx)++; return yay_float(-INFINITY); }
-        
-        /* Numbers */
-        if (is_float_str(s)) {
-            yay_value_t *v = parse_number_with_validation(ctx, s, t->line_num, t->col);
-            if (ctx->error) return NULL;
-            (*idx)++;
-            return v;
-        }
-        if (is_integer_str(s)) {
-            yay_value_t *v = parse_number_with_validation(ctx, s, t->line_num, t->col);
-            if (ctx->error) return NULL;
-            (*idx)++;
-            return v;
-        }
-        
-        /* Block string (backtick) */
-        if (strcmp(s, "`") == 0 || (s[0] == '`' && strlen(s) >= 2 && s[1] == ' ')) {
+        /* The block forms, which read the lines below */
+        if (strcmp(s, "`") == 0 || (s[0] == '`' && s[1] == ' ')) {
             const char *first_line = strlen(s) > 2 ? s + 2 : "";
             return parse_block_string(ctx, idx, first_line);
         }
-        
-        /* Block bytes (>) */
         if (s[0] == '>' && !strchr(s, '<')) {
             return parse_block_bytes(ctx, idx);
         }
-        
-        /* Quoted string */
-        if (s[0] == '"' && strlen(s) > 1) {
-            size_t slen = strlen(s);
-            if (s[slen-1] != '"') {
-                /* Unterminated string - report at end of string */
-                ctx->error = make_error(ctx, t->line_num, t->col + (int)(slen > 0 ? slen - 1 : 0),
-                                       "Unterminated string");
-                return NULL;
-            }
-            (*idx)++;
-            return parse_double_quoted_string(ctx, s, t->line_num, t->col);
+
+        /* A property on this line: "key: value" or "key:" over a block. An
+         * inline value with tags after it, an inline container, a reference
+         * and bytes never take a key here. */
+        char *bare = str_dup(s);
+        if (!strip_inline_comment(ctx, bare, t->line_num, t->col)) {
+            free(bare);
+            return NULL;
         }
-        if (s[0] == '\'' && strlen(s) > 1) {
-            size_t slen = strlen(s);
-            if (s[slen-1] != '\'') {
-                /* Unterminated string - report at end of string */
-                ctx->error = make_error(ctx, t->line_num, t->col + (int)(slen > 0 ? slen - 1 : 0),
-                                       "Unterminated string");
-                return NULL;
-            }
-            (*idx)++;
-            return parse_single_quoted_string(s);
-        }
-        
-        /* Inline array - must close on same line */
-        if (s[0] == '[') {
-            if (!strchr(s, ']')) {
-                ctx->error = make_error(ctx, t->line_num, t->col,
-                                       "Unexpected newline in inline array");
-                return NULL;
-            }
-            (*idx)++;
-            return parse_inline_array(ctx, s, t->line_num, t->col);
-        }
-        
-        /* Inline object - must close on same line */
-        if (s[0] == '{') {
-            if (!strchr(s, '}')) {
-                ctx->error = make_error(ctx, t->line_num, t->col,
-                                       "Unexpected newline in inline object");
-                return NULL;
-            }
-            size_t consumed;
-            (*idx)++;
-            return parse_inline_value(ctx, s, &consumed, t->line_num, t->col);
-        }
-        
-        /* Inline bytes */
-        if (s[0] == '<') {
-            (*idx)++;
-            yay_value_t *bytes = parse_angle_bytes(ctx, s, t->line_num, t->col);
-            if (ctx->error) {
-                return NULL;
-            }
-            return bytes;
-        }
-        
-        /* Key:value pair */
-        int colon_idx = find_colon_outside_quotes(s);
-        if (colon_idx >= 0) {
+        int tag_at = find_top_level_tag(bare);
+        int colon_idx = find_colon_outside_quotes(bare);
+        int tagged = tag_at > 0 && (colon_idx < 0 || colon_idx > tag_at);
+        if (!tagged && bare[0] != '[' && bare[0] != '{' && bare[0] != '<' &&
+            colon_idx >= 0) {
+            free(bare);
             char *k_raw = str_dup_len(s, colon_idx);
             char *key = parse_key_name(k_raw);
             free(k_raw);
-            
+
             const char *v_part = s + colon_idx + 1;
             int v_col = t->col + colon_idx + 1;
             while (*v_part == ' ') { v_part++; v_col++; }
-            
+
             yay_value_t *obj = yay_object();
             yay_value_t *value = parse_object_property_value(ctx, idx, t, v_part, v_col);
             if (ctx->error) {
@@ -2976,15 +3789,17 @@ static yay_value_t *parse_value(parse_ctx_t *ctx, size_t *idx) {
                 yay_free(obj);
                 return NULL;
             }
-            
+
             yay_object_set(obj, key, value);
             free(key);
             return obj;
         }
-        
-        /* Fall back to scalar */
+
+        /* Every inline value reads as a property's does */
         (*idx)++;
-        return parse_scalar(ctx, s, t->line_num, t->col);
+        yay_value_t *v = parse_scalar(ctx, bare, t->line_num, t->col);
+        free(bare);
+        return v;
     }
     
     (*idx)++;
@@ -2997,6 +3812,7 @@ static yay_value_t *parse_value(parse_ctx_t *ctx, size_t *idx) {
 
 static yay_value_t *parse_root_object(parse_ctx_t *ctx, size_t *idx) {
     yay_value_t *obj = yay_object();
+    seen_keys_t seen = {0};
     
     while (*idx < ctx->token_count) {
         token_t *t = &ctx->tokens[*idx];
@@ -3007,6 +3823,14 @@ static yay_value_t *parse_root_object(parse_ctx_t *ctx, size_t *idx) {
         }
         
         if (t->type != TOKEN_TEXT || t->indent != 0) {
+            /* Nothing may stand indented under a property's inline value */
+            if (t->type == TOKEN_TEXT || t->type == TOKEN_START) {
+                ctx->error = make_error(ctx, t->line_num, 0,
+                                        "Unexpected indent");
+                yay_free(obj);
+                seen_keys_free(&seen);
+                return NULL;
+            }
             (*idx)++;
             continue;
         }
@@ -3020,6 +3844,7 @@ static yay_value_t *parse_root_object(parse_ctx_t *ctx, size_t *idx) {
         /* Validate object property syntax */
         if (!validate_object_property(ctx, t->text, colon_idx, t->line_num, t->col)) {
             yay_free(obj);
+            seen_keys_free(&seen);
             return NULL;
         }
         
@@ -3031,10 +3856,17 @@ static yay_value_t *parse_root_object(parse_ctx_t *ctx, size_t *idx) {
         int v_col = t->col + colon_idx + 1;
         while (*v_part == ' ') { v_part++; v_col++; }
         
+        if (!claim_key(ctx, &seen, key, t->line_num, t->col)) {
+            free(key);
+            yay_free(obj);
+            seen_keys_free(&seen);
+            return NULL;
+        }
         yay_value_t *value = parse_object_property_value(ctx, idx, t, v_part, v_col);
         if (ctx->error) {
             free(key);
             yay_free(obj);
+            seen_keys_free(&seen);
             return NULL;
         }
         
@@ -3042,6 +3874,7 @@ static yay_value_t *parse_root_object(parse_ctx_t *ctx, size_t *idx) {
         free(key);
     }
     
+    seen_keys_free(&seen);
     return obj;
 }
 
@@ -3069,11 +3902,40 @@ static yay_value_t *parse_root(parse_ctx_t *ctx) {
         return NULL;
     }
     
-    /* Detect root object (key: value at indent 0, not inline object) */
-    if (t->type == TOKEN_TEXT && t->text[0] != '{' &&
+    /* A tagged root block: the tags alone on the first line, the block
+     * below at column 0 */
+    char **tags = NULL;
+    int tag_count = 0;
+    if (t->type == TOKEN_TEXT && t->text[0] == '(') {
+        const char *rest;
+        tag_count = parse_prefix(ctx, t->text, &tags, &rest, t->line_num, t->col);
+        if (tag_count < 0) return NULL;
+        if (rest[0] == '#') rest = "";
+        int line_num = t->line_num;
+        int col = t->col;
+        i = skip_breaks_and_stops(ctx, i + 1);
+        t = i < ctx->token_count ? &ctx->tokens[i] : NULL;
+        if (rest[0] == '\0' && t && t->indent > 0) {
+            free_tags(tags, tag_count);
+            ctx->error = make_error(ctx, t->line_num, 0, "Unexpected indent");
+            return NULL;
+        }
+        if (rest[0] != '\0' || !t || t->indent != 0 ||
+            !((t->type == TOKEN_START && strcmp(t->text, "- ") == 0) ||
+              (t->type == TOKEN_TEXT && t->text[0] != '{' &&
+               find_colon_outside_quotes(t->text) >= 0))) {
+            free_tags(tags, tag_count);
+            ctx->error = make_error(ctx, line_num, col, PREFIX_WITHOUT_BLOCK);
+            return NULL;
+        }
+    }
+    
+    /* Detect root object (key: value at indent 0, not inline object or array) */
+    if (t->type == TOKEN_TEXT && t->text[0] != '{' && t->text[0] != '[' &&
         find_colon_outside_quotes(t->text) >= 0 && t->indent == 0) {
         yay_value_t *value = parse_root_object(ctx, &i);
         if (ctx->error) {
+            free_tags(tags, tag_count);
             return NULL;
         }
         
@@ -3084,15 +3946,17 @@ static yay_value_t *parse_root(parse_ctx_t *ctx) {
             ctx->error = make_error(ctx, extra->line_num, extra->col,
                                    "Unexpected extra content");
             yay_free(value);
+            free_tags(tags, tag_count);
             return NULL;
         }
         
-        return value;
+        return wrap_prefix(value, tags, tag_count);
     }
     
     /* Parse as single value */
     yay_value_t *value = parse_value(ctx, &i);
     if (ctx->error) {
+        free_tags(tags, tag_count);
         return NULL;
     }
     
@@ -3103,10 +3967,11 @@ static yay_value_t *parse_root(parse_ctx_t *ctx) {
         ctx->error = make_error(ctx, extra->line_num, extra->col,
                                "Unexpected extra content");
         yay_free(value);
+        free_tags(tags, tag_count);
         return NULL;
     }
     
-    return value;
+    return wrap_prefix(value, tags, tag_count);
 }
 
 /* ============================================================================

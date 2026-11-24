@@ -4,8 +4,19 @@ YAY parser - parses YAY input into Python objects.
 
 import math
 from typing import Any, TextIO
-from .lexer import Lexer, Token
+from .lexer import SCALAR_KINDS, Lexer, Token, trailing_text_error
 from .errors import YaySyntaxError
+from .reference import mask_references
+from .tagged import Tagged
+
+# The deepest inline arrays and objects may nest, one in another, counted
+# together. Deeper nesting is refused rather than exhausting the recursion
+# limit.
+MAX_INLINE_DEPTH = 256
+
+PREFIX_WITHOUT_BLOCK = (
+    "A tag before a value needs a block below it; write the tag after an inline value"
+)
 
 
 class Parser:
@@ -24,6 +35,7 @@ class Parser:
         self.lexer = Lexer(source)
         self.tokens: list[Token] = list(self.lexer.tokenize())
         self.pos = 0
+        self.depth = 0
 
     def error(self, message: str, token: Token | None = None) -> YaySyntaxError:
         if token is None:
@@ -69,15 +81,27 @@ class Parser:
             self.source_lines[line - 1] if line <= len(self.source_lines) else ""
         )
         s = line_content[start_col - 1 :] if start_col <= len(line_content) else ""
+        # A reference's text is no syntax
+        s = mask_references(s)
 
         in_single = False
         in_double = False
+        in_tag = False
         escape = False
         depth = 0
 
         for i, ch in enumerate(s):
             if escape:
                 escape = False
+                continue
+            if in_tag:
+                if ch == "\\":
+                    escape = True
+                elif ch == ")":
+                    in_tag = False
+                continue
+            if ch == "(":
+                in_tag = True
                 continue
             if in_single:
                 if ch == "\\":
@@ -125,12 +149,22 @@ class Parser:
                     lookahead_depth = depth
                     in_s = False
                     in_d = False
+                    in_t = False
                     esc = False
                     next_is_closing_with_space = False
                     for j in range(i + 1, len(s)):
                         cj = s[j]
                         if esc:
                             esc = False
+                            continue
+                        if in_t:
+                            if cj == "\\":
+                                esc = True
+                            elif cj == ")":
+                                in_t = False
+                            continue
+                        if cj == "(":
+                            in_t = True
                             continue
                         if in_s:
                             if cj == "\\":
@@ -164,13 +198,40 @@ class Parser:
                             break
                     if not next_is_closing_with_space:
                         raise YaySyntaxError(
-                            f'Expected space after ","', line, start_col + i + 1
+                            f'Expected space after ","', line, start_col + i
                         )
                 if i + 2 < len(s) and s[i + 1] == " " and s[i + 2] == " ":
                     raise YaySyntaxError(
                         f'Unexpected space after ","', line, start_col + i + 2
                     )
                 continue
+
+    def enter_inline(self, token: Token) -> None:
+        """Count one more level of inline nesting at token's bracket,
+        refusing more than MAX_INLINE_DEPTH levels rather than exhausting
+        Python's recursion limit. The caller counts the level off again when
+        it returns; a refusal ends the parse, so an error need not."""
+        self.depth += 1
+        if self.depth > MAX_INLINE_DEPTH:
+            raise YaySyntaxError(
+                f"Inline nesting deeper than {MAX_INLINE_DEPTH} levels",
+                token.line,
+                token.col,
+            )
+
+    @staticmethod
+    def claim_key(seen: dict[str, tuple[int, int]], key: str, token: Token) -> None:
+        """Record where a key first appears in an object, and refuse it the
+        second time. Each key keeps its first position, not only its name,
+        so that the error can say where the first one is."""
+        first = seen.get(key)
+        if first is not None:
+            raise YaySyntaxError(
+                f'Duplicate key "{key}" (first at {first[0]}:{first[1]})',
+                token.line,
+                token.col,
+            )
+        seen[key] = (token.line, token.col)
 
     def peek(self, offset: int = 0) -> Token:
         """Peek at token at current position + offset."""
@@ -197,6 +258,52 @@ class Parser:
         while self.peek().kind in ("NEWLINE", "INDENT"):
             self.advance()
 
+    def parse_suffix(self, value: Any) -> Any:
+        """Wrap an inline value in the tags after it, innermost first."""
+        while self.peek().kind == "TAG":
+            value = Tagged(self.advance().value, value)
+        return value
+
+    def parse_prefix(self) -> list[str]:
+        """Read the tags before a block, outermost first."""
+        tags = []
+        while self.peek().kind == "TAG":
+            tags.append(self.advance().value)
+        return tags
+
+    @staticmethod
+    def wrap_prefix(tags: list[str], value: Any) -> Any:
+        """Wrap a block in a prefix's tags, outermost first."""
+        for tag in reversed(tags):
+            value = Tagged(tag, value)
+        return value
+
+    def is_block_leader(self, token: Token, leader: str) -> bool:
+        """Is the token a block string or block bytes opened by its leader?"""
+        return self.char_at(token.line, token.col) == leader and (
+            (token.kind == "STRING" and leader == "`")
+            or (token.kind == "BYTES" and leader == ">")
+        )
+
+    def parse_root_prefix(self) -> Any:
+        """Parse a tag alone on the root's first line over a column-0 block."""
+        first = self.peek()
+        tags = self.parse_prefix()
+        if self.peek().kind != "NEWLINE":
+            raise YaySyntaxError(PREFIX_WITHOUT_BLOCK, first.line, first.col)
+        self.advance()
+        token = self.peek()
+        if token.kind == "INDENT":
+            if token.value != 0:
+                raise YaySyntaxError("Unexpected indent", token.line, 1)
+            self.advance()
+            token = self.peek()
+        if token.kind == "DASH":
+            return self.wrap_prefix(tags, self.parse_block_array(0))
+        if token.kind in ("IDENT", "STRING") and self.peek(1).kind == "COLON":
+            return self.wrap_prefix(tags, self.parse_block_object(0))
+        raise YaySyntaxError(PREFIX_WITHOUT_BLOCK, first.line, first.col)
+
     def parse(self) -> Any:
         """Parse the entire document."""
         # Check if document is comment-only (has content but no values)
@@ -216,10 +323,14 @@ class Parser:
         if self.peek().kind == "EOF":
             # If there was content (comments) but no value, that's an error
             if has_content:
-                raise YaySyntaxError("No value found in document", 1, 1)
+                # The shared corpus gives this error no location
+                raise YaySyntaxError("No value found in document")
             return None
 
-        result = self.parse_value(0)
+        if self.peek().kind == "TAG":
+            result = self.parse_root_prefix()
+        else:
+            result = self.parse_value(0)
 
         # Skip trailing whitespace
         self.skip_newlines()
@@ -233,41 +344,28 @@ class Parser:
         """Parse a value at the given indentation level."""
         token = self.peek()
 
-        # Inline values
-        if token.kind == "NULL":
-            self.advance()
-            return None
+        # A quoted object key
+        if token.kind == "STRING" and self.peek(1).kind == "COLON":
+            return self.parse_block_object(min_indent)
 
-        if token.kind == "BOOL":
-            self.advance()
-            return token.value
+        # Bytes or a reference is never a key: the colon after it is stray
+        if token.kind in ("BYTES", "REFERENCE") and self.peek(1).kind == "COLON":
+            colon = self.peek(1)
+            raise YaySyntaxError('Unexpected character ":"', colon.line, colon.col)
 
-        if token.kind == "INT":
-            self.advance()
-            return token.value
-
-        if token.kind == "FLOAT":
-            self.advance()
-            return token.value
-
-        if token.kind == "STRING":
-            # Check if this is a quoted object key
-            if self.peek(1).kind == "COLON":
-                return self.parse_block_object(min_indent)
-            self.advance()
-            return token.value
-
-        if token.kind == "BYTES":
-            self.advance()
-            return token.value
-
-        # Inline array
-        if token.kind == "LBRACKET":
-            return self.parse_inline_array()
-
-        # Inline object
-        if token.kind == "LBRACE":
-            return self.parse_inline_object()
+        # Inline values, inline arrays and inline objects
+        if token.kind in (
+            "NULL",
+            "BOOL",
+            "INT",
+            "FLOAT",
+            "STRING",
+            "BYTES",
+            "REFERENCE",
+            "LBRACKET",
+            "LBRACE",
+        ):
+            return self.parse_inline_value()
 
         # Block array (starts with dash)
         if token.kind == "DASH":
@@ -300,6 +398,7 @@ class Parser:
     def parse_inline_array(self) -> list:
         """Parse an inline array [a, b, c]."""
         lbracket = self.peek()
+        self.enter_inline(lbracket)
         self.expect("LBRACKET")
 
         # Check for newline immediately after [ (multiline inline array is invalid)
@@ -329,11 +428,16 @@ class Parser:
                 raise self.error(f"Expected ',' or ']', got {self.peek().kind}")
 
         self.expect("RBRACKET")
+        if self.peek().kind == "COLON":
+            colon = self.peek()
+            raise YaySyntaxError('Unexpected character ":"', colon.line, colon.col)
+        self.depth -= 1
         return items
 
     def parse_inline_object(self) -> dict:
         """Parse an inline object {a: 1, b: 2}."""
         lbrace = self.peek()
+        self.enter_inline(lbrace)
         self.expect("LBRACE")
 
         # Check for newline immediately after { (multiline inline object is invalid)
@@ -346,6 +450,7 @@ class Parser:
         self.validate_inline_syntax(lbrace.line, lbrace.col, "{", "}")
 
         obj = {}
+        seen: dict[str, tuple[int, int]] = {}
 
         while self.peek().kind != "RBRACE":
             if self.peek().kind == "EOF":
@@ -355,7 +460,11 @@ class Parser:
                     "Unexpected newline in inline object", lbrace.line, lbrace.col
                 )
 
-            # Parse key
+            # Parse key: bytes or a reference is never one, and a bad key
+            # is reported at the brace
+            if self.peek().kind not in ("IDENT", "STRING"):
+                raise YaySyntaxError("Invalid key", lbrace.line, lbrace.col)
+            key_token = self.peek()
             key = self.parse_key()
 
             # Check colon spacing
@@ -369,11 +478,12 @@ class Parser:
             # Colon must be followed by exactly one space
             next_col = colon.col + 1
             if self.char_at(colon.line, next_col) != " ":
-                raise YaySyntaxError('Expected space after ":"', colon.line, next_col)
+                raise YaySyntaxError('Expected space after ":"', colon.line, colon.col)
             if self.char_at(colon.line, next_col + 1) == " ":
                 raise YaySyntaxError(
                     'Unexpected space after ":"', colon.line, next_col + 1
                 )
+            self.claim_key(seen, key, key_token)
 
             # Parse value
             value = self.parse_inline_value()
@@ -385,9 +495,14 @@ class Parser:
                 raise self.error(f"Expected ',' or '}}', got {self.peek().kind}")
 
         self.expect("RBRACE")
+        self.depth -= 1
         return obj
 
     def parse_inline_value(self) -> Any:
+        """Parse an inline value (no block forms) and the tags after it."""
+        return self.parse_suffix(self.parse_untagged_inline_value())
+
+    def parse_untagged_inline_value(self) -> Any:
         """Parse an inline value (no block forms)."""
         token = self.peek()
 
@@ -411,7 +526,7 @@ class Parser:
             self.advance()
             return token.value
 
-        if token.kind == "BYTES":
+        if token.kind in ("BYTES", "REFERENCE"):
             self.advance()
             return token.value
 
@@ -469,12 +584,15 @@ class Parser:
                 )
             if self.char_at(dash_token.line, next_col + 1) == " ":
                 # Check if this is the first dash at the root level (leading space error)
-                # or a nested/indented dash (space after dash error)
+                # or a nested/indented dash (space after dash error), each at
+                # the space too many
                 if base_indent == 0 and dash_token.col == 1:
-                    raise YaySyntaxError("Unexpected leading space", dash_token.line, 1)
+                    raise YaySyntaxError(
+                        "Unexpected leading space", dash_token.line, next_col + 1
+                    )
                 else:
                     raise YaySyntaxError(
-                        'Unexpected space after "-"', dash_token.line, dash_token.col
+                        'Unexpected space after "-"', dash_token.line, next_col + 1
                     )
 
             # Parse the item value
@@ -499,15 +617,54 @@ class Parser:
         if token.kind in ("IDENT", "STRING") and self.peek(1).kind == "COLON":
             return self.parse_block_object(item_indent)
 
+        # A tagged block, below or, for a block string or block bytes, here
+        if token.kind == "TAG":
+            tags = self.parse_prefix()
+            first = token
+            token = self.peek()
+            if self.is_block_leader(token, "`") or self.is_block_leader(token, ">"):
+                self.advance()
+                return self.wrap_prefix(tags, token.value)
+            if token.kind != "NEWLINE":
+                raise self.error(PREFIX_WITHOUT_BLOCK, first)
+            self.advance()
+            indent_token = self.peek()
+            if indent_token.kind != "INDENT" or indent_token.value < item_indent:
+                raise self.error(PREFIX_WITHOUT_BLOCK, first)
+            self.advance()
+            child_indent = indent_token.value
+            token = self.peek()
+            if token.kind == "DASH":
+                return self.wrap_prefix(tags, self.parse_block_array(child_indent))
+            if token.kind in ("IDENT", "STRING") and self.peek(1).kind == "COLON":
+                return self.wrap_prefix(tags, self.parse_block_object(child_indent))
+            if self.is_block_leader(token, "`"):
+                self.advance()
+                return self.wrap_prefix(tags, token.value)
+            if token.kind == "STRING":
+                result = self.parse_concatenated_strings(child_indent)
+                if result is not None:
+                    return self.wrap_prefix(tags, result)
+            raise self.error(PREFIX_WITHOUT_BLOCK, first)
+
+        # Bytes or a reference is never a key: the colon after it is stray
+        if token.kind in ("BYTES", "REFERENCE") and self.peek(1).kind == "COLON":
+            colon = self.peek(1)
+            raise YaySyntaxError('Unexpected character ":"', colon.line, colon.col)
+
         # Inline values
-        if token.kind in ("NULL", "BOOL", "INT", "FLOAT", "STRING", "BYTES"):
+        if token.kind in (
+            "NULL",
+            "BOOL",
+            "INT",
+            "FLOAT",
+            "STRING",
+            "BYTES",
+            "REFERENCE",
+            "LBRACKET",
+            "LBRACE",
+        ):
             return self.parse_inline_value()
-
-        if token.kind == "LBRACKET":
-            return self.parse_inline_array()
-
-        if token.kind == "LBRACE":
-            return self.parse_inline_object()
 
         # Bare words are not valid - strings must be quoted
         if token.kind == "IDENT":
@@ -521,6 +678,7 @@ class Parser:
     def parse_block_object(self, base_indent: int) -> dict:
         """Parse a block object (key: value pairs)."""
         obj = {}
+        seen: dict[str, tuple[int, int]] = {}
         current_indent = base_indent
 
         while True:
@@ -532,8 +690,8 @@ class Parser:
                 if indent < base_indent:
                     break
                 if indent > base_indent and obj:
-                    # This shouldn't happen at object level
-                    break
+                    # Nothing may stand indented under a property's value
+                    raise YaySyntaxError("Unexpected indent", token.line, 1)
                 current_indent = indent
                 self.advance()
                 token = self.peek()
@@ -570,16 +728,30 @@ class Parser:
                 next_col = colon.col + 1
                 if self.char_at(colon.line, next_col) != " ":
                     raise YaySyntaxError(
-                        'Expected space after ":"', colon.line, next_col
+                        'Expected space after ":"', colon.line, colon.col
                     )
                 if self.char_at(colon.line, next_col + 1) == " ":
                     raise YaySyntaxError(
                         'Unexpected space after ":"', colon.line, next_col + 1
                     )
 
+            self.claim_key(seen, key, key_token)
+
             # Parse value
-            value = self.parse_object_value(current_indent)
+            value_token = self.peek()
+            value = self.parse_object_value(current_indent, colon=colon)
             obj[key] = value
+
+            # Text after an inline value on its line: the value is not one
+            after = self.peek()
+            if (
+                value_token.kind in SCALAR_KINDS
+                and after.line == value_token.line
+                and after.kind not in ("NEWLINE", "EOF", "COMMENT")
+            ):
+                raise trailing_text_error(
+                    self.lexer.source, value_token.line, value_token.col
+                )
 
             # Skip newline
             if self.peek().kind == "NEWLINE":
@@ -587,9 +759,41 @@ class Parser:
 
         return obj
 
-    def parse_object_value(self, key_indent: int) -> Any:
-        """Parse the value part of a key: value pair."""
+    def parse_object_value(
+        self,
+        key_indent: int,
+        prefix: Token | None = None,
+        colon: Token | None = None,
+    ) -> Any:
+        """Parse the value part of a key: value pair. After a prefix of tags,
+        whose first tag is the prefix token, only a block may follow. Errors
+        about a missing value stand just after the colon."""
         token = self.peek()
+        if colon is None:
+            colon = token
+
+        def missing_value() -> YaySyntaxError:
+            return YaySyntaxError(
+                "Expected value after property", colon.line, colon.col + 1
+            )
+
+        def prefix_without_block() -> YaySyntaxError:
+            return YaySyntaxError(PREFIX_WITHOUT_BLOCK, prefix.line, prefix.col)
+
+        # A tagged block
+        if token.kind == "TAG" and prefix is None:
+            tags = self.parse_prefix()
+            prefix = token
+            token = self.peek()
+            if not (
+                token.kind == "NEWLINE"
+                or self.is_block_leader(token, "`")
+                or self.is_block_leader(token, ">")
+            ):
+                raise prefix_without_block()
+            return self.wrap_prefix(
+                tags, self.parse_object_value(key_indent, prefix, colon)
+            )
 
         # Empty object
         if token.kind == "LBRACE":
@@ -602,11 +806,11 @@ class Parser:
                     )
                 self.advance()
                 self.advance()
-                return {}
-            return self.parse_inline_object()
+                return self.parse_suffix({})
+            return self.parse_inline_value()
 
         # Inline values on same line
-        if token.kind in ("NULL", "BOOL", "INT", "FLOAT"):
+        if token.kind in ("NULL", "BOOL", "INT", "FLOAT", "REFERENCE"):
             return self.parse_inline_value()
 
         if token.kind == "STRING":
@@ -623,11 +827,13 @@ class Parser:
                     # Backtick block string - check if there's content after it on the same line
                     rest_of_line = line_content[token.col :]
                     if rest_of_line.startswith(" ") and len(rest_of_line.strip()) > 0:
+                        # The shared corpus gives this error no location
                         raise YaySyntaxError(
-                            "Expected newline after block leader in property",
-                            token.line,
-                            token.col,
+                            "Expected newline after block leader in property"
                         )
+            if prefix:
+                self.advance()
+                return token.value
             return self.parse_inline_value()
 
         if token.kind == "BYTES":
@@ -648,15 +854,17 @@ class Parser:
                         rest_of_line = rest_of_line[1:]
                     # Check if there's hex content (not just a comment or empty)
                     if rest_of_line and rest_of_line[0] in "0123456789abcdef":
+                        # The shared corpus gives this error no location
                         raise YaySyntaxError(
-                            "Expected newline after block leader in property",
-                            token.line,
-                            token.col,
+                            "Expected newline after block leader in property"
                         )
+            if prefix:
+                self.advance()
+                return token.value
             return self.parse_inline_value()
 
         if token.kind == "LBRACKET":
-            return self.parse_inline_array()
+            return self.parse_inline_value()
 
         # Block string starting with quote
         # (handled by lexer as STRING token)
@@ -667,19 +875,39 @@ class Parser:
 
             # Check indent of next line
             if self.peek().kind != "INDENT":
-                raise self.error("Expected value after property")
+                if prefix:
+                    raise prefix_without_block()
+                raise missing_value()
 
             indent_token = self.peek()
             child_indent = indent_token.value
+
+            next_token = self.peek(1)
+
+            # A block array may stand at the key's column. Every other block
+            # value must be indented deeper, so a sibling item or property is
+            # no value.
+            if (
+                key_indent > 0
+                and (
+                    child_indent < key_indent
+                    or (child_indent == key_indent and next_token.kind != "DASH")
+                )
+            ):
+                if prefix:
+                    raise prefix_without_block()
+                raise missing_value()
 
             # For named arrays, the array can be at same indent as key
             # e.g., "arrayName:\n- item1\n- item2"
             if child_indent < key_indent:
                 raise self.error("Expected indentation for nested value")
 
-            self.advance()  # consume INDENT
+            # Under a tag, only an array may stand at the key's indent
+            if prefix and child_indent == key_indent and next_token.kind != "DASH":
+                raise missing_value()
 
-            next_token = self.peek()
+            self.advance()  # consume INDENT
 
             # Block array (can be at same indent for named arrays)
             if next_token.kind == "DASH":
@@ -689,6 +917,17 @@ class Parser:
             if next_token.kind in ("IDENT", "STRING") and self.peek(1).kind == "COLON":
                 return self.parse_block_object(child_indent)
 
+            # A block string opened on the line below the key with text after
+            # its backtick, as GRAMMAR.md's nested-content allows; a backtick
+            # alone there stays refused, as test/nay has it
+            if (
+                next_token.kind == "STRING"
+                and self.char_at(next_token.line, next_token.col) == "`"
+                and self.char_at(next_token.line, next_token.col + 1) == " "
+            ):
+                self.advance()
+                return next_token.value
+
             # Concatenated quoted strings (multiple quoted strings on consecutive lines)
             if next_token.kind == "STRING":
                 result = self.parse_concatenated_strings(child_indent)
@@ -696,8 +935,12 @@ class Parser:
                     return result
                 # Single string on new line is invalid
 
-            raise self.error("Unexpected indent")
+            # Nothing else may stand indented under the property, and an
+            # unexpected indent is at its line's first column
+            raise YaySyntaxError("Unexpected indent", next_token.line, 1)
 
+        if token.kind == "IDENT":
+            raise trailing_text_error(self.lexer.source, token.line, token.col)
         raise self.error(f"Expected value after colon, got {token.kind}")
 
     def parse_concatenated_strings(self, base_indent: int) -> str | None:

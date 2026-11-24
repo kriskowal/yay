@@ -74,6 +74,16 @@ public class YayTest {
     assertArrayEquals(new byte[] {(byte) 0xca, (byte) 0xfe}, bytes);
   }
 
+  @Test
+  void testBlockBytesBelowListItem() {
+    Object v = Yay.parse("- > 89 50\n  4e 47\n- 1\n");
+    assertTrue(v instanceof List);
+    List<?> list = (List<?>) v;
+    assertEquals(2, list.size());
+    assertArrayEquals(new byte[] {(byte) 0x89, 0x50, 0x4e, 0x47}, (byte[]) list.get(0));
+    assertEquals(BigInteger.ONE, list.get(1));
+  }
+
   @TestFactory
   Stream<DynamicTest> testAllYayFixtures() throws IOException {
     if (!Files.exists(YAY_DIR)) {
@@ -317,5 +327,32 @@ public class YayTest {
       }
     }
     return sb.toString();
+  }
+
+  private static String nest(String open, String close, int n) {
+    return "x: " + open.repeat(n) + "1" + close.repeat(n) + "\n";
+  }
+
+  @Test
+  void testInlineNestingIsReadTo256Levels() {
+    assertDoesNotThrow(() -> Yay.parse(nest("[", "]", 256)));
+    assertDoesNotThrow(() -> Yay.parse(nest("{a: ", "}", 256)));
+    assertDoesNotThrow(() -> Yay.parse(nest("[{a: ", "}]", 128)));
+  }
+
+  @Test
+  void testInlineNestingDeeperThan256LevelsIsRefused() {
+    String[][] cases = {
+      {"[", "]", "100000", "1:260"},
+      {"{a: ", "}", "100000", "1:1028"},
+      {"[{a: ", "}]", "129", "1:644"},
+    };
+    for (String[] c : cases) {
+      String src = nest(c[0], c[1], Integer.parseInt(c[2]));
+      Yay.YayException e =
+          assertThrows(Yay.YayException.class, () -> Yay.parse(src, "deep.yay"), c[0]);
+      assertEquals(
+          "Inline nesting deeper than 256 levels at " + c[3] + " of <deep.yay>", e.getMessage());
+    }
   }
 }

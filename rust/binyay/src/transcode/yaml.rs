@@ -94,6 +94,8 @@ fn yaml_to_value(yaml: &serde_yaml::Value) -> Result<Value, String> {
 
 fn value_to_yaml(value: &Value) -> Result<serde_yaml::Value, String> {
     match value {
+        Value::Reference(_) => Err("YAY references have no YAML form".to_string()),
+        Value::Tagged(_, _) => Err("YAY tagged values have no YAML form yet".to_string()),
         Value::Null => Ok(serde_yaml::Value::Null),
         Value::Bool(b) => Ok(serde_yaml::Value::Bool(*b)),
         Value::Integer(n) => {

@@ -130,6 +130,12 @@
    ;; Bytevector: (bytevector 1 2 3) -> (bytevector . (1 2 3))
    ((and (pair? v) (eq? (car v) 'bytevector))
     (cons 'bytevector (cdr v)))
+   ;; Tagged: (make-tagged "tag" payload)
+   ((and (pair? v) (eq? (car v) 'make-tagged))
+    (make-tagged (cadr v) (fixture->yay-value (caddr v))))
+   ;; Reference: (make-reference "uri")
+   ((and (pair? v) (eq? (car v) 'make-reference))
+    (make-reference (cadr v)))
    ;; Vector (array)
    ((vector? v)
     (list->vector (map fixture->yay-value (vector->list v))))
@@ -187,9 +193,12 @@
 (define (add-test! name yay expected)
   (set! test-cases (cons (make-test name yay expected) test-cases)))
 
-;; Add an error test case
-(define (add-error-test! name nay-content)
-  (set! error-test-cases (cons (cons name nay-content) error-test-cases)))
+;; Add an error test case, with the exact message when one is known
+(define (add-error-test! name nay-content . maybe-expected)
+  (set! error-test-cases
+        (cons (list name nay-content
+                    (if (pair? maybe-expected) (car maybe-expected) #f))
+              error-test-cases)))
 
 ;; Run all tests
 (define (run-all-tests)
@@ -206,25 +215,57 @@
                 (if result (+ passed 1) passed)
                 (if result failed (+ failed 1)))))))
 
-;; Run a single error test (should fail to parse)
+;; The message Guile puts in (error message)'s arguments
+(define (caught-message key args)
+  (let loop ((rest args))
+    (cond
+     ((null? rest) (format #f "~a" key))
+     ((and (list? (car rest)) (pair? (car rest)) (string? (caar rest)))
+      (caar rest))
+     ((and (string? (car rest)) (not (string=? (car rest) "~A")))
+      (car rest))
+     (else (loop (cdr rest))))))
+
+;; Run a single error test (should fail to parse, and match its message)
 (define (run-single-error-test test)
   (let ((name (car test))
-        (nay-content (cdr test)))
+        (nay-content (cadr test))
+        (expected (caddr test)))
     (catch #t
       (lambda ()
         ;; If parse succeeds, the test fails
-        (parse-yay nay-content)
+        (parse-yay nay-content (string-append name ".nay"))
         (display "FAIL: ")
         (display name)
         (display " (expected error, but parsed successfully)")
         (newline)
         #f)
       (lambda (key . args)
-        ;; Parse failed as expected
-        (display "PASS: ")
-        (display name)
-        (newline)
-        #t))))
+        (let ((message (caught-message key args)))
+          (if expected
+              (if (string=? message expected)
+                  (begin
+                    (display "PASS: ")
+                    (display name)
+                    (newline)
+                    #t)
+                  (begin
+                    (display "FAIL: ")
+                    (display name)
+                    (newline)
+                    (display "  Expected: ")
+                    (display expected)
+                    (newline)
+                    (display "  Actual:   ")
+                    (display message)
+                    (newline)
+                    #f))
+              ;; Parse failed as expected
+              (begin
+                (display "PASS: ")
+                (display name)
+                (newline)
+                #t)))))))
 
 ;; Run all error tests
 (define (run-all-error-tests)
@@ -252,10 +293,12 @@
            "array-inline-doublequote-escapes"
            "array-inline-integers"
            "array-inline-nested"
+           "array-inline-object-root"
            "array-inline-singlequote"
            "array-item-nested-object-then-item"
            "array-item-object-empty-key"
            "array-item-object-quoted-key"
+           "object-inline-in-list"
            "array-multiline"
            "array-multiline-named"
            "array-multiline-nested"
@@ -345,6 +388,11 @@
            "object-nested-empty-inline"
            "object-nested-empty-property"
            "object-nested-quoted-key-first"
+           "object-nested-quoted-key-over-block"
+           "object-nested-quoted-key-slash"
+           "object-nested-quoted-key-two-levels"
+           "object-nested-single-quoted-key-and-value"
+           "object-same-key-at-different-depths"
            "object-quoted-key-escapes"
            "string-block-array-in-property"
            "string-block-array-item-property"
@@ -379,7 +427,71 @@
            "string-inline-singlequote-basic"
            "string-inline-singlequote-doublequote"
            "string-multiline-concat"
-           "whitespace-leading-lines")))
+           "whitespace-leading-lines"
+           "tagged-block-bytes-item-same-line"
+           "tagged-block-bytes-property"
+           "tagged-block-concatenated-string"
+           "tagged-block-empty-tag"
+           "tagged-block-escaped-tag"
+           "tagged-block-item-array"
+           "tagged-block-nested-outer-first"
+           "tagged-block-property-object"
+           "tagged-block-property-flush-array"
+           "tagged-block-item-property-flush-array"
+           "tagged-block-root-array"
+           "tagged-block-root-colon-in-tag"
+           "tagged-block-root-object"
+           "tagged-block-string-item-same-line"
+           "tagged-block-string-property"
+           "tagged-block-then-comment"
+           "tagged-block-under-item-key"
+           "tagged-inline-on-every-kind"
+           "tagged-inline-root"
+           "tagged-inline-root-colon-in-tag"
+           "tagged-inline-then-comment"
+           "tagged-inside-inline-containers"
+           "tagged-kris-example"
+           "tagged-kris-example-blocks"
+           "tagged-misindented-sibling-unchanged"
+           "tagged-nested-inline-innermost-first"
+           "tagged-paren-on-keywords"
+           "tagged-tag-empty-and-spaces"
+           "tagged-tag-escapes"
+           "tagged-tag-quotes-are-text"
+           "tagged-tag-text"
+           "string-block-root-parens"
+           "tagged-block-string-property-dash-line"
+           "tagged-block-string-item-dash-line"
+           "reference-block-array"
+           "reference-delimiters-inside"
+           "reference-inline-array"
+           "reference-inline-object"
+           "reference-iri"
+           "reference-percent"
+           "reference-percent-case-kept"
+           "reference-root"
+           "reference-same-text"
+           "reference-schemes"
+           "reference-tagged"
+           "reference-tagged-in-array"
+           "reference-then-comment"
+           "reference-unchanged-in-strings"
+           "reference-under-block-tag"
+           "array-item-doublequote-then-comment"
+           "array-item-inline-array-then-comment"
+           "array-item-inline-bytes-then-comment"
+           "array-item-inline-object-then-comment"
+           "array-item-keyword-then-comment"
+           "array-item-number-then-comment"
+           "array-item-reference-then-comment"
+           "array-item-singlequote-then-comment"
+           "array-item-tagged-then-comment"
+           "object-proto-key-inline"
+           "object-proto-key-quoted"
+           "object-proto-key"
+           "string-singlequote-escapes-in-array"
+           "string-singlequote-escapes-in-key"
+           "string-singlequote-escapes")))
     (for-each
      (lambda (name)
        (let ((yay-path (string-append test-dir "/yay/" name ".yay"))
@@ -402,6 +514,8 @@
   ;; These are the tests that have both .nay and .error files
   (let ((error-test-names
          '("array-inline-invalid-multiline"
+           "array-inline-nesting-too-deep"
+           "object-inline-nesting-too-deep"
            "array-inline-invalid-space-after-comma"
            "array-inline-invalid-space-after-open"
            "array-inline-invalid-space-before-close"
@@ -484,14 +598,116 @@
            "unicode-invalid-nonchar-fffe"
            "unicode-invalid-nonchar-ffff"
            "whitespace-invalid-tab"
-           "whitespace-invalid-trailing-space")))
+           "whitespace-invalid-trailing-space"
+           "tagged-bang-is-not-a-sigil"
+           "tagged-bare-word-over-block"
+           "tagged-bare-word-tag"
+           "tagged-fused-after-paren"
+           "tagged-fused-name"
+           "tagged-fused-name-on-bytes"
+           "tagged-fused-name-on-string"
+           "tagged-fused-paren-between-tags-strict"
+           "tagged-fused-paren-strict"
+           "tagged-inline-value-over-block"
+           "tagged-misindented-sibling"
+           "tagged-prefix-at-end-of-document"
+           "tagged-prefix-nested-bullet-sibling"
+           "tagged-prefix-on-inline-value"
+           "tagged-prefix-on-item-inline"
+           "tagged-prefix-over-one-quoted-line"
+           "tagged-prefix-without-block"
+           "tagged-property-block-string-text-after-backtick"
+           "tagged-quote-escape-is-not-a-tag-escape"
+           "tagged-root-block-indented"
+           "tagged-tab-in-tag"
+           "tagged-tag-before-comma-without-space"
+           "tagged-two-spaces-before-paren-strict"
+           "tagged-two-spaces-between-block-tags-strict"
+           "tagged-unclosed-paren"
+           "tagged-unclosed-paren-escaped"
+           "tagged-unescaped-close-paren"
+           "tagged-unknown-escape"
+           "tagged-item-property-sibling-item"
+           "tagged-item-property-sibling-property"
+           "untagged-item-property-sibling-item"
+           "untagged-item-property-sibling-property"
+           "reference-as-key"
+           "reference-bad-percent"
+           "reference-block-form"
+           "reference-excluded-brace"
+           "reference-excluded-char"
+           "reference-glued-tag"
+           "reference-no-scheme"
+           "reference-no-scheme-fragment"
+           "reference-prefix-on-inline"
+           "reference-scheme-digit-first"
+           "reference-space-after-open"
+           "reference-space-inside"
+           "reference-tab-inside"
+           "reference-unclosed"
+           "bytearray-inline-invalid-space-after-open"
+           "bytearray-inline-in-array-space-after-open"
+           "bytearray-inline-in-object-space-after-open"
+           "bytearray-as-key"
+           "bytearray-inline-in-item-space-after-open"
+           "bytearray-inline-in-nested-item-space-after-open"
+           "list-item-key-space-after-colon"
+           "list-item-key-space-before-colon"
+           "object-nested-key-space-after-colon"
+           "object-nested-key-space-before-colon"
+           "bytearray-as-key-in-list"
+           "reference-in-array-space-after-open"
+           "reference-in-item-array-space-after-open"
+           "bytearray-as-key-in-inline-object"
+           "object-inline-in-list-space-before-close"
+           "bytearray-as-key-in-object-in-array"
+           "object-in-array-space-before-close"
+           "array-as-key"
+           "array-item-doublequote-comment-one-space"
+           "array-item-inline-array-comment-one-space"
+           "array-item-inline-bytes-comment-one-space"
+           "array-item-inline-object-comment-one-space"
+           "array-item-keyword-comment-one-space"
+           "array-item-number-comment-one-space"
+           "array-item-reference-comment-one-space"
+           "array-item-singlequote-comment-one-space"
+           "array-item-tagged-comment-one-space"
+           "bytearray-block-comment-one-space"
+           "bytearray-block-invalid-uppercase-hex"
+           "bytearray-block-property-comment-one-space"
+           "bytearray-block-property-invalid-uppercase-hex"
+           "object-property-comment-one-space"
+           "string-block-property-comment-after-backtick"
+           "string-block-property-empty-at-end"
+           "string-block-property-empty-in-item"
+           "string-block-property-empty-nested"
+           "string-block-property-empty-then-property"
+           "string-block-property-in-item-comment-after-backtick"
+           "string-block-property-nested-comment-after-backtick"
+           "string-lone-doublequote-under-key"
+           "string-singlequote-unclosed-in-array"
+           "string-singlequote-unclosed-property"
+           "duplicate-key-after-block"
+           "duplicate-key-double-quoted"
+           "duplicate-key-inline-object"
+           "duplicate-key-inline-object-nested"
+           "duplicate-key-list-item"
+           "duplicate-key-list-item-nested"
+           "duplicate-key-nested"
+           "duplicate-key-quoted-inline"
+           "duplicate-key-root"
+           "duplicate-key-single-quoted"
+           "duplicate-key-three")))
     (for-each
      (lambda (name)
        (let ((nay-path (string-append test-dir "/nay/" name ".nay")))
          (catch #t
            (lambda ()
-             (let ((nay-content (read-file nay-path)))
-               (add-error-test! name nay-content)))
+             (let* ((nay-content (read-file nay-path))
+                    (error-path (string-append test-dir "/nay/" name ".error"))
+                    (expected (and (string-starts-with? name "duplicate-key-")
+                                   (string-trim-end (read-file error-path)))))
+               (add-error-test! name nay-content expected)))
            (lambda (key . args)
              (display "SKIP: ")
              (display name)
@@ -500,6 +716,61 @@
      error-test-names)))
 
 ;; Main entry point
+;; "x: ", then n repetitions of open, "1" and n of close
+(define (nest open close n)
+  (string-append "x: " (string-repeat open n) "1" (string-repeat close n) "\n"))
+
+(define (string-repeat s n)
+  (let loop ((n n) (acc '()))
+    (if (= n 0) (apply string-append acc) (loop (- n 1) (cons s acc)))))
+
+;; The value of n levels of wrap around 1, under x
+(define (nested-value wrap n)
+  (let loop ((n n) (v 1))
+    (if (= n 0) (list (cons "x" v)) (loop (- n 1) (wrap v)))))
+
+;; Nesting cases: (source expected), expected a value, or #f where the
+;; source must be refused with the message (third element)
+(define nesting-cases
+  (list
+   (list (nest "[" "]" 40) (nested-value vector 40))
+   (list (nest "{a: " "}" 40) (nested-value (lambda (v) (list (cons "a" v))) 40))
+   (list (nest "[{a: " "}]" 20)
+         (nested-value (lambda (v) (vector (list (cons "a" v)))) 20))
+   ;; Inline arrays and objects nest 256 levels, counted together
+   (list (nest "[" "]" 256) (nested-value vector 256))
+   (list (nest "{a: " "}" 256) (nested-value (lambda (v) (list (cons "a" v))) 256))
+   (list (nest "[{a: " "}]" 128)
+         (nested-value (lambda (v) (vector (list (cons "a" v)))) 128))
+   (list (nest "[" "]" 100000) #f "Inline nesting deeper than 256 levels")
+   (list (nest "{a: " "}" 100000) #f "Inline nesting deeper than 256 levels")
+   (list (nest "[{a: " "}]" 129) #f "Inline nesting deeper than 256 levels")))
+
+;; Run the nesting cases; returns passed and failed
+(define (run-nesting-tests)
+  (let loop ((cases nesting-cases) (passed 0) (failed 0))
+    (if (null? cases)
+        (values passed failed)
+        (let* ((c (car cases))
+               (got (catch #t
+                      (lambda () (cons 'value (parse-yay (car c))))
+                      (lambda (key . args)
+                        (cons 'error
+                              (if (and (pair? args) (pair? (cdr args)) (pair? (cddr args))
+                                       (pair? (caddr args)))
+                                  (car (caddr args))
+                                  (format #f "~a" args))))))
+               (ok (if (cadr c)
+                       (and (eq? (car got) 'value) (equal? (cdr got) (cadr c)))
+                       (and (eq? (car got) 'error) (equal? (cdr got) (caddr c))))))
+          (unless ok
+            (display "FAIL: nesting ")
+            (display (substring (car c) 0 (min 20 (string-length (car c)))))
+            (display "... ")
+            (display (if (eq? (car got) 'error) (cdr got) "a value"))
+            (newline))
+          (loop (cdr cases) (if ok (+ passed 1) passed) (if ok failed (+ failed 1)))))))
+
 (define (main)
   (let ((test-dir "../test"))
     (display "YAY Scheme Parser Test Runner")
@@ -537,6 +808,17 @@
         (newline)
         (newline)
         
+        (let-values (((nest-passed nest-failed) (run-nesting-tests)))
+        (display "Nesting tests: ")
+        (display nest-passed)
+        (display " passed, ")
+        (display nest-failed)
+        (display " failed")
+        (newline)
+        (newline)
+        (set! err-passed (+ err-passed nest-passed))
+        (set! err-failed (+ err-failed nest-failed))
+
         ;; Summary
         (display "===================")
         (newline)
@@ -550,7 +832,7 @@
         ;; Exit with error if any tests failed
         (if (> (+ failed err-failed) 0)
             (exit 1)
-            (exit 0))))))
+            (exit 0)))))))
 
 ;; Run
 (main)

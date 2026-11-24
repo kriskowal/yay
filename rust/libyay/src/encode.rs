@@ -96,6 +96,26 @@ fn encode_yay(value: &Value, indent: usize) -> String {
             }
         }
         Value::String(s) => encode_yay_string(s),
+        Value::Reference(uri) => format!("<{}>", uri),
+        Value::Tagged(_, _) => {
+            let (tags, payload) = collect_tags(value);
+            if is_block_value(payload) {
+                let prefix: Vec<String> = tags.iter().map(|t| encode_yay_tag(t)).collect();
+                format!(
+                    "{}\n{}{}",
+                    prefix.join(" "),
+                    "  ".repeat(indent),
+                    encode_yay(payload, indent)
+                )
+            } else {
+                let suffix: String = tags
+                    .iter()
+                    .rev()
+                    .map(|t| format!(" {}", encode_yay_tag(t)))
+                    .collect();
+                format!("{}{}", encode_yay(payload, indent), suffix)
+            }
+        }
         Value::Bytes(b) => encode_yay_bytes(b),
         Value::Array(arr) => {
             if arr.is_empty() {
@@ -140,7 +160,7 @@ fn encode_yay_multiline_object(obj: &HashMap<String, Value>, indent: usize) -> S
         .iter()
         .map(|k| {
             let v = &obj[*k];
-            if is_block_value(v) {
+            if is_block_value(v) && !matches!(v, Value::Tagged(_, _)) {
                 format!(
                     "{}:\n{}{}",
                     encode_yay_key(k),
@@ -212,6 +232,25 @@ fn encode_yay_key(key: &str) -> String {
     }
 }
 
+/// A tagged value's tags, outermost first, and its innermost payload.
+fn collect_tags(value: &Value) -> (Vec<&str>, &Value) {
+    let mut tags = Vec::new();
+    let mut v = value;
+    while let Value::Tagged(tag, payload) = v {
+        tags.push(tag.as_str());
+        v = payload;
+    }
+    (tags, v)
+}
+
+/// A tag in parentheses: its characters as they are, but `)` and `\`
+/// escaped, and control characters as the double-quoted writer escapes them.
+pub(crate) fn encode_yay_tag(tag: &str) -> String {
+    let quoted = encode_yay_string(tag);
+    let inner = &quoted[1..quoted.len() - 1];
+    format!("({})", inner.replace("\\\"", "\"").replace(')', "\\)"))
+}
+
 fn can_inline_array(arr: &[Value]) -> bool {
     arr.len() <= 5 && arr.iter().all(is_simple_value)
 }
@@ -221,6 +260,9 @@ fn can_inline_object(obj: &HashMap<String, Value>) -> bool {
 }
 
 fn is_simple_value(v: &Value) -> bool {
+    if let Value::Tagged(_, payload) = v {
+        return is_simple_value(payload);
+    }
     matches!(
         v,
         Value::Null
@@ -229,11 +271,13 @@ fn is_simple_value(v: &Value) -> bool {
             | Value::Float(_)
             | Value::String(_)
             | Value::Bytes(_)
+            | Value::Reference(_)
     )
 }
 
 fn is_block_value(v: &Value) -> bool {
     match v {
+        Value::Tagged(_, payload) => is_block_value(payload),
         Value::Array(arr) => !can_inline_array(arr),
         Value::Object(obj) => !can_inline_object(obj),
         _ => false,
@@ -273,6 +317,12 @@ fn encode_js_inner(value: &Value, indent: usize, is_top_level: bool) -> String {
             }
         }
         Value::String(s) => encode_js_string(s),
+        Value::Reference(uri) => format!("reference({})", encode_js_string(uri)),
+        Value::Tagged(tag, payload) => format!(
+            "tagged({}, {})",
+            encode_js_string(tag),
+            encode_js_inner(payload, indent, false)
+        ),
         Value::Bytes(b) => {
             if b.is_empty() {
                 "new Uint8Array(0)".to_string()
@@ -320,11 +370,14 @@ fn encode_js_inner(value: &Value, indent: usize, is_top_level: bool) -> String {
                 let items: Vec<String> = keys
                     .iter()
                     .map(|k| {
-                        format!(
-                            "{}: {}",
-                            encode_js_string(k),
-                            encode_js_inner(&obj[*k], indent + 1, false)
-                        )
+                        // A "__proto__" key would set the prototype; a
+                        // computed key makes an own property
+                        let key = if k.as_str() == "__proto__" {
+                            format!("[{}]", encode_js_string(k))
+                        } else {
+                            encode_js_string(k)
+                        };
+                        format!("{}: {}", key, encode_js_inner(&obj[*k], indent + 1, false))
                     })
                     .collect();
                 let joined = items.join(", ");
@@ -398,6 +451,12 @@ fn encode_go(value: &Value, indent: usize) -> String {
             }
         }
         Value::String(s) => encode_json_string(s),
+        Value::Reference(uri) => format!("yay.MustReference({})", encode_json_string(uri)),
+        Value::Tagged(tag, payload) => format!(
+            "yay.Tagged{{Tag: {}, Payload: {}}}",
+            encode_json_string(tag),
+            encode_go(payload, indent)
+        ),
         Value::Bytes(b) => {
             if b.is_empty() {
                 "[]byte{}".to_string()
@@ -498,6 +557,12 @@ fn encode_python(value: &Value, indent: usize) -> String {
             }
         }
         Value::String(s) => encode_json_string(s),
+        Value::Reference(uri) => format!("Reference({})", encode_json_string(uri)),
+        Value::Tagged(tag, payload) => format!(
+            "Tagged({}, {})",
+            encode_json_string(tag),
+            encode_python(payload, indent)
+        ),
         Value::Bytes(b) => {
             if b.is_empty() {
                 "b''".to_string()
@@ -601,6 +666,12 @@ fn encode_rust(value: &Value, indent: usize) -> String {
             }
         }
         Value::String(s) => format!("Value::String({}.into())", encode_json_string(s)),
+        Value::Reference(uri) => format!("Value::reference({}).unwrap()", encode_json_string(uri)),
+        Value::Tagged(tag, payload) => format!(
+            "Value::Tagged({}.into(), Box::new({}))",
+            encode_json_string(tag),
+            encode_rust(payload, indent)
+        ),
         Value::Bytes(b) => {
             if b.is_empty() {
                 "Value::Bytes(vec![])".to_string()
@@ -698,6 +769,12 @@ fn encode_c_value(value: &Value, indent: usize) -> String {
             }
         }
         Value::String(s) => format!("yay_string({})", encode_c_string(s)),
+        Value::Reference(uri) => format!("yay_reference({})", encode_c_string(uri)),
+        Value::Tagged(tag, payload) => format!(
+            "yay_tagged({}, {})",
+            encode_c_string(tag),
+            encode_c_value(payload, indent)
+        ),
         Value::Bytes(b) => {
             if b.is_empty() {
                 "yay_bytes_from_hex(\"\")".to_string()
@@ -826,6 +903,12 @@ fn encode_java(value: &Value, indent: usize) -> String {
             }
         }
         Value::String(s) => encode_java_string(s),
+        Value::Reference(uri) => format!("new Reference({})", encode_java_string(uri)),
+        Value::Tagged(tag, payload) => format!(
+            "new Tagged({}, {})",
+            encode_java_string(tag),
+            encode_java(payload, indent)
+        ),
         Value::Bytes(b) => {
             if b.is_empty() {
                 "new byte[0]".to_string()
@@ -943,6 +1026,12 @@ fn encode_scheme(value: &Value) -> String {
             }
         }
         Value::String(s) => encode_scheme_string(s),
+        Value::Reference(uri) => format!("(make-reference {})", encode_scheme_string(uri)),
+        Value::Tagged(tag, payload) => format!(
+            "(make-tagged {} {})",
+            encode_scheme_string(tag),
+            encode_scheme(payload)
+        ),
         Value::Bytes(b) => {
             if b.is_empty() {
                 "(bytevector)".to_string()
@@ -1028,6 +1117,15 @@ fn encode_json(value: &Value, indent: usize) -> String {
             }
         }
         Value::String(s) => encode_json_string(s),
+        Value::Reference(uri) => encode_json_string(&format!("${}", uri)),
+        Value::Tagged(tag, payload) => format!(
+            "{{\n{}\"#tag\": {},\n{}\"payload\": {}\n{}}}",
+            pad1,
+            encode_json_string(tag),
+            pad1,
+            encode_json(payload, indent + 1),
+            pad
+        ),
         Value::Bytes(_) => "null".to_string(), // JSON doesn't support bytes
         Value::Array(arr) => {
             if arr.is_empty() {
@@ -1139,7 +1237,8 @@ fn encode_yson(value: &Value, indent: usize) -> String {
         Value::Null => "null".to_string(),
         Value::Bool(true) => "true".to_string(),
         Value::Bool(false) => "false".to_string(),
-        Value::Integer(n) => format!("\"#{}\"", n), // BigInt prefix
+        Value::Integer(n) if n.sign() == num_bigint::Sign::Minus => format!("\"{}\"", n),
+        Value::Integer(n) => format!("\"+{}\"", n), // BigInt, as smallcaps writes it
         Value::Float(f) => {
             if f.is_nan() {
                 "\"#NaN\"".to_string()
@@ -1154,6 +1253,15 @@ fn encode_yson(value: &Value, indent: usize) -> String {
             }
         }
         Value::String(s) => encode_yson_string(s),
+        Value::Reference(uri) => encode_json_string(&format!("${}", uri)),
+        Value::Tagged(tag, payload) => format!(
+            "{{\n{}\"#tag\": {},\n{}\"payload\": {}\n{}}}",
+            pad1,
+            encode_yson_string(tag),
+            pad1,
+            encode_yson(payload, indent + 1),
+            pad
+        ),
         Value::Bytes(b) => {
             // Bytes prefix
             let hex: String = b.iter().map(|byte| format!("{:02x}", byte)).collect();
@@ -1186,7 +1294,7 @@ fn encode_yson(value: &Value, indent: usize) -> String {
                     .map(|k| {
                         format!(
                             "{}: {}",
-                            encode_json_string(k),
+                            encode_yson_key(k),
                             encode_yson(&obj[*k], indent + 1)
                         )
                     })
@@ -1202,6 +1310,17 @@ fn encode_yson(value: &Value, indent: usize) -> String {
                 )
             }
         }
+    }
+}
+
+/// An object key: one that begins with `#`, `*` or `!` takes the `!`
+/// escape, so that no key reads as smallcaps' `#tag` or a special.
+fn encode_yson_key(k: &str) -> String {
+    if k.starts_with(['#', '*', '!']) {
+        let json = encode_json_string(k);
+        format!("\"!{}", &json[1..])
+    } else {
+        encode_json_string(k)
     }
 }
 
@@ -1259,7 +1378,7 @@ mod tests {
     #[test]
     fn test_encode_yson_bigint() {
         let value = Value::Integer(12345678901234567890u64.into());
-        assert_eq!(encode(&value, Format::Yson), "\"#12345678901234567890\"");
+        assert_eq!(encode(&value, Format::Yson), "\"+12345678901234567890\"");
     }
 
     #[test]

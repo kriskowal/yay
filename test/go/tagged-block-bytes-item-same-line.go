@@ -1,0 +1,3 @@
+[]any{
+	yay.Tagged{Tag: "sha256", Payload: []byte{0x89, 0x50, 0x4e, 0x47}},
+}

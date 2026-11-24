@@ -26,7 +26,21 @@ yay -f json -t yay data.json
 
 # Generate Go code from YAY
 yay -t go config.yay > config.go
+
+# Read a value from stdin into a document built with SHON
+echo hi | yay [ --content -s - ] -t md
 ```
+
+On macOS, `npx` (npm's launcher) does not pass a shell's process
+substitution `<(…)` on to any command it runs, so `npx binyay -s <(…)` fails
+with `Bad file descriptor`. Pipe the content in and read it with `-s -` (or
+`-b -` for bytes) instead.
+
+A global install (`npm install -g binyay`) puts the native `yay` at
+`bin/yay`, so `yay -s <(…)` works there. Where install scripts do not run
+(`--ignore-scripts`, Yarn, a read-only tree) and on Windows, `bin/yay` is a
+Node wrapper around the native `yay`, which on macOS has the same limit as
+`npx`.
 
 ## Supported Platforms
 

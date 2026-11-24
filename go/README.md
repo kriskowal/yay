@@ -51,6 +51,34 @@ Parses YAY-encoded data and returns the result.
 
 Parses YAY-encoded data with a filename for error messages.
 
+### `Tagged{Tag string; Payload any}`
+
+A tagged value, `'X-1' (com.example/sku)` or a block below `key: (tag)`:
+a struct with the tag, a string, and the payload, any value.
+Tagged values are equal when their tags and payloads are
+(`reflect.DeepEqual`, as for any parsed value); a tagged value never equals
+its payload. YAY gives no tag a meaning.
+
+```go
+v, _ := yay.Unmarshal([]byte("count: 10 (s)\n"))
+// map[count:{s 10}]
+```
+
+### `Reference`
+
+A reference, `<https://example.com/>`: a URI or IRI, held as written, as a
+type of its own. YAY never dereferences it. References are equal when
+their texts are (`==`, or `reflect.DeepEqual` within a parsed value); a
+reference never equals a string. `NewReference(uri)` makes one, and returns
+an error if `uri` is not a reference's text (a lowercase scheme, a colon,
+URI or IRI characters and well-formed percent-encodings); `MustReference`
+panics instead. `URI()` and `String()` return the text.
+
+```go
+v, _ := yay.Unmarshal([]byte("<ocapn://a.tcp> (Counter)\n"))
+// {Counter ocapn://a.tcp}, a Tagged over a Reference
+```
+
 ## Type Mapping
 
 | YAY Type | Go Type | Notes |
@@ -63,6 +91,8 @@ Parses YAY-encoded data with a filename for error messages.
 | array | `[]any` | |
 | object | `map[string]any` | |
 | bytes | `[]byte` | |
+| tagged | `yay.Tagged` | `Tagged{Tag: tag, Payload: payload}` |
+| reference | `yay.Reference` | `MustReference("https://example.com/")` |
 
 # YAY Format
 
@@ -828,8 +858,8 @@ Hex and comments on the same lines for inline documentation of byte sequences.
 
 [bytearray-block-hex-and-comment.yay](https://github.com/kriskowal/yay/blob/main/test/yay/bytearray-block-hex-and-comment.yay)
 ```yay
-> b0b5 # first chunk
-  c0ff # second chunk
+> b0b5  # first chunk
+  c0ff  # second chunk
 ```
 
 [bytearray-block-hex-and-comment.go](https://github.com/kriskowal/yay/blob/main/test/go/bytearray-block-hex-and-comment.go)
@@ -948,6 +978,8 @@ go test -v
 The test runner uses fixture files from `../test/`.
 Files with `.yay` extension contain YAY input.
 Files with `.go` extension contain expected Go output.
+The tagged-value cases are in the shared corpus, named `tagged-*`, and
+`tagged_test.go` checks that YAY refuses the ones in `../test/meh/`.
 
 ## References
 

@@ -9,6 +9,21 @@ pub type Result<T> = std::result::Result<T, ParseError>;
 #[derive(Clone, Debug)]
 pub struct ParseContext {
     pub filename: Option<String>,
+    /// How many inline arrays and objects enclose the one being read.
+    depth: std::cell::Cell<usize>,
+}
+
+/// The deepest inline arrays and objects may nest, one in another, counted
+/// together. Deeper nesting is refused rather than overflowing the stack.
+pub const MAX_INLINE_DEPTH: usize = 256;
+
+/// One level of inline nesting, counted off again when dropped.
+pub struct InlineLevel<'a>(&'a ParseContext);
+
+impl Drop for InlineLevel<'_> {
+    fn drop(&mut self) {
+        self.0.depth.set(self.0.depth.get() - 1);
+    }
 }
 
 impl ParseContext {
@@ -16,7 +31,23 @@ impl ParseContext {
     pub fn new(filename: Option<&str>) -> Self {
         Self {
             filename: filename.map(String::from),
+            depth: std::cell::Cell::new(0),
         }
+    }
+
+    /// Count one more level of inline nesting at the bracket at `line` and
+    /// `col`, refusing more than [`MAX_INLINE_DEPTH`] levels.
+    pub fn enter_inline(&self, line: usize, col: usize) -> Result<InlineLevel<'_>> {
+        let depth = self.depth.get() + 1;
+        if depth > MAX_INLINE_DEPTH {
+            return Err(ParseError::Generic(format!(
+                "Inline nesting deeper than {} levels",
+                MAX_INLINE_DEPTH
+            ))
+            .with_location(self, line, col));
+        }
+        self.depth.set(depth);
+        Ok(InlineLevel(self))
     }
 
     /// Format a location suffix for error messages.
@@ -167,6 +198,12 @@ pub enum ParseError {
     #[error("Expected value after property{0}")]
     ExpectedValueAfterProperty(String),
 
+    /// A key that its object already has: the key, then the line and
+    /// column (one-based) where it first appears, boxed so that the error
+    /// stays as small as the others.
+    #[error("Duplicate key \"{}\" (first at {}:{}){}", .0.0, .0.1, .0.2, .1)]
+    DuplicateKey(Box<(String, usize, usize)>, String),
+
     /// Generic parse error.
     #[error("{0}")]
     Generic(String),
@@ -215,6 +252,7 @@ impl ParseError {
             ParseError::ExpectedValueAfterProperty(_) => {
                 ParseError::ExpectedValueAfterProperty(suffix)
             }
+            ParseError::DuplicateKey(key, _) => ParseError::DuplicateKey(key, suffix),
             ParseError::Generic(msg) => ParseError::Generic(format!("{}{}", msg, suffix)),
         }
     }

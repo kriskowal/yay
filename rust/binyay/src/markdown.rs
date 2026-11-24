@@ -18,20 +18,23 @@
 //!
 //! The mapping is a bijection between objects and the documents binyay writes:
 //!
-//! - **Writing** needs an object. When `content` is a non-empty string, the
-//!   front matter is the object without `content` and the body is `content`,
-//!   unless the body would follow front matter and begins with a blank line,
-//!   which the separator cannot carry. Otherwise (`content` absent, empty, not
-//!   a string, or one of those) the front matter is the whole object and the
-//!   body is empty, so `{content: ""}` writes `content: ""` in the front
-//!   matter. Front matter is written only when it has a property, or when the
-//!   body would otherwise read as front matter (it starts with a `---` line),
-//!   in which case the fences are empty. A body after front matter always
-//!   follows exactly one blank line.
+//! - **Writing** needs an object. When `content` is a non-empty string that
+//!   ends with a newline, the front matter is the object without `content`
+//!   and the body is `content`, unless the body would follow front matter and
+//!   begins with a blank line, which the separator cannot carry. Otherwise
+//!   (`content` absent, empty, not a string, without a final newline, or one
+//!   of those) the front matter is the whole object and the body is empty, so
+//!   `{content: ""}` writes `content: ""` and `{content: "hi"}` writes
+//!   `content: "hi"` in the front matter. Front matter is written only when
+//!   it has a property, or when the body would otherwise read as front matter
+//!   (it starts with a `---` line), in which case the fences are empty. A
+//!   body after front matter always follows exactly one blank line.
 //! - **Reading** splits the front matter from the body. The front matter, if
 //!   any, must be an object, and its properties become the object's. A
 //!   non-empty body becomes `content`, and front matter that also has a
 //!   `content` property, of any type, is refused. An empty body adds nothing.
+//!   A body ends with a newline: strict reading refuses one that does not,
+//!   and lenient reading adds it.
 //!
 //! A document opens front matter with a `---` line at its very start, and the
 //! front matter ends at the next line that is exactly `---`. After front
@@ -39,9 +42,11 @@
 //! only spaces and tabs, as CommonMark has it). Strict reading (Yaydown)
 //! requires exactly one empty line there before a body, and none when there
 //! is no body; lenient reading (Mehdown) skips any number. A document without
-//! front matter is all body, byte for byte.
+//! front matter is all body, byte for byte, but for the final newline that
+//! lenient reading adds.
 
 use libyay::{encode, format_yay, parse, parse_with_filename, Format, Value};
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 /// The property that holds the body.
@@ -186,8 +191,9 @@ pub struct Read<'a> {
     /// The object the document reads as.
     pub value: Value,
     /// The body: everything after the front matter and the blank line that
-    /// follows it, byte for byte.
-    pub body: &'a str,
+    /// follows it, byte for byte, with a final newline added by lenient
+    /// reading when it has none.
+    pub body: Cow<'a, str>,
 }
 
 /// Read a markdown document: front matter as YAY (strict, or lenient MEH)
@@ -215,7 +221,19 @@ pub fn read<'a>(input: &'a str, filename: Option<&str>, strict: bool) -> Result<
     } else {
         doc.body
     };
-    let value = to_value(head_value, body)?;
+    let body = if body.is_empty() || body.ends_with('\n') {
+        Cow::Borrowed(body)
+    } else if strict {
+        return Err(format!(
+            "line {}: the content does not end with a newline; end the file with a \
+             newline, or put {:?} in the front matter as a string",
+            input.matches('\n').count() + 1,
+            CONTENT
+        ));
+    } else {
+        Cow::Owned(format!("{}\n", body))
+    };
+    let value = to_value(head_value, &body)?;
     Ok(Read {
         head_text,
         value,
@@ -239,7 +257,7 @@ pub fn normalize(read: &Read) -> String {
             return render_object(map);
         }
     }
-    render(&read.head_text, read.body)
+    render(&read.head_text, &read.body)
 }
 
 /// A value's kind, for messages: "a string", "null".
@@ -252,6 +270,8 @@ fn kind(value: &Value) -> &'static str {
         Value::Array(_) => "an array",
         Value::Object(_) => "an object",
         Value::Bytes(_) => "a byte array",
+        Value::Reference(_) => "a reference",
+        Value::Tagged(_, _) => "a tagged value",
     }
 }
 
@@ -281,12 +301,12 @@ pub fn to_value(head: Option<Value>, body: &str) -> Result<Value, String> {
 }
 
 /// The body an object writes, if `content` is a non-empty string that a body
-/// can carry: after front matter, a body cannot begin with a blank line,
-/// since the blank line there is the separator, so such a `content` stays in
-/// the front matter.
+/// can carry: a body ends with a newline, and after front matter it cannot
+/// begin with a blank line, since the blank line there is the separator, so
+/// any other `content` stays in the front matter.
 fn content_body(map: &HashMap<String, Value>) -> Option<&str> {
     match map.get(CONTENT) {
-        Some(Value::String(s)) if !s.is_empty() => {
+        Some(Value::String(s)) if s.ends_with('\n') => {
             let first = s.split_inclusive('\n').next().unwrap_or("");
             if map.len() > 1 && is_blank(first) {
                 None
@@ -430,10 +450,21 @@ mod tests {
                 "---\ncontent: \"\"\ntitle: \"t\"\n---\n",
             ),
             (
-                "no trailing newline",
+                "no final newline stays in the front matter",
                 obj(&[("a", Value::Integer(BigInt::from(1))), ("content", s("x"))]),
-                "---\na: 1\n---\n\nx",
+                "---\na: 1\ncontent: \"x\"\n---\n",
             ),
+            (
+                "no final newline, no head",
+                obj(&[("content", s("hi"))]),
+                "---\ncontent: \"hi\"\n---\n",
+            ),
+            (
+                "a final newline, no head",
+                obj(&[("content", s("hi\n"))]),
+                "hi\n",
+            ),
+            ("only a newline", obj(&[("content", s("\n"))]), "\n"),
             (
                 "trailing blank lines",
                 obj(&[
@@ -462,8 +493,13 @@ mod tests {
             ),
             (
                 "body is a rule, no head",
+                obj(&[("content", s("---\n"))]),
+                "---\n---\n\n---\n",
+            ),
+            (
+                "a rule without a final newline",
                 obj(&[("content", s("---"))]),
-                "---\n---\n\n---",
+                "---\ncontent: \"---\"\n---\n",
             ),
             (
                 "body opens with a rule, after a head",
@@ -595,13 +631,66 @@ mod tests {
         assert_eq!(normalize(&r), doc);
     }
 
+    /// A body ends with a newline: strict reading refuses one without, naming
+    /// the line and the fix, and lenient reading adds the newline.
+    #[test]
+    fn the_final_newline() {
+        let head = obj(&[
+            ("a", Value::Integer(BigInt::from(1))),
+            ("content", s("x\n")),
+        ]);
+        let alone = obj(&[("content", s("hi\n"))]);
+        for (name, doc, line, want, normal) in [
+            (
+                "after a head",
+                "---\na: 1\n---\n\nx",
+                5,
+                &head,
+                "---\na: 1\n---\n\nx\n",
+            ),
+            ("no head", "hi", 1, &alone, "hi\n"),
+            ("empty fences", "---\n---\n\nhi", 4, &alone, "hi\n"),
+            (
+                "two lines",
+                "hi\nthere",
+                2,
+                &obj(&[("content", s("hi\nthere\n"))]),
+                "hi\nthere\n",
+            ),
+        ] {
+            let e = decode(doc)
+                .err()
+                .unwrap_or_else(|| panic!("{}: strict read", name));
+            assert!(
+                e.starts_with(&format!(
+                    "line {}: the content does not end with a newline",
+                    line
+                )) && e.contains("put \"content\" in the front matter as a string"),
+                "{}: {}",
+                name,
+                e
+            );
+            let r = read(doc, None, false).unwrap();
+            assert!(r.value == *want, "{}: lenient read", name);
+            assert_eq!(normalize(&r), normal, "{}: normalize", name);
+            assert!(decode(normal).unwrap() == *want, "{}: formatted", name);
+        }
+        // A string in front matter is not a body, and keeps its text.
+        let doc = "---\ncontent: \"hi\"\n---\n";
+        for strict in [true, false] {
+            let r = read(doc, None, strict).unwrap();
+            assert!(r.value == obj(&[("content", s("hi"))]));
+            assert_eq!(normalize(&r), doc);
+        }
+    }
+
     #[test]
     fn reading_accepts_unformatted() {
-        // A string content in front matter, with no body, reads as content and
-        // normalizes into the body.
-        let doc = "---\ncontent: \"x\"\n---\n";
-        assert!(decode(doc).unwrap() == obj(&[("content", s("x"))]));
-        assert_eq!(normalize(&read(doc, None, false).unwrap()), "x");
+        // A string content in front matter that a body can carry, with no
+        // body, reads as content and normalizes into the body.
+        let doc = "---\ncontent: \"x\\n\"\n---\n";
+        assert!(decode(doc).unwrap() == obj(&[("content", s("x\n"))]));
+        assert_eq!(normalize(&read(doc, None, false).unwrap()), "x\n");
         // Empty fences and a closing fence without a newline.
         assert!(decode("---\n---\n").unwrap() == obj(&[]));
         let one = obj(&[("a", Value::Integer(BigInt::from(1)))]);

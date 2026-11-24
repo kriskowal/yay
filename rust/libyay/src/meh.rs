@@ -11,6 +11,9 @@
 //! 2. MEH-to-YAY Transform - Normalizes the CST to canonical form
 //! 3. MEH Formatter - Serializes the CST back to text
 
+use crate::error::{ParseContext, MAX_INLINE_DEPTH};
+use crate::parser::parse_quoted_string;
+use std::collections::HashMap;
 use std::env;
 
 /// Default line wrap length
@@ -48,6 +51,9 @@ pub enum Item {
     Property(Property),
     /// An array item (- prefix)
     ArrayItem(ArrayItem),
+    /// The tags alone on the root's first line, over the root block, and
+    /// the comment after them
+    Tags(Vec<String>, Option<Comment>),
 }
 
 /// A comment with its content
@@ -61,6 +67,10 @@ pub struct Comment {
 #[derive(Debug, Clone)]
 pub struct Property {
     pub key: Key,
+    /// Where the key stands in the source, as a zero-based line and column,
+    /// for a property the parser read
+    pub pos: Option<(usize, usize)>,
+    pub tags: Vec<String>, // Tags before a block value, outermost first
     pub value: Option<PropertyValue>,
     pub inline_comment: Option<Comment>,
 }
@@ -89,6 +99,7 @@ pub struct Block {
 /// An array item (- prefix)
 #[derive(Debug, Clone)]
 pub struct ArrayItem {
+    pub tags: Vec<String>, // Tags before a block value, outermost first
     pub value: Option<ArrayItemValue>,
     pub inline_comment: Option<Comment>,
 }
@@ -111,6 +122,8 @@ pub enum CstValue {
     Bytes(CstBytes),
     Array(CstArray),
     Object(CstObject),
+    Tagged(Box<CstValue>, Vec<String>), // Tags after an inline value, innermost first
+    Reference(String),                  // The URI, its scheme lowercased
 }
 
 /// A string value
@@ -181,6 +194,9 @@ pub struct CstObject {
 #[derive(Debug, Clone)]
 pub struct CstObjectEntry {
     pub key: Key,
+    /// Where the key stands in the source, as a zero-based line and column,
+    /// for an entry the parser read
+    pub pos: Option<(usize, usize)>,
     pub value: CstValue,
 }
 
@@ -189,18 +205,23 @@ pub struct CstObjectEntry {
 // =============================================================================
 
 pub struct MehParser<'a> {
+    input: &'a str,
     lines: Vec<&'a str>,
     line_idx: usize,
     col: usize,
+    /// How many inline arrays and objects enclose the one being read.
+    inline_depth: std::cell::Cell<usize>,
 }
 
 impl<'a> MehParser<'a> {
     pub fn new(input: &'a str) -> Self {
         let lines: Vec<&str> = input.lines().collect();
         Self {
+            input,
             lines,
             line_idx: 0,
             col: 0,
+            inline_depth: std::cell::Cell::new(0),
         }
     }
 
@@ -213,10 +234,36 @@ impl<'a> MehParser<'a> {
             }
         }
 
+        // Tags over the root need the root block below them
+        if let Some(at) = items.iter().position(|i| matches!(i, Item::Tags(..))) {
+            let has_block = items[at + 1..]
+                .iter()
+                .any(|i| !matches!(i, Item::BlankLine | Item::Comment(_)));
+            if !has_block {
+                return Err("A tag before a value needs a block below it".to_string());
+            }
+        }
+
         Ok(Document {
             items,
             trailing_comments: Vec::new(),
         })
+    }
+
+    /// The zero-based line and column where `part`, a slice of the input,
+    /// begins.
+    fn position_of(&self, part: &str) -> Option<(usize, usize)> {
+        let start = self.input.as_ptr() as usize;
+        let at = part.as_ptr() as usize;
+        if at < start || at > start + self.input.len() {
+            return None;
+        }
+        let before = &self.input[..at - start];
+        let line_start = before.rfind('\n').map_or(0, |i| i + 1);
+        Some((
+            before.matches('\n').count(),
+            before[line_start..].chars().count(),
+        ))
     }
 
     fn current_line(&self) -> Option<&'a str> {
@@ -256,6 +303,17 @@ impl<'a> MehParser<'a> {
             };
             self.advance_line();
             return Ok(Some(Item::Comment(comment)));
+        }
+
+        // Tags alone over the root block
+        if content.starts_with('(') && indent == 0 && min_indent == 0 {
+            let (value_part, comment) = split_inline_comment(content);
+            let (tags, rest) = split_prefix(value_part)?;
+            if !rest.is_empty() {
+                return Err("A tag before a value needs a block below it; write the tag after an inline value".to_string());
+            }
+            self.advance_line();
+            return Ok(Some(Item::Tags(tags, comment)));
         }
 
         // Array item
@@ -332,8 +390,33 @@ impl<'a> MehParser<'a> {
 
         // Check for inline comment
         let (value_part, inline_comment) = split_inline_comment(after_dash);
+        let (tags, value_part) = split_prefix(value_part)?;
 
         self.advance_line();
+
+        if !tags.is_empty() {
+            let value = if value_part.is_empty() {
+                let block = self.parse_block(indent)?;
+                if block.items.is_empty() {
+                    return Err("A tag before a value needs a block below it".to_string());
+                }
+                ArrayItemValue::Block(block)
+            } else if value_part == "`" || value_part.starts_with("` ") {
+                let first_line = value_part.strip_prefix("` ").map(|s| s.to_string());
+                let block_str = self.parse_block_string_lines(indent, first_line)?;
+                ArrayItemValue::Inline(CstValue::String(CstString::Block(block_str)))
+            } else if value_part == ">" || value_part.starts_with("> ") {
+                let bytes = self.parse_block_bytes_leader(value_part, indent)?;
+                ArrayItemValue::Inline(CstValue::Bytes(CstBytes::Block(bytes)))
+            } else {
+                return Err("A tag before a value needs a block below it; write the tag after an inline value".to_string());
+            };
+            return Ok(Some(Item::ArrayItem(ArrayItem {
+                tags,
+                value: Some(value),
+                inline_comment,
+            })));
+        }
 
         // Parse the value part
         let value = if value_part.is_empty() {
@@ -376,6 +459,15 @@ impl<'a> MehParser<'a> {
                     nested_item.value = Some(PropertyValue::Block(prop_block));
                 }
             }
+            if !nested_item.tags.is_empty()
+                && nested_item.value.is_none()
+                && !self.flush_array_follows(indent + 2)
+            {
+                return Err("A tag before a value needs a block below it".to_string());
+            }
+            if nested_item.value.is_none() && !self.flush_array_follows(indent + 2) {
+                return Err("Expected value after property".to_string());
+            }
             let mut block_items = vec![Item::Property(nested_item)];
             // Parse sibling items at the same level as the property
             let block = self.parse_block(indent)?;
@@ -386,6 +478,7 @@ impl<'a> MehParser<'a> {
         };
 
         Ok(Some(Item::ArrayItem(ArrayItem {
+            tags,
             value,
             inline_comment,
         })))
@@ -399,12 +492,25 @@ impl<'a> MehParser<'a> {
         let after_colon = &content[colon_idx + 1..];
 
         // Parse key
+        let pos = self.position_of(key_str.trim_start());
         let key = parse_key(key_str.trim());
 
         let value_part = after_colon.trim_start();
 
         // Check for inline comment
         let (value_str, inline_comment) = split_inline_comment(value_part);
+        let (tags, value_str) = split_prefix(value_str)?;
+        if !tags.is_empty()
+            && !(value_str.is_empty()
+                || value_str == "`"
+                || value_str == ">"
+                || value_str.starts_with("> "))
+        {
+            return Err(
+                "A tag before a value needs a block below it; write the tag after an inline value"
+                    .to_string(),
+            );
+        }
 
         self.advance_line();
 
@@ -463,11 +569,50 @@ impl<'a> MehParser<'a> {
             Some(PropertyValue::Inline(self.parse_inline_value(value_str)?))
         };
 
+        if !tags.is_empty() {
+            let single = match &value {
+                // A block array may sit at the key's own column
+                None => !self.flush_array_follows(indent),
+                Some(PropertyValue::Block(b)) => {
+                    b.items
+                        .iter()
+                        .filter(|i| !matches!(i, Item::BlankLine))
+                        .count()
+                        == 1
+                        && matches!(
+                            b.items.iter().find(|i| !matches!(i, Item::BlankLine)),
+                            Some(Item::Value(_))
+                        )
+                }
+                _ => false,
+            };
+            if single {
+                return Err("A tag before a value needs a block below it".to_string());
+            }
+        }
+
         Ok(Some(Item::Property(Property {
             key,
+            pos,
+            tags,
             value,
             inline_comment,
         })))
+    }
+
+    /// Whether the next line with a value is an array item at the key's
+    /// own column, which makes a block array under the key.
+    fn flush_array_follows(&self, key_indent: usize) -> bool {
+        self.lines[self.line_idx..]
+            .iter()
+            .find(|l| {
+                let t = l.trim();
+                !t.is_empty() && !t.starts_with('#')
+            })
+            .is_some_and(|l| {
+                let content = &l[count_indent(l)..];
+                count_indent(l) == key_indent && (content.starts_with("- ") || content == "-")
+            })
     }
 
     fn parse_block(&mut self, parent_indent: usize) -> Result<Block, String> {
@@ -537,6 +682,7 @@ impl<'a> MehParser<'a> {
         };
 
         Ok(ArrayItem {
+            tags: Vec::new(),
             value,
             inline_comment,
         })
@@ -548,9 +694,17 @@ impl<'a> MehParser<'a> {
         let key_str = &content[..colon_idx];
         let after_colon = &content[colon_idx + 1..];
 
+        let pos = self.position_of(key_str.trim_start());
         let key = parse_key(key_str.trim());
         let value_part = after_colon.trim_start();
         let (value_str, inline_comment) = split_inline_comment(value_part);
+        let (tags, value_str) = split_prefix(value_str)?;
+        if !tags.is_empty() && !value_str.is_empty() {
+            return Err(
+                "A tag before a value needs a block below it; write the tag after an inline value"
+                    .to_string(),
+            );
+        }
 
         let value = if value_str.is_empty() {
             None
@@ -560,6 +714,8 @@ impl<'a> MehParser<'a> {
 
         Ok(Property {
             key,
+            pos,
+            tags,
             value,
             inline_comment,
         })
@@ -599,6 +755,42 @@ impl<'a> MehParser<'a> {
         }
 
         Ok(BlockString { first_line, lines })
+    }
+
+    /// Block bytes from their leader, `>` with hex or a comment after it,
+    /// and the lines below.
+    fn parse_block_bytes_leader(
+        &mut self,
+        leader: &str,
+        indent: usize,
+    ) -> Result<BlockBytes, String> {
+        let (first_hex, first_comment) = match leader.strip_prefix("> ") {
+            Some(rest) if rest.trim_start().starts_with('#') => (
+                None,
+                Some(Comment {
+                    text: rest.trim_start()[1..].to_string(),
+                    align_column: None,
+                }),
+            ),
+            Some(rest) if !rest.trim().is_empty() => {
+                let (hex_part, comment) = split_inline_comment(rest);
+                (Some(hex_part.trim().to_string()), comment)
+            }
+            _ => (None, None),
+        };
+        let mut block_bytes = self.parse_block_bytes(indent, first_comment.clone())?;
+        if let Some(hex) = first_hex {
+            block_bytes.lines.insert(
+                0,
+                BlockBytesLine {
+                    indent,
+                    hex,
+                    comment: first_comment,
+                },
+            );
+            block_bytes.first_line_comment = None;
+        }
+        Ok(block_bytes)
     }
 
     fn parse_block_bytes(
@@ -658,6 +850,25 @@ impl<'a> MehParser<'a> {
             return Ok(CstValue::Null);
         }
 
+        // Tags after the value, any spaces before each
+        if let (_, Some(p)) = crate::parser::mask_tags(s) {
+            if p == 0 {
+                return Err("A tag before an inline value; write the tag after it".to_string());
+            }
+            let mut tags = Vec::new();
+            let mut rest = &s[p..];
+            while !rest.is_empty() {
+                if !rest.starts_with('(') {
+                    return Err(format!("Unexpected text after a tag: {}", rest));
+                }
+                let (tag, n) = crate::parser::parse_tag_text(rest)?;
+                tags.push(tag);
+                rest = rest[n..].trim_start_matches(' ');
+            }
+            let payload = self.parse_inline_value(&s[..p])?;
+            return Ok(CstValue::Tagged(Box::new(payload), tags));
+        }
+
         // Keywords
         match s {
             "null" => return Ok(CstValue::Null),
@@ -672,6 +883,15 @@ impl<'a> MehParser<'a> {
         }
         if s.starts_with('\'') {
             return Ok(CstValue::String(CstString::SingleQuoted(s.to_string())));
+        }
+
+        // Reference; text glued to it falls to a bare string, as for bytes
+        if crate::reference::is_reference_start(s) {
+            if let Ok((uri, n)) = crate::reference::scan_reference(s, true) {
+                if n == s.len() {
+                    return Ok(CstValue::Reference(uri));
+                }
+            }
         }
 
         // Inline bytes
@@ -721,7 +941,28 @@ impl<'a> MehParser<'a> {
         ))))
     }
 
+    /// Read one level of inline nesting with `read`, refusing more than
+    /// [`MAX_INLINE_DEPTH`] levels rather than overflowing the stack, as the
+    /// YAY parser does.
+    fn nested(&self, read: impl FnOnce() -> Result<CstValue, String>) -> Result<CstValue, String> {
+        let depth = self.inline_depth.get() + 1;
+        if depth > MAX_INLINE_DEPTH {
+            return Err(format!(
+                "Inline nesting deeper than {} levels",
+                MAX_INLINE_DEPTH
+            ));
+        }
+        self.inline_depth.set(depth);
+        let result = read();
+        self.inline_depth.set(depth - 1);
+        result
+    }
+
     fn parse_inline_array(&self, s: &str) -> Result<CstValue, String> {
+        self.nested(|| self.parse_inline_array_body(s))
+    }
+
+    fn parse_inline_array_body(&self, s: &str) -> Result<CstValue, String> {
         let inner = &s[1..s.len() - 1];
         let trimmed = inner.trim();
 
@@ -749,6 +990,10 @@ impl<'a> MehParser<'a> {
     }
 
     fn parse_inline_object(&self, s: &str) -> Result<CstValue, String> {
+        self.nested(|| self.parse_inline_object_body(s))
+    }
+
+    fn parse_inline_object_body(&self, s: &str) -> Result<CstValue, String> {
         let inner = &s[1..s.len() - 1];
         let trimmed = inner.trim();
 
@@ -768,10 +1013,11 @@ impl<'a> MehParser<'a> {
                 let key_str = &entry_str[..colon_idx];
                 let value_str = &entry_str[colon_idx + 1..];
 
+                let pos = self.position_of(key_str.trim_start());
                 let key = parse_key(key_str.trim());
                 let value = self.parse_inline_value(value_str.trim())?;
 
-                entries.push(CstObjectEntry { key, value });
+                entries.push(CstObjectEntry { key, pos, value });
             }
 
             remaining = rest.trim_start();
@@ -799,7 +1045,24 @@ fn is_block_string_property(s: &str) -> bool {
         .is_some_and(|colon| split_inline_comment(s[colon + 1..].trim_start()).0 == "`")
 }
 
+/// The tags before a block, any spaces between them, outermost first, and
+/// what follows them.
+fn split_prefix(s: &str) -> Result<(Vec<String>, &str), String> {
+    let mut tags = Vec::new();
+    let mut rest = s;
+    while rest.starts_with('(') {
+        let (tag, n) = crate::parser::parse_tag_text(rest)?;
+        tags.push(tag);
+        rest = rest[n..].trim_start_matches(' ');
+    }
+    Ok((tags, rest))
+}
+
 fn find_colon_outside_quotes(s: &str) -> Option<usize> {
+    find_colon_outside_quotes_raw(&crate::parser::mask_tags(s).0)
+}
+
+fn find_colon_outside_quotes_raw(s: &str) -> Option<usize> {
     let mut in_double = false;
     let mut in_single = false;
     let mut escape = false;
@@ -830,6 +1093,85 @@ fn find_colon_outside_quotes(s: &str) -> Option<usize> {
     None
 }
 
+/// Where each key of an object first appears, as a zero-based line and
+/// column. Each key keeps its first position, not only its name, so that the
+/// error can say where the first one is.
+type SeenKeys = HashMap<String, (usize, usize)>;
+
+/// A key's text, its quotes and escapes read as the YAY parser reads them.
+fn key_text(key: &Key) -> String {
+    let raw = match key {
+        Key::Bare(s) | Key::SingleQuoted(s) | Key::DoubleQuoted(s) => s,
+    };
+    parse_quoted_string(raw, &ParseContext::new(None), 0, 0).unwrap_or_else(|_| raw.clone())
+}
+
+/// Record where a key first appears in an object, and refuse it the second
+/// time, as the YAY parser does.
+fn claim_key(seen: &mut SeenKeys, key: &Key, pos: Option<(usize, usize)>) -> Result<(), String> {
+    let text = key_text(key);
+    let (line, col) = pos.unwrap_or((0, 0));
+    if let Some(&(first_line, first_col)) = seen.get(&text) {
+        return Err(format!(
+            "Duplicate key \"{}\" (first at {}:{}) at {}:{}",
+            text,
+            first_line + 1,
+            first_col + 1,
+            line + 1,
+            col + 1
+        ));
+    }
+    seen.insert(text, (line, col));
+    Ok(())
+}
+
+/// Refuse a key that its object already has, anywhere in these items, in
+/// the order the keys appear. MEH is lenient about spacing, never about
+/// which of two values to keep.
+fn check_duplicate_keys(items: &[Item]) -> Result<(), String> {
+    let mut seen = SeenKeys::new();
+    for item in items {
+        match item {
+            Item::Property(p) => {
+                claim_key(&mut seen, &p.key, p.pos)?;
+                match &p.value {
+                    Some(PropertyValue::Inline(v)) => check_duplicate_keys_in_value(v)?,
+                    Some(PropertyValue::Block(b)) => check_duplicate_keys(&b.items)?,
+                    None => {}
+                }
+            }
+            Item::ArrayItem(a) => match &a.value {
+                Some(ArrayItemValue::Inline(v)) => check_duplicate_keys_in_value(v)?,
+                Some(ArrayItemValue::Block(b)) => check_duplicate_keys(&b.items)?,
+                None => {}
+            },
+            Item::Value(v) => check_duplicate_keys_in_value(v)?,
+            Item::BlankLine | Item::Comment(_) | Item::Tags(..) => {}
+        }
+    }
+    Ok(())
+}
+
+fn check_duplicate_keys_in_value(value: &CstValue) -> Result<(), String> {
+    match value {
+        CstValue::Array(arr) => {
+            for item in &arr.items {
+                check_duplicate_keys_in_value(&item.value)?;
+            }
+        }
+        CstValue::Object(obj) => {
+            let mut seen = SeenKeys::new();
+            for entry in &obj.entries {
+                claim_key(&mut seen, &entry.key, entry.pos)?;
+                check_duplicate_keys_in_value(&entry.value)?;
+            }
+        }
+        CstValue::Tagged(inner, _) => check_duplicate_keys_in_value(inner)?,
+        _ => {}
+    }
+    Ok(())
+}
+
 fn parse_key(s: &str) -> Key {
     if s.starts_with('"') && s.ends_with('"') {
         Key::DoubleQuoted(s.to_string())
@@ -841,6 +1183,17 @@ fn parse_key(s: &str) -> Key {
 }
 
 fn split_inline_comment(s: &str) -> (&str, Option<Comment>) {
+    let (masked, _) = crate::parser::mask_tags(s);
+    let (value, comment) = split_inline_comment_raw(&masked);
+    let end = value.len();
+    let comment = comment.map(|c| Comment {
+        text: s[s.len() - c.text.len()..].to_string(),
+        align_column: c.align_column,
+    });
+    (&s[..end], comment)
+}
+
+fn split_inline_comment_raw(s: &str) -> (&str, Option<Comment>) {
     // Find # not inside quotes
     let mut in_double = false;
     let mut in_single = false;
@@ -875,6 +1228,12 @@ fn split_inline_comment(s: &str) -> (&str, Option<Comment>) {
 }
 
 fn split_array_item(s: &str) -> (&str, &str) {
+    let (masked, _) = crate::parser::mask_tags(s);
+    let end = split_array_item_raw(&masked).0.len();
+    (&s[..end], &s[end..])
+}
+
+fn split_array_item_raw(s: &str) -> (&str, &str) {
     let mut depth = 0;
     let mut in_double = false;
     let mut in_single = false;
@@ -1028,12 +1387,15 @@ impl Transformer {
                         // Array items are siblings at the same indent level
                         let mut items = vec![Item::Property(Property {
                             key: prop.key.clone(),
+                            pos: prop.pos,
+                            tags: prop.tags.clone(),
                             value: None,
                             inline_comment: prop.inline_comment.clone(),
                         })];
 
                         for arr_item in &arr.items {
                             items.push(Item::ArrayItem(ArrayItem {
+                                tags: Vec::new(),
                                 value: Some(ArrayItemValue::Inline(
                                     self.transform_value(&arr_item.value, indent),
                                 )),
@@ -1055,6 +1417,8 @@ impl Transformer {
                             .map(|entry| {
                                 Item::Property(Property {
                                     key: entry.key.clone(),
+                                    pos: entry.pos,
+                                    tags: Vec::new(),
                                     value: Some(PropertyValue::Inline(
                                         self.transform_value(&entry.value, indent + 1),
                                     )),
@@ -1065,6 +1429,8 @@ impl Transformer {
 
                         return vec![Item::Property(Property {
                             key: prop.key.clone(),
+                            pos: prop.pos,
+                            tags: prop.tags.clone(),
                             value: Some(PropertyValue::Block(Block {
                                 items: nested_items,
                             })),
@@ -1221,8 +1587,16 @@ impl Transformer {
             CstValue::Float(s) => s.len(),
             CstValue::String(s) => self.measure_string(s),
             CstValue::Bytes(b) => self.measure_bytes(b),
+            CstValue::Reference(uri) => uri.len() + 2,
             CstValue::Array(a) => self.measure_array(a),
             CstValue::Object(o) => self.measure_object(o),
+            CstValue::Tagged(v, tags) => {
+                self.measure_value(v)
+                    + tags
+                        .iter()
+                        .map(|t| 1 + crate::encode::encode_yay_tag(t).len())
+                        .sum::<usize>()
+            }
         }
     }
 
@@ -1285,6 +1659,7 @@ impl Transformer {
         match item {
             Item::BlankLine => Item::BlankLine,
             Item::Comment(c) => Item::Comment(c.clone()),
+            Item::Tags(t, c) => Item::Tags(t.clone(), c.clone()),
             Item::Value(v) => Item::Value(self.transform_value(v, indent)),
             Item::Property(p) => Item::Property(self.transform_property(p, indent)),
             Item::ArrayItem(a) => Item::ArrayItem(self.transform_array_item(a, indent)),
@@ -1294,6 +1669,8 @@ impl Transformer {
     fn transform_property(&self, prop: &Property, indent: usize) -> Property {
         Property {
             key: prop.key.clone(),
+            pos: prop.pos,
+            tags: prop.tags.clone(),
             value: prop
                 .value
                 .as_ref()
@@ -1332,6 +1709,7 @@ impl Transformer {
 
     fn transform_array_item(&self, item: &ArrayItem, indent: usize) -> ArrayItem {
         ArrayItem {
+            tags: item.tags.clone(),
             value: item.value.as_ref().map(|v| match v {
                 ArrayItemValue::Inline(val) => {
                     ArrayItemValue::Inline(self.transform_value(val, indent))
@@ -1352,8 +1730,12 @@ impl Transformer {
             CstValue::Float(s) => CstValue::Float(canonicalize_float(s)),
             CstValue::String(s) => CstValue::String(s.clone()),
             CstValue::Bytes(b) => self.transform_bytes(b, indent),
+            CstValue::Reference(uri) => CstValue::Reference(uri.clone()),
             CstValue::Array(a) => self.transform_array(a, indent),
             CstValue::Object(o) => self.transform_object(o, indent),
+            CstValue::Tagged(v, tags) => {
+                CstValue::Tagged(Box::new(self.transform_value(v, indent)), tags.clone())
+            }
         }
     }
 
@@ -1630,6 +2012,7 @@ impl Transformer {
             .iter()
             .map(|entry| CstObjectEntry {
                 key: entry.key.clone(),
+                pos: entry.pos,
                 value: self.transform_value(&entry.value, indent),
             })
             .collect();
@@ -1996,9 +2379,29 @@ impl Formatter {
             Item::Property(p) => {
                 self.format_property(p);
             }
+            Item::Tags(tags, comment) => {
+                self.write_indent();
+                let line: Vec<String> = tags
+                    .iter()
+                    .map(|t| crate::encode::encode_yay_tag(t))
+                    .collect();
+                self.write(&line.join(" "));
+                if let Some(c) = comment {
+                    self.write_inline_comment(c);
+                }
+                self.newline();
+            }
             Item::ArrayItem(a) => {
                 self.format_array_item(a);
             }
+        }
+    }
+
+    /// A block's tags, each after one space.
+    fn format_prefix(&mut self, tags: &[String]) {
+        for tag in tags {
+            self.write_char(' ');
+            self.write(&crate::encode::encode_yay_tag(tag));
         }
     }
 
@@ -2006,6 +2409,7 @@ impl Formatter {
         self.write_indent();
         self.format_key(&prop.key);
         self.write_char(':');
+        self.format_prefix(&prop.tags);
 
         match &prop.value {
             Some(PropertyValue::Inline(v)) => {
@@ -2049,6 +2453,10 @@ impl Formatter {
 
     fn format_array_item(&mut self, item: &ArrayItem) {
         self.write_indent();
+        if !item.tags.is_empty() {
+            self.format_tagged_array_item(item);
+            return;
+        }
 
         match &item.value {
             Some(ArrayItemValue::Inline(v)) => {
@@ -2122,8 +2530,37 @@ impl Formatter {
         }
     }
 
+    /// An item with tags before its block: the tags beside the dash, then
+    /// a block string or bytes beside them, or the block below.
+    fn format_tagged_array_item(&mut self, item: &ArrayItem) {
+        self.write_char('-');
+        self.format_prefix(&item.tags);
+        match &item.value {
+            Some(ArrayItemValue::Inline(v)) => {
+                self.write_char(' ');
+                self.format_value(v);
+            }
+            Some(ArrayItemValue::Block(block)) => {
+                if let Some(comment) = &item.inline_comment {
+                    self.write_inline_comment(comment);
+                }
+                self.newline();
+                self.indent += 1;
+                for item in &block.items {
+                    self.format_item(item);
+                }
+                self.indent -= 1;
+            }
+            None => self.newline(),
+        }
+    }
+
     /// Format an array item inline (without leading indent, for nested items on same line)
     fn format_array_item_inline(&mut self, item: &ArrayItem) {
+        if !item.tags.is_empty() {
+            self.format_tagged_array_item(item);
+            return;
+        }
         match &item.value {
             Some(ArrayItemValue::Inline(v)) => {
                 self.write("- ");
@@ -2183,6 +2620,7 @@ impl Formatter {
     fn format_property_inline(&mut self, prop: &Property) {
         self.format_key(&prop.key);
         self.write_char(':');
+        self.format_prefix(&prop.tags);
 
         match &prop.value {
             Some(PropertyValue::Inline(v)) => {
@@ -2250,8 +2688,20 @@ impl Formatter {
             CstValue::Float(s) => self.write(s),
             CstValue::String(s) => self.format_string(s),
             CstValue::Bytes(b) => self.format_bytes(b),
+            CstValue::Reference(uri) => {
+                self.write_char('<');
+                self.write(uri);
+                self.write_char('>');
+            }
             CstValue::Array(a) => self.format_array(a),
             CstValue::Object(o) => self.format_object(o),
+            CstValue::Tagged(v, tags) => {
+                self.format_value(v);
+                for tag in tags {
+                    self.write_char(' ');
+                    self.write(&crate::encode::encode_yay_tag(tag));
+                }
+            }
         }
     }
 
@@ -2414,6 +2864,7 @@ impl Formatter {
 pub fn format_yay(input: &str) -> Result<String, String> {
     let mut parser = MehParser::new(input);
     let doc = parser.parse()?;
+    check_duplicate_keys(&doc.items)?;
     let canonical = transform_to_canonical(&doc);
     Ok(format_document(&canonical))
 }
@@ -2492,5 +2943,16 @@ mod tests {
             format_yay("\"日本\":  \"ü\"\n").unwrap(),
             "\"日本\": \"ü\"\n"
         );
+    }
+
+    #[test]
+    fn test_property_in_list_item_needs_a_value() {
+        for source in ["- a:\n- 1\n", "- a:\n  b: 1\n"] {
+            assert_eq!(
+                format_yay(source),
+                Err("Expected value after property".to_string())
+            );
+        }
+        assert_eq!(format_yay("- a:\n  - 1\n").unwrap(), "- a:\n  - 1\n");
     }
 }

@@ -34,6 +34,8 @@ fn values_equal(a: &Value, b: &Value) -> bool {
                 && a.iter()
                     .all(|(k, v)| b.get(k).map_or(false, |bv| values_equal(v, bv)))
         }
+        (Value::Tagged(at, ap), Value::Tagged(bt, bp)) => at == bt && values_equal(ap, bp),
+        (Value::Reference(a), Value::Reference(b)) => a == b,
         _ => false,
     }
 }
@@ -895,6 +897,8 @@ fn test_quoted_key_single() {
 /// Get all MEH reformat test files from the test/meh/ directory.
 /// Naming convention: <test-name>.<variant>.meh -> <test-name>.yay
 /// e.g., "comment-alignment.unaligned.meh" -> "comment-alignment.yay"
+/// A case with <test-name>.error instead is a refusal, read by
+/// `test_meh_refusal_fixtures`.
 fn get_meh_reformat_files() -> Vec<(String, String)> {
     let test_dir = test_root().join("meh");
 
@@ -1014,4 +1018,97 @@ fn test_meh_reformat_fixtures() {
     }
 
     assert!(failed == 0, "{} MEH reformat tests failed", failed);
+}
+
+/// Every MEH refusal case in test/meh/: `<test-name>.<variant>.meh` with a
+/// `<test-name>.error` and no `<test-name>.yay`. MEH must refuse the
+/// document with exactly the message in the .error file. MEH reads loose
+/// spacing, but never chooses between two values for one key.
+#[test]
+fn test_meh_refusal_fixtures() {
+    let test_dir = test_root().join("meh");
+    let mut cases: Vec<(String, String)> = Vec::new();
+    for entry in fs::read_dir(&test_dir).unwrap().flatten() {
+        let path = entry.path();
+        if path.extension().is_some_and(|ext| ext == "meh") {
+            let stem = path.file_stem().unwrap().to_string_lossy().to_string();
+            let test_name = stem.rsplit_once('.').map_or(stem.as_str(), |(n, _)| n);
+            let error_path = test_dir.join(format!("{}.error", test_name));
+            if error_path.exists() {
+                cases.push((
+                    path.to_string_lossy().to_string(),
+                    error_path.to_string_lossy().to_string(),
+                ));
+            }
+        }
+    }
+    cases.sort();
+    assert!(!cases.is_empty(), "no MEH refusal cases in {:?}", test_dir);
+
+    let mut errors: Vec<String> = Vec::new();
+    for (meh_path, error_path) in &cases {
+        let source = fs::read_to_string(meh_path).unwrap();
+        let expected = fs::read_to_string(error_path).unwrap();
+        let expected = expected.trim_end();
+        match libyay::format_yay(&source) {
+            Ok(formatted) => errors.push(format!(
+                "{}: expected {:?}, but MEH read it as\n{}",
+                meh_path, expected, formatted
+            )),
+            Err(e) if e != expected => errors.push(format!(
+                "{}: expected {:?}, got {:?}",
+                meh_path, expected, e
+            )),
+            Err(_) => println!("  {} => refused", meh_path),
+        }
+    }
+    assert!(
+        errors.is_empty(),
+        "MEH refusal cases failed:\n{}",
+        errors.join("\n")
+    );
+}
+
+#[test]
+fn an_inline_object_value_is_located_at_the_value() {
+    let err = parse_with_filename("x: {a: {b: <ab>(t)}}\n", Some("v.yay")).unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "Expected one space before a tag at 1:16 of <v.yay>"
+    );
+}
+
+#[test]
+fn inline_nesting_is_read_to_256_levels() {
+    for (open, close) in [("[", "]"), ("{a: ", "}"), ("[{a: ", "}]")] {
+        let n = 256 / open.matches(['[', '{']).count();
+        let src = format!("x: {}1{}\n", open.repeat(n), close.repeat(n));
+        assert!(parse(&src).is_ok(), "{} levels of {:?}", n, open);
+        assert!(libyay::format_yay(&src).is_ok(), "MEH: {:?}", open);
+    }
+}
+
+#[test]
+fn inline_nesting_deeper_than_256_levels_is_refused() {
+    for (open, close, col) in [("[", "]", 260), ("{a: ", "}", 1028)] {
+        let src = format!("x: {}1{}\n", open.repeat(100_000), close.repeat(100_000));
+        let err = parse_with_filename(&src, Some("deep.yay")).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            format!(
+                "Inline nesting deeper than 256 levels at 1:{} of <deep.yay>",
+                col
+            )
+        );
+        assert_eq!(
+            libyay::format_yay(&src).unwrap_err(),
+            "Inline nesting deeper than 256 levels"
+        );
+    }
+    let src = format!("x: {}1{}\n", "[{a: ".repeat(129), "}]".repeat(129));
+    let err = parse_with_filename(&src, Some("deep.yay")).unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "Inline nesting deeper than 256 levels at 1:644 of <deep.yay>"
+    );
 }

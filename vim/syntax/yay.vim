@@ -46,7 +46,7 @@ syntax region yaySingleString start=/'/ skip=/\\\\\|\\'/ end=/'/ oneline
 " Block string introducer: backtick at start of content (after indent),
 " optionally followed by a space and same-line content.
 " At root or array-item level:
-syntax region yayBlockString matchgroup=yayBlockStringDelim start=/\v^(\s*)%(- )?`%( |$)/ end=/\v^%(\s*$|\1\S)/ contains=yayBlockStringBody keepend
+syntax region yayBlockString matchgroup=yayBlockStringDelim start=/\v^\z(\s*)%(- )?`%( |$)/ end=/\v^%(\s*$|%(\z1\s)@!)/ contains=yayBlockStringBody keepend
 
 " As a property value (key: ` must be alone):
 syntax region yayBlockStringProp matchgroup=yayBlockStringDelim start=/\v(:\s+)`$/ end=/\v^%(\s*$|\s{0,}\S)/ contains=yayBlockStringBody keepend
@@ -60,6 +60,12 @@ syntax match yayBlockStringBody /.*/ contained
 syntax region yayBytes start=/</ end=/>/ contains=yayHexContent oneline
 syntax match  yayHexContent /[0-9a-f ]\+/ contained
 
+" --- References -------------------------------------------------------------
+
+" A reference: <scheme:...>, its text to the next >; a # inside is not a
+" comment. Defined after bytes, so it wins where both start at a <.
+syntax region yayReference matchgroup=yayReferenceDelim start=/<\ze[a-z][a-z0-9+.-]*:/ end=/>/ oneline
+
 " Block byte array introducer and content.
 " The > leader and subsequent indented hex lines are handled via match rules
 " since region-based indent tracking is fragile.
@@ -69,15 +75,21 @@ syntax match yayHexLine          /\v^\s+[0-9a-f][0-9a-f \t]*%(\s+#.*)?$/ contain
 syntax match yayHexData          /\v[0-9a-f][0-9a-f \t]*[0-9a-f]/ contained
 syntax match yayHexData          /\v[0-9a-f]{2}/ contained
 
+" --- Tags -------------------------------------------------------------------
+
+" A tag: (name), before a block or after a value; \) and \\ are its escapes.
+syntax region yayTag matchgroup=yayTagDelim start=/(/ skip=/\\\\\|\\)/ end=/)/ contains=yayTagEscape oneline
+syntax match  yayTagEscape /\\[\\)]/ contained
+
 " --- Arrays -----------------------------------------------------------------
 
 " Inline arrays.
-syntax region yayInlineArray start=/\[/ end=/\]/ contains=yayString,yaySingleString,yayNull,yayBoolean,yayFloat,yayInteger,yayBytes,yayInlineArray,yayInlineObject,yayComment transparent
+syntax region yayInlineArray start=/\[/ end=/\]/ contains=yayString,yaySingleString,yayNull,yayBoolean,yayFloat,yayInteger,yayBytes,yayReference,yayTag,yayInlineArray,yayInlineObject,yayComment transparent
 
 " --- Objects ----------------------------------------------------------------
 
 " Inline objects.
-syntax region yayInlineObject start=/{/ end=/}/ contains=yayString,yaySingleString,yayNull,yayBoolean,yayFloat,yayInteger,yayBytes,yayInlineArray,yayInlineObject,yayKey,yayComment transparent
+syntax region yayInlineObject start=/{/ end=/}/ contains=yayString,yaySingleString,yayNull,yayBoolean,yayFloat,yayInteger,yayBytes,yayReference,yayTag,yayInlineArray,yayInlineObject,yayKey,yayComment transparent
 
 " --- Keys -------------------------------------------------------------------
 
@@ -95,7 +107,7 @@ syntax match yayColon /:/ contained
 
 " --- List markers -----------------------------------------------------------
 
-syntax match yayListMarker /\v^(\s*)- / contains=yayDash
+syntax match yayListMarker /\v^(\s*)- %(`)@!/ contains=yayDash
 syntax match yayDash       /\v-\ze / contained
 
 " --- Comments ---------------------------------------------------------------
@@ -120,11 +132,19 @@ highlight default link yayHexContent    Number
 highlight default link yayBlockBytesLeader Delimiter
 highlight default link yayHexLine       Special
 highlight default link yayHexData       Number
+highlight default link yayReference     Underlined
+highlight default link yayReferenceDelim Delimiter
 highlight default link yayKey           Identifier
 highlight default link yayColon         Delimiter
 highlight default link yayDash          Delimiter
 highlight default link yayListMarker    Delimiter
+highlight default link yayTag           Type
+highlight default link yayTagDelim      Delimiter
+highlight default link yayTagEscape     SpecialChar
 highlight default link yayComment       Comment
 highlight default link yayTodo          Todo
+
+" A block string spans lines, so read from the top of the file.
+syntax sync fromstart
 
 let b:current_syntax = 'yay'

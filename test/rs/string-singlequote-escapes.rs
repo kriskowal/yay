@@ -1,0 +1,1 @@
+Value::Object(HashMap::from([("backslash".into(), Value::String("a\\b".into())), ("end".into(), Value::String("a\\".into())), ("other".into(), Value::String("a\\nb\\u{41}\\\"c\\t".into())), ("quote".into(), Value::String("a'b".into()))]))

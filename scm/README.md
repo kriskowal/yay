@@ -36,6 +36,34 @@ Parses a YAY document string and returns the corresponding Scheme value.
 
 Converts a parsed YAY value to its Scheme string representation.
 
+### `(make-tagged tag payload)`
+
+A tagged value, `'X-1' (com.example/sku)` or a block below `key: (tag)`:
+a record `tagged` with the tag, a string, and the payload, any value, read
+with `tagged-tag` and `tagged-payload` and recognized by `tagged?`.
+`yay-equal?` holds for equal tags and payloads; a tagged value never
+equals its payload. YAY gives no tag a meaning.
+
+```scheme
+(parse-yay "count: 10 (s)\n")
+;; (("count" . #<tagged tag: "s" payload: 10>))
+```
+
+### `(make-reference uri)`
+
+A reference, `<https://example.com/>`: a record `reference` with the URI
+or IRI, held as written, without its angle brackets, read with
+`reference-uri` and recognized by `reference?`. YAY never dereferences it.
+`yay-equal?` holds for references with the same text; a reference never
+equals a string. `make-reference` raises an error for text that is not a
+reference's (a lowercase scheme, a colon, URI or IRI characters and
+well-formed percent-encodings).
+
+```scheme
+(parse-yay "<ocapn://a.tcp> (Counter)\n")
+;; #<tagged tag: "Counter" payload: #<reference uri: "ocapn://a.tcp">>
+```
+
 ## Type Mapping
 
 | YAY Type | Scheme Type | Notes |
@@ -48,6 +76,8 @@ Converts a parsed YAY value to its Scheme string representation.
 | array | vector | `#(...)` |
 | object | alist | `((key . value) ...)` |
 | bytes | tagged list | `(bytevector b1 b2 ...)` |
+| tagged | record `tagged` | `(make-tagged tag payload)` |
+| reference | record `reference` | `(make-reference uri)` |
 
 # YAY Format
 
@@ -755,8 +785,8 @@ At root level, hex may appear on the same line after `> `.
 
 [bytearray-block-hex-and-comment.yay](https://github.com/kriskowal/yay/blob/main/test/yay/bytearray-block-hex-and-comment.yay)
 ```yay
-> b0b5 # first chunk
-  c0ff # second chunk
+> b0b5  # first chunk
+  c0ff  # second chunk
 ```
 
 [bytearray-block-hex-and-comment.scm](https://github.com/kriskowal/yay/blob/main/test/scm/bytearray-block-hex-and-comment.scm)

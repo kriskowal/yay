@@ -18,8 +18,8 @@
 //!   -V, --version          Print version
 
 use libyay::{
-    encode, format_yay, parse, parse_json, parse_shon_bracket, parse_shon_file_bytes,
-    parse_shon_file_string, parse_shon_hex, parse_with_filename, parse_yson, Format, Value,
+    encode, format_yay, parse, parse_json, parse_shon, parse_with_filename, parse_yson, scan_shon,
+    Format, Value,
 };
 use std::fs;
 use std::io::{self, Read, Write};
@@ -68,7 +68,9 @@ fn main() {
     let mut check_only = false;
     let mut round_trip = false;
     let mut input_path: Option<&str> = None;
-    let mut shon_value: Option<Value> = None;
+    let mut shon_start: Option<usize> = None;
+    let mut shon_stdin_reads = 0;
+    let mut stdin_named = false;
 
     let mut i = 1;
     while i < args.len() {
@@ -122,10 +124,12 @@ fn main() {
             "-" => {
                 // Explicit stdin
                 // input_path stays None, which means stdin
+                stdin_named = true;
             }
-            // SHON triggers
-            "[" | "[]" | "[--]" => {
-                if shon_value.is_some() {
+            // SHON triggers. The expression is scanned now and read after the
+            // whole command line is known, so that stdin is never read twice.
+            "[" | "[]" | "[--]" | "-x" | "-b" | "-s" => {
+                if shon_start.is_some() {
                     eprintln!("Error: Multiple SHON expressions not supported");
                     process::exit(1);
                 }
@@ -133,74 +137,12 @@ fn main() {
                     eprintln!("Error: Cannot combine input file with SHON expression");
                     process::exit(1);
                 }
-                match parse_shon_bracket(&args[i..]) {
-                    Ok((value, consumed)) => {
-                        shon_value = Some(value);
+                match scan_shon(&args[i..]) {
+                    Ok((consumed, reads)) => {
+                        shon_start = Some(i);
+                        shon_stdin_reads = reads;
                         i += consumed;
                         // After consuming SHON, continue parsing remaining args as CLI flags
-                        continue;
-                    }
-                    Err(e) => {
-                        eprintln!("Error: {}", e);
-                        process::exit(1);
-                    }
-                }
-            }
-            "-x" => {
-                if shon_value.is_some() {
-                    eprintln!("Error: Multiple SHON expressions not supported");
-                    process::exit(1);
-                }
-                if input_path.is_some() {
-                    eprintln!("Error: Cannot combine input file with SHON expression");
-                    process::exit(1);
-                }
-                match parse_shon_hex(&args[i..]) {
-                    Ok((value, consumed)) => {
-                        shon_value = Some(value);
-                        i += consumed;
-                        continue;
-                    }
-                    Err(e) => {
-                        eprintln!("Error: {}", e);
-                        process::exit(1);
-                    }
-                }
-            }
-            "-b" => {
-                if shon_value.is_some() {
-                    eprintln!("Error: Multiple SHON expressions not supported");
-                    process::exit(1);
-                }
-                if input_path.is_some() {
-                    eprintln!("Error: Cannot combine input file with SHON expression");
-                    process::exit(1);
-                }
-                match parse_shon_file_bytes(&args[i..]) {
-                    Ok((value, consumed)) => {
-                        shon_value = Some(value);
-                        i += consumed;
-                        continue;
-                    }
-                    Err(e) => {
-                        eprintln!("Error: {}", e);
-                        process::exit(1);
-                    }
-                }
-            }
-            "-s" => {
-                if shon_value.is_some() {
-                    eprintln!("Error: Multiple SHON expressions not supported");
-                    process::exit(1);
-                }
-                if input_path.is_some() {
-                    eprintln!("Error: Cannot combine input file with SHON expression");
-                    process::exit(1);
-                }
-                match parse_shon_file_string(&args[i..]) {
-                    Ok((value, consumed)) => {
-                        shon_value = Some(value);
-                        i += consumed;
                         continue;
                     }
                     Err(e) => {
@@ -214,7 +156,7 @@ fn main() {
                 process::exit(1);
             }
             _ => {
-                if shon_value.is_some() {
+                if shon_start.is_some() {
                     eprintln!("Error: Cannot combine input file with SHON expression");
                     process::exit(1);
                 }
@@ -228,8 +170,24 @@ fn main() {
         i += 1;
     }
 
+    // Stdin can be read only once: by one `-s -` or `-b -`, or as the input.
+    // A SHON expression is the whole input, so stdin is the input only when
+    // `-` is named explicitly beside it.
+    if shon_stdin_reads > 1 {
+        eprintln!(
+            "Error: stdin can be read only once, but '-' is named {} times after -s or -b",
+            shon_stdin_reads
+        );
+        eprintln!("Hint: a file named '-' is ./-");
+        process::exit(1);
+    }
+    if shon_stdin_reads > 0 && stdin_named {
+        eprintln!("Error: stdin can be read only once, but both -s/-b - and the input - read it");
+        process::exit(1);
+    }
+
     // Cannot have both SHON and input format (SHON is its own input)
-    if shon_value.is_some() && from_format.is_some() {
+    if shon_start.is_some() && from_format.is_some() {
         eprintln!("Error: Cannot use -f/--from with SHON input");
         process::exit(1);
     }
@@ -268,7 +226,14 @@ fn main() {
     let output_format = parse_format(output_format_str);
 
     // SHON mode: we already have a Value, skip file reading and parsing
-    if let Some(value) = shon_value {
+    if let Some(start) = shon_start {
+        let value = match parse_shon(&args[start..]) {
+            Ok((value, _)) => value,
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                process::exit(1);
+            }
+        };
         if check_only {
             // SHON is always valid if it parsed
             println!("ok");
@@ -1300,6 +1265,7 @@ EXAMPLES:
     yay -t yson -x cafe
     yay -b image.png -o image.yay
     yay -s message.txt
+    echo hi | yay [ --content -s - ] -t md   # -s - and -b - read stdin
 "
     );
 }

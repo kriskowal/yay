@@ -1,0 +1,1 @@
+(("a" . (make-tagged "com.example.sku" 1)) ("b" . (make-tagged "match:any" 2)) ("c" . (make-tagged "image/png" 3)) ("d" . (make-tagged "my tag" 4)) ("e" . (make-tagged "a#b" 5)) ("f" . (make-tagged "a  # b" 6)) ("g" . (make-tagged "it's" 7)) ("h" . (make-tagged "a(b" 8)) ("i" . (make-tagged "\"q\"" 9)) ("j" . (make-tagged "a, b] }" 10)))

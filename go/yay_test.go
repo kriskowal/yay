@@ -73,6 +73,21 @@ func TestErrorCases(t *testing.T) {
 	}
 }
 
+// A line indented under a root property that has an inline value belongs
+// to nothing, and is refused rather than dropped.
+func TestRootIndentUnderInlineValue(t *testing.T) {
+	for _, in := range []string{
+		"enabled: true\n  retries: 3\n",
+		"a: 10\n  - 1\n",
+		"a: 1\nb: \"x\"\n  c: 2\n",
+	} {
+		_, err := Unmarshal([]byte(in))
+		if err == nil || !strings.Contains(err.Error(), "Unexpected indent") {
+			t.Errorf("%q: got %v, want Unexpected indent", in, err)
+		}
+	}
+}
+
 // deepEqual compares two values, handling special cases like NaN and *big.Int
 func deepEqual(a, b any) bool {
 	// Handle NaN
@@ -89,6 +104,14 @@ func deepEqual(a, b any) bool {
 		if bi, ok := b.(*big.Int); ok {
 			return ai.Cmp(bi) == 0
 		}
+	}
+
+	// Handle Tagged: equal tags and equal payloads
+	if at, ok := a.(Tagged); ok {
+		if bt, ok := b.(Tagged); ok {
+			return at.Tag == bt.Tag && deepEqual(at.Payload, bt.Payload)
+		}
+		return false
 	}
 
 	// Handle []byte
@@ -138,4 +161,29 @@ func deepEqual(a, b any) bool {
 	}
 
 	return reflect.DeepEqual(a, b)
+}
+
+func TestInlineNestingLimit(t *testing.T) {
+	for _, c := range []struct{ open, close string }{{"[", "]"}, {"{a: ", "}"}, {"[{a: ", "}]"}} {
+		n := 256 / (strings.Count(c.open, "[") + strings.Count(c.open, "{"))
+		src := "x: " + strings.Repeat(c.open, n) + "1" + strings.Repeat(c.close, n) + "\n"
+		if _, err := Unmarshal([]byte(src)); err != nil {
+			t.Errorf("%d levels of %q: %v", n, c.open, err)
+		}
+	}
+	for _, c := range []struct {
+		open, close string
+		n           int
+		want        string
+	}{
+		{"[", "]", 100000, "Inline nesting deeper than 256 levels at 1:260 of <deep.yay>"},
+		{"{a: ", "}", 100000, "Inline nesting deeper than 256 levels at 1:1028 of <deep.yay>"},
+		{"[{a: ", "}]", 129, "Inline nesting deeper than 256 levels at 1:644 of <deep.yay>"},
+	} {
+		src := "x: " + strings.Repeat(c.open, c.n) + "1" + strings.Repeat(c.close, c.n) + "\n"
+		_, err := UnmarshalFile([]byte(src), "deep.yay")
+		if err == nil || err.Error() != c.want {
+			t.Errorf("%d levels of %q: got %v, want %q", c.n, c.open, err, c.want)
+		}
+	}
 }

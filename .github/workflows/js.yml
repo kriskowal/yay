@@ -5,12 +5,14 @@ on:
     branches: [main]
     paths:
       - 'js/**'
+      - 'rust/**'
       - 'test/**'
       - '.github/workflows/js.yml'
   pull_request:
     branches: [main]
     paths:
       - 'js/**'
+      - 'rust/**'
       - 'test/**'
       - '.github/workflows/js.yml'
 
@@ -32,5 +34,17 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build binyay
+        working-directory: rust
+        run: cargo build --release -p binyay
+
+      - name: Install the dev dependencies
+        run: npm ci
+
       - name: Run tests
-        run: node --test yay.test.js
+        env:
+          YAY_BIN: ${{ github.workspace }}/rust/target/release/yay
+        run: node --test yay.test.js tagged.test.js smallcaps.test.js references.test.js capdata.test.js codec.test.js

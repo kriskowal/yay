@@ -101,7 +101,17 @@ Two flags read file contents into values:
 ```
 -b image.png        → <...bytes of image.png...>
 -s message.txt      → "...contents of message.txt..."
+-s -                → "...contents of stdin..."
 ```
+
+The path `-` reads stdin: `-s -` as a UTF-8 string, `-b -` as raw bytes.
+Stdin can be read only once, so a command line that names `-` after `-s` or
+`-b` more than once, or that also reads stdin as its input (`yay - -s -`), is
+refused before anything is read. A file named `-` is reached as `./-`.
+
+Reading stdin, rather than a path such as `/dev/fd/63` from a shell's
+process substitution `<(…)`, also works where a launcher does not pass the
+shell's extra file descriptors on to `yay`, as `npx` on macOS does not.
 
 ## Arrays
 
@@ -145,6 +155,33 @@ Nested objects and arrays:
 → {servers: ["localhost:8080", "localhost:8081"], options: {verbose: true}}
 ```
 
+## Tagged Values
+
+The `-T` flag takes the next token as a tag and the value after it as the
+tag's payload. A payload that is an array or object is a bracket group.
+Nothing is fused onto a token: `10s` is the string `"10s"`.
+
+```
+-T s 10                  → 10 (s)
+-T rgb [ 255 136 0 ]     → [255, 136, 0] (rgb)
+-T utc -T datetime 2026  → 2026 (datetime) (utc)
+```
+
+## References
+
+The `-r` flag takes the next token as a reference, a URI or IRI. The token
+must have a scheme (a letter, then letters, digits, `+`, `-` or `.`, then a
+colon), and holds to the rules of YAY's angle brackets: no spaces, no `<`,
+`>`, `"`, `{`, `}`, `|`, `\`, `^` or backtick, and `%` before two hex
+digits. An uppercase scheme is lowercased, as `-x` takes uppercase hex. A
+bare token is never a reference.
+
+```
+-r https://example.com/cat.png     → <https://example.com/cat.png>
+-T image/png -r https://x          → <https://x> (image/png)
+-r ./cat.png                       → error: no scheme
+```
+
 ## Reserved Flags
 
 All reserved flags are single characters:
@@ -160,6 +197,8 @@ All reserved flags are single characters:
 | `-x` | next token as hex  |
 | `-b` | next token as file → bytes  |
 | `-s` | next token as file → string |
+| `-T` | next token as a tag, the value after it as its payload |
+| `-r` | next token as a reference (a URI with a scheme) |
 
 Everything else (inside `[ ]`):
 
@@ -172,7 +211,7 @@ Everything else (inside `[ ]`):
 ## Grammar
 
 ```
-value       = null | bool | float-special | bytes | file
+value       = null | bool | float-special | bytes | file | tagged | reference
             | number | escaped-string | array | object | string
 
 null        = '-n'
@@ -182,6 +221,8 @@ bytes       = '-x' token                                (hex is case-insensitive
 file-bytes  = '-b' token
 file-string = '-s' token
 escaped-string = '--' token
+tagged      = '-T' token value                          (the token is the tag)
+reference   = '-r' token                                (a scheme required)
 
 number      = integer | float
 integer     = /^-?[0-9]+$/
@@ -271,9 +312,9 @@ $ yay -t yson [ --name hello --values [ 1 2 3 ] ]
 {
   "name": "hello",
   "values": [
-    "#1",
-    "#2",
-    "#3"
+    "+1",
+    "+2",
+    "+3"
   ]
 }
 ```
@@ -314,6 +355,11 @@ $ yay -b icon.png -o icon.yay
 $ yay -s message.txt
 `
   ...contents of message.txt...
+```
+
+```bash
+$ echo hi | yay [ --content -s - ] -t md
+hi
 ```
 
 ### String escaping inside brackets

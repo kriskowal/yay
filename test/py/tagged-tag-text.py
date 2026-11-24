@@ -1,0 +1,1 @@
+{"a": Tagged("com.example.sku", 1), "b": Tagged("match:any", 2), "c": Tagged("image/png", 3), "d": Tagged("my tag", 4), "e": Tagged("a#b", 5), "f": Tagged("a  # b", 6), "g": Tagged("it's", 7), "h": Tagged("a(b", 8), "i": Tagged("\"q\"", 9), "j": Tagged("a, b] }", 10)}

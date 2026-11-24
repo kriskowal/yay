@@ -24,6 +24,7 @@
       "patterns": [
         { "include": "#block-string-open" },
         { "include": "#block-bytes-open" },
+        { "include": "#reference" },
         { "include": "#inline-bytes" },
         { "include": "#inline-array" },
         { "include": "#inline-object" },
@@ -33,7 +34,27 @@
         { "include": "#boolean" },
         { "include": "#float" },
         { "include": "#integer" },
+        { "include": "#tag" },
         { "include": "#comment" }
+      ]
+    },
+
+    "tag": {
+      "comment": "A tag: (name), before a block or after a value; \\) and \\\\ are its escapes",
+      "begin": "\\(",
+      "end": "\\)",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.tag.begin.yay" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.tag.end.yay" }
+      },
+      "name": "entity.name.type.tag.yay",
+      "patterns": [
+        {
+          "match": "\\\\[\\\\)]",
+          "name": "constant.character.escape.yay"
+        }
       ]
     },
 
@@ -184,6 +205,17 @@
     "hex-data": {
       "match": "[0-9a-f][0-9a-f ]*[0-9a-f]|[0-9a-f]{2}",
       "name": "constant.numeric.hex.yay"
+    },
+
+    "reference": {
+      "comment": "A reference: <scheme:...>, its text to the next >; a # inside is not a comment",
+      "match": "(<)([a-z][a-z0-9+.-]*:[^>\\s]*)(>)",
+      "name": "string.other.link.reference.yay",
+      "captures": {
+        "1": { "name": "punctuation.definition.reference.begin.yay" },
+        "2": { "name": "markup.underline.link.yay" },
+        "3": { "name": "punctuation.definition.reference.end.yay" }
+      }
     },
 
     "inline-bytes": {

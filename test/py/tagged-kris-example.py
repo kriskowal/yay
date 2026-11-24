@@ -1,0 +1,1 @@
+{"color": Tagged("rgba", bytes.fromhex("ff8800ff")), "count": Tagged("s", 10), "odd": Tagged("a)b", 3), "sku": Tagged("com.example/sku", "X-1"), "when": Tagged("utc", Tagged("datetime", "2026-11-03T05:00:00Z"))}

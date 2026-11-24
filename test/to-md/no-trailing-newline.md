@@ -1,5 +1,4 @@
 ---
+content: "The last line has no newline."
 title: "Unterminated"
 ---
-
-The last line has no newline.

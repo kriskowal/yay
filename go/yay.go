@@ -25,6 +25,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // ============================================================================
@@ -42,6 +44,8 @@ import (
 //   - array -> []any
 //   - object -> map[string]any
 //   - bytes -> []byte
+//   - tagged value -> Tagged
+//   - reference -> Reference
 func Unmarshal(data []byte) (any, error) {
 	return unmarshal(data, "")
 }
@@ -64,6 +68,33 @@ func Marshal(v any) ([]byte, error) {
 // parseContext carries filename for error reporting through the parse phases.
 type parseContext struct {
 	filename string
+	depth    int // inline arrays and objects enclosing the one being read
+}
+
+// maxInlineDepth is the deepest inline arrays and objects may nest, one in
+// another, counted together. Deeper nesting is refused rather than
+// recursing without bound.
+const maxInlineDepth = 256
+
+// enterInline counts one more level of inline nesting at the bracket at
+// lineNum and col, refusing more than maxInlineDepth levels. Each success
+// is paired with leaveInline.
+func (ctx *parseContext) enterInline(lineNum, col int) error {
+	if ctx == nil {
+		return nil
+	}
+	if ctx.depth >= maxInlineDepth {
+		return fmt.Errorf("Inline nesting deeper than %d levels%s", maxInlineDepth, locSuffix(ctx, lineNum, col))
+	}
+	ctx.depth++
+	return nil
+}
+
+// leaveInline counts off a level enterInline counted.
+func (ctx *parseContext) leaveInline() {
+	if ctx != nil {
+		ctx.depth--
+	}
 }
 
 // scanLine represents a single line after the scanning phase.
@@ -101,6 +132,21 @@ type token struct {
 // locSuffix formats a location suffix for error messages.
 // Returns empty string if no filename is set.
 // Uses 1-based line and column numbers for human-readable output.
+// seenKeys records where each key of an object first appears, as a
+// zero-based line and column. Each key keeps its first position, not only its
+// name, so that the error can say where the first one is.
+type seenKeys map[string][2]int
+
+// claim records where a key first appears in an object, and refuses it the
+// second time.
+func (seen seenKeys) claim(key string, ctx *parseContext, lineNum, col int) error {
+	if first, ok := seen[key]; ok {
+		return fmt.Errorf("Duplicate key \"%s\" (first at %d:%d)%s", key, first[0]+1, first[1]+1, locSuffix(ctx, lineNum, col))
+	}
+	seen[key] = [2]int{lineNum, col}
+	return nil
+}
+
 func locSuffix(ctx *parseContext, line, col int) string {
 	if ctx == nil || ctx.filename == "" {
 		return ""
@@ -234,7 +280,7 @@ func scanLines(source string, ctx *parseContext) ([]scanLine, error) {
 
 		if isBareBlockOpener(content) {
 			blockOpener = indent
-		} else if strings.HasSuffix(content, ": `") {
+		} else if strings.HasSuffix(content, ": `") || isTaggedPropertyOpener(content) {
 			blockOpener = indent + len(leader)
 		}
 
@@ -250,9 +296,32 @@ func scanLines(source string, ctx *parseContext) ([]scanLine, error) {
 }
 
 // isBareBlockOpener reports whether a line's content (after any list leader)
-// is a bare "`" or "` text" block string opener.
+// is a bare "`" or "` text" block string opener, tags before it or not.
 func isBareBlockOpener(content string) bool {
-	return content == "`" || strings.HasPrefix(content, "` ")
+	bare := func(s string) bool { return s == "`" || strings.HasPrefix(s, "` ") }
+	rest, ok := afterPrefix(content)
+	return bare(content) || ok && bare(rest)
+}
+
+// isTaggedPropertyOpener reports whether a line is a property whose tags
+// introduce a block string, as in "key: (tag) `".
+func isTaggedPropertyOpener(content string) bool {
+	colon := findColonOutsideQuotes(content)
+	if colon < 0 || !strings.HasPrefix(content[colon+1:], " (") {
+		return false
+	}
+	rest, ok := afterPrefix(content[colon+2:])
+	return ok && rest == "`"
+}
+
+// afterPrefix returns what follows a line's prefix of tags, and whether it
+// has one.
+func afterPrefix(s string) (string, bool) {
+	if !strings.HasPrefix(s, "(") {
+		return "", false
+	}
+	_, rest, err := parsePrefix(s, &parseContext{}, 0, 0)
+	return rest, err == nil
 }
 
 // countIndent returns the number of leading spaces in a line.
@@ -379,7 +448,7 @@ func emitContent(tokens []token, sl scanLine) []token {
 			text:    sl.line,
 			indent:  sl.indent,
 			lineNum: sl.lineNum,
-			col:     sl.indent,
+			col:     sl.indent + len(sl.leader), // after the list leader, if any
 		})
 	}
 
@@ -414,6 +483,29 @@ func emitFinalStops(tokens []token, stack []int) []token {
 // parseRoot is the entry point for parsing a YAY document.
 func parseRoot(tokens []token, ctx *parseContext) (any, error) {
 	i := skipBreaksAndStops(tokens, 0)
+
+	// A tagged root block: the tags alone on the first line, the block below
+	// at column 0
+	if i < len(tokens) && tokens[i].typ == tokenText && strings.HasPrefix(tokens[i].text, "(") {
+		t := tokens[i]
+		tags, rest, err := parsePrefix(t.text, ctx, t.lineNum, t.col)
+		if err != nil {
+			return nil, err
+		}
+		if rest != "" {
+			return nil, prefixWithoutBlock(ctx, t.lineNum, t.col)
+		}
+		j := skipBreaksAndStops(tokens, i+1)
+		if j >= len(tokens) {
+			return nil, prefixWithoutBlock(ctx, t.lineNum, t.col)
+		}
+		value, err := parseRoot(tokens[j:], ctx)
+		if err != nil {
+			return nil, err
+		}
+		return wrapPrefix(value, tags), nil
+	}
+
 	if i >= len(tokens) {
 		return nil, fmt.Errorf("No value found in document <%s>", ctx.filename)
 	}
@@ -426,8 +518,11 @@ func parseRoot(tokens []token, ctx *parseContext) (any, error) {
 	}
 
 	// Detect root object (key: value at indent 0)
-	// But not inline objects starting with {
-	if t.typ == tokenText && strings.Contains(t.text, ":") && t.indent == 0 && !strings.HasPrefix(t.text, "{") {
+	// But not inline objects or arrays, starting with { or [
+	masked, _ := maskTags(t.text)
+	if t.typ == tokenText && strings.Contains(masked, ":") && t.indent == 0 && !strings.HasPrefix(t.text, "{") &&
+		!strings.HasPrefix(t.text, "[") &&
+		!(strings.Contains(t.text, "(") && findColonOutsideQuotes(t.text) < 0) {
 		value, next, err := parseRootObject(tokens, i, ctx)
 		if err != nil {
 			return nil, err
@@ -510,65 +605,48 @@ func parseTextValue(tokens []token, i int, ctx *parseContext) (any, int, error) 
 	t := tokens[i]
 	s := t.text
 
-	// Try keywords
-	if v, ok := parseKeyword(s); ok {
-		return v, i + 1, nil
-	}
-
-	// Try numbers (with strict whitespace validation)
-	if num, ok, err := parseNumberStrict(s, ctx, t.lineNum, t.col); err != nil {
-		return nil, 0, err
-	} else if ok {
-		return num, i + 1, nil
-	}
-
-	// Try block string
+	// The block forms, which read the lines below
 	if isBlockStringStart(s) {
 		firstLine := extractBlockStringFirstLine(s)
 		// Use token's indent as base - block string content must be indented more
 		return parseBlockStringWithIndent(tokens, i, firstLine, false, t.indent)
 	}
-
-	// Try quoted string, unless it is a quoted key followed by a colon
-	if isQuotedString(s) && findColonOutsideQuotes(s) < 0 {
-		str, err := parseQuotedString(s, ctx, t.lineNum, t.col)
-		if err != nil {
-			return nil, 0, err
-		}
-		return str, i + 1, nil
-	}
-
-	// Try inline array
-	if strings.HasPrefix(s, "[") {
-		return parseInlineArrayValue(s, t, i, ctx)
-	}
-
-	// Try inline object
-	if strings.HasPrefix(s, "{") {
-		return parseInlineObjectValue(s, t, i, ctx)
-	}
-
-	// Try inline bytes
-	if strings.HasPrefix(s, "<") && strings.Contains(s, ">") {
-		bytes, err := parseAngleBytesStrict(s, ctx, t.lineNum, t.col)
-		if err != nil {
-			return nil, 0, err
-		}
-		return bytes, i + 1, nil
-	}
-
-	// Try block bytes (> introducer)
 	if strings.HasPrefix(s, ">") {
 		return parseBlockBytes(tokens, i, ctx)
 	}
 
-	// Try key:value pair
-	if colonIdx := findColonOutsideQuotes(s); colonIdx >= 0 {
-		return parseKeyValuePair(tokens, i, colonIdx, ctx)
+	// An inline array taken for a key
+	if strings.HasPrefix(s, "[") {
+		if end := findMatchingBracket(s); end >= 0 && strings.HasPrefix(s[end+1:], ":") {
+			return nil, 0, fmt.Errorf("Unexpected character \":\"%s", locSuffix(ctx, t.lineNum, t.col+end+1))
+		}
 	}
 
-	// Fall back to scalar
-	scalar, err := parseScalar(s, ctx, t.lineNum, t.col)
+	// Bytes before a colon are a key, which bytes never are: the colon is
+	// stray, as at the root
+	if colonIdx := findColonOutsideQuotes(s); strings.HasPrefix(s, "<") && colonIdx >= 0 &&
+		strings.HasSuffix(strings.TrimRight(s[:colonIdx], " "), ">") {
+		return nil, 0, fmt.Errorf("Unexpected character \":\"%s", locSuffix(ctx, t.lineNum, t.col+colonIdx))
+	}
+
+	bare, err := stripInlineComment(s, ctx, t.lineNum, t.col)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// A property on this line: "key: value" or "key:" over a block. An
+	// inline value with tags after it, an inline container, a reference and
+	// bytes never take a key here.
+	_, p := maskTags(bare)
+	tagged := p > 0 && findColonOutsideQuotes(bare[:p]) < 0
+	if !tagged && !strings.HasPrefix(bare, "[") && !strings.HasPrefix(bare, "{") && !strings.HasPrefix(bare, "<") {
+		if colonIdx := findColonOutsideQuotes(bare); colonIdx >= 0 {
+			return parseKeyValuePair(tokens, i, colonIdx, ctx)
+		}
+	}
+
+	// Every inline value reads as a property's does
+	scalar, err := parseScalar(bare, ctx, t.lineNum, t.col)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -721,22 +799,36 @@ func extractBlockStringFirstLine(s string) string {
 	return "" // Backtick alone on line
 }
 
-// isQuotedString checks if s is a quoted string (double or single).
-func isQuotedString(s string) bool {
-	return (strings.HasPrefix(s, "\"") && len(s) > 1) ||
-		(strings.HasPrefix(s, "'") && len(s) > 1)
-}
-
 // parseQuotedString parses a quoted string value.
 func parseQuotedString(s string, ctx *parseContext, lineNum, col int) (string, error) {
 	if strings.HasPrefix(s, "\"") {
 		return parseDoubleQuotedString(s, ctx, lineNum, col)
 	}
 	if strings.HasPrefix(s, "'") {
-		// Single-quoted strings are literal (no escapes)
-		return s[1 : len(s)-1], nil
+		return parseSingleQuotedString(s, ctx, lineNum, col)
 	}
 	return s, nil
+}
+
+// parseSingleQuotedString reads a single-quoted string, the whole of s. Its
+// only escapes are \' and \\; any other backslash is literal.
+func parseSingleQuotedString(s string, ctx *parseContext, lineNum, col int) (string, error) {
+	var out strings.Builder
+	for k := 1; k < len(s); k++ {
+		c := s[k]
+		if c == '\\' && k+1 < len(s) && (s[k+1] == '\'' || s[k+1] == '\\') {
+			k++
+			out.WriteByte(s[k])
+		} else if c == '\'' {
+			if k != len(s)-1 {
+				return "", fmt.Errorf("Unexpected character \"'\"%s", locSuffix(ctx, lineNum, col))
+			}
+			return out.String(), nil
+		} else {
+			out.WriteByte(c)
+		}
+	}
+	return "", fmt.Errorf("Unterminated string%s", locSuffix(ctx, lineNum, col+utf8.RuneCountInString(s)-1))
 }
 
 // parseDoubleQuotedString parses a JSON-style double-quoted string.
@@ -998,31 +1090,12 @@ func buildBlockStringResult(firstLine string, lines []string, inPropertyContext 
 // Inline Array Parsing
 // ============================================================================
 
-// parseInlineArrayValue parses an inline array from a text token.
-func parseInlineArrayValue(s string, t token, i int, ctx *parseContext) (any, int, error) {
-	if !strings.Contains(s, "]") {
-		return nil, 0, fmt.Errorf("Unexpected newline in inline array%s", locSuffix(ctx, t.lineNum, t.col))
-	}
-	arr, err := parseInlineArrayStrict(s, ctx, t.lineNum, t.col)
-	if err != nil {
-		return nil, 0, err
-	}
-	return arr, i + 1, nil
-}
-
-func parseInlineObjectValue(s string, t token, i int, ctx *parseContext) (any, int, error) {
-	if !strings.Contains(s, "}") {
-		return nil, 0, fmt.Errorf("Unexpected newline in inline object%s", locSuffix(ctx, t.lineNum, t.col))
-	}
-	obj, err := parseInlineObjectStrict(s, ctx, t.lineNum, t.col)
-	if err != nil {
-		return nil, 0, err
-	}
-	return obj, i + 1, nil
-}
-
 // parseInlineArrayStrict parses an inline array with strict whitespace validation.
 func parseInlineArrayStrict(s string, ctx *parseContext, lineNum, col int) ([]any, error) {
+	if err := ctx.enterInline(lineNum, col); err != nil {
+		return nil, err
+	}
+	defer ctx.leaveInline()
 	s = strings.TrimSpace(s)
 	if !strings.HasPrefix(s, "[") {
 		return nil, fmt.Errorf("Expected array%s", locSuffix(ctx, lineNum, col))
@@ -1049,7 +1122,7 @@ func parseInlineArrayStrict(s string, ctx *parseContext, lineNum, col int) ([]an
 	offset := 1 // Start after '['
 
 	for len(remaining) > 0 {
-		remaining = strings.TrimLeft(remaining, " ")
+		remaining, offset = skipSpaces(remaining, offset)
 
 		value, consumed, err := parseInlineValueStrict(remaining, ctx, lineNum, col+offset)
 		if err != nil {
@@ -1059,7 +1132,7 @@ func parseInlineArrayStrict(s string, ctx *parseContext, lineNum, col int) ([]an
 		result = append(result, value)
 		remaining = remaining[consumed:]
 		offset += consumed
-		remaining = strings.TrimLeft(remaining, " ")
+		remaining, offset = skipSpaces(remaining, offset)
 
 		// Skip comma
 		if strings.HasPrefix(remaining, ",") {
@@ -1071,6 +1144,13 @@ func parseInlineArrayStrict(s string, ctx *parseContext, lineNum, col int) ([]an
 	return result, nil
 }
 
+// skipSpaces drops the spaces that lead s and adds their count to offset,
+// so that offset stays the column of the rest of s.
+func skipSpaces(s string, offset int) (string, int) {
+	t := strings.TrimLeft(s, " ")
+	return t, offset + len(s) - len(t)
+}
+
 // validateInlineSyntax validates whitespace in inline arrays/objects.
 // Checks for:
 // - No tabs anywhere
@@ -1079,7 +1159,8 @@ func parseInlineArrayStrict(s string, ctx *parseContext, lineNum, col int) ([]an
 // - No space before comma
 // - Exactly one space after comma (unless followed by closing bracket/brace)
 func validateInlineSyntax(s string, ctx *parseContext, lineNum, col int, openChar, closeChar rune) error {
-	runes := []rune(s)
+	masked, _ := maskTags(s)
+	runes := []rune(masked)
 
 	// Check boundary conditions first (like JS implementation)
 	if len(runes) >= 2 && runes[0] == openChar && runes[1] == ' ' {
@@ -1169,6 +1250,18 @@ func validateInlineSyntax(s string, ctx *parseContext, lineNum, col int, openCha
 
 // parseInlineValueStrict parses a single value with strict validation.
 func parseInlineValueStrict(s string, ctx *parseContext, lineNum, col int) (any, int, error) {
+	value, consumed, err := parseInlineAtomStrict(s, ctx, lineNum, col)
+	if err != nil {
+		return nil, 0, err
+	}
+	tags, n, err := parseSuffix(s[consumed:], ctx, lineNum, col+consumed)
+	if err != nil {
+		return nil, 0, err
+	}
+	return wrapTags(value, tags), consumed + n, nil
+}
+
+func parseInlineAtomStrict(s string, ctx *parseContext, lineNum, col int) (any, int, error) {
 	if strings.HasPrefix(s, "[") {
 		end := findMatchingBracket(s)
 		if end < 0 {
@@ -1185,6 +1278,14 @@ func parseInlineValueStrict(s string, ctx *parseContext, lineNum, col int) (any,
 		}
 		obj, err := parseInlineObjectStrict(s[:end+1], ctx, lineNum, col)
 		return obj, end + 1, err
+	}
+
+	if isReferenceStart(s) {
+		ref, n, err := parseReference(s, ctx, lineNum, col)
+		if err != nil {
+			return nil, 0, err
+		}
+		return ref, n, nil
 	}
 
 	if strings.HasPrefix(s, "<") {
@@ -1350,6 +1451,7 @@ func parseAngleBytesStrict(s string, ctx *parseContext, lineNum, col int) ([]byt
 
 // findMatchingBracket finds the index of the closing bracket.
 func findMatchingBracket(s string) int {
+	s, _ = maskTags(s)
 	depth := 0
 	inString := false
 	stringChar := rune(0)
@@ -1391,6 +1493,7 @@ func findMatchingBracket(s string) int {
 
 // findMatchingBrace finds the index of the closing brace for an inline object.
 func findMatchingBrace(s string) int {
+	s, _ = maskTags(s)
 	depth := 0
 	inString := false
 	stringChar := rune(0)
@@ -1432,6 +1535,10 @@ func findMatchingBrace(s string) int {
 
 // parseInlineObjectStrict parses an inline object with strict whitespace validation.
 func parseInlineObjectStrict(s string, ctx *parseContext, lineNum, col int) (map[string]any, error) {
+	if err := ctx.enterInline(lineNum, col); err != nil {
+		return nil, err
+	}
+	defer ctx.leaveInline()
 	s = strings.TrimSpace(s)
 	if !strings.HasPrefix(s, "{") {
 		return nil, fmt.Errorf("Expected object%s", locSuffix(ctx, lineNum, col))
@@ -1459,28 +1566,33 @@ func parseInlineObjectStrict(s string, ctx *parseContext, lineNum, col int) (map
 	}
 
 	result := make(map[string]any)
+	seen := seenKeys{}
 	remaining := inner
 	offset := 1 // Start after '{'
 
 	for len(remaining) > 0 {
-		remaining = strings.TrimLeft(remaining, " ")
+		remaining, offset = skipSpaces(remaining, offset)
 
 		// Parse key
-		key, keyLen, err := parseInlineKeyStrict(remaining, ctx, lineNum, col+offset, col)
+		keyCol := col + offset
+		key, keyLen, err := parseInlineKeyStrict(remaining, ctx, lineNum, keyCol, col)
 		if err != nil {
 			return nil, err
 		}
 		remaining = remaining[keyLen:]
 		offset += keyLen
-		remaining = strings.TrimLeft(remaining, " ")
+		remaining, offset = skipSpaces(remaining, offset)
 
 		// Expect colon
 		if !strings.HasPrefix(remaining, ":") {
 			return nil, fmt.Errorf("Expected colon after key%s", locSuffix(ctx, lineNum, col))
 		}
+		if err := seen.claim(key, ctx, lineNum, keyCol); err != nil {
+			return nil, err
+		}
 		remaining = remaining[1:]
 		offset++
-		remaining = strings.TrimLeft(remaining, " ")
+		remaining, offset = skipSpaces(remaining, offset)
 
 		// Parse value
 		value, consumed, err := parseInlineValueStrict(remaining, ctx, lineNum, col+offset)
@@ -1491,7 +1603,7 @@ func parseInlineObjectStrict(s string, ctx *parseContext, lineNum, col int) (map
 		result[key] = value
 		remaining = remaining[consumed:]
 		offset += consumed
-		remaining = strings.TrimLeft(remaining, " ")
+		remaining, offset = skipSpaces(remaining, offset)
 
 		// Skip comma
 		if strings.HasPrefix(remaining, ",") {
@@ -1505,6 +1617,7 @@ func parseInlineObjectStrict(s string, ctx *parseContext, lineNum, col int) (map
 
 // validateColonWhitespace checks for invalid whitespace around colons in inline objects.
 func validateColonWhitespace(s string, ctx *parseContext, lineNum, col int) error {
+	s, _ = maskTags(s)
 	runes := []rune(s)
 	inSingle := false
 	inDouble := false
@@ -1701,6 +1814,15 @@ func parseAngleBytes(s string, ctx *parseContext, lineNum, col int) ([]byte, err
 		return nil, fmt.Errorf("Unmatched angle bracket%s", locSuffix(ctx, lineNum, col))
 	}
 
+	// Check for space after <
+	if s[1] == ' ' {
+		return nil, fmt.Errorf("Unexpected space after \"<\"%s", locSuffix(ctx, lineNum, col+1))
+	}
+	// Check for space before >
+	if s[len(s)-2] == ' ' {
+		return nil, fmt.Errorf("Unexpected space before \">\"%s", locSuffix(ctx, lineNum, col+len(s)-2))
+	}
+
 	inner := s[1 : len(s)-1]
 
 	// Check for uppercase hex digits before lowercasing
@@ -1742,18 +1864,23 @@ func parseBlockBytes(tokens []token, i int, ctx *parseContext) ([]byte, int, err
 	if strings.HasPrefix(first.text, "> ") {
 		hexPart = first.text[2:]
 	}
-	hexPart = stripComment(hexPart)
-	hexPart = strings.ReplaceAll(hexPart, " ", "")
+	hexCol := first.col + len(first.text) - len(hexPart)
+	hexPart, err := blockHexLine(hexPart, ctx, first.lineNum, hexCol)
+	if err != nil {
+		return nil, 0, err
+	}
 
 	var hexStr strings.Builder
-	hexStr.WriteString(strings.ToLower(hexPart))
+	hexStr.WriteString(hexPart)
 	i++
 
 	// Collect continuation lines
 	for i < len(tokens) && tokens[i].typ == tokenText && tokens[i].indent > baseIndent {
-		line := stripComment(tokens[i].text)
-		line = strings.ReplaceAll(line, " ", "")
-		hexStr.WriteString(strings.ToLower(line))
+		line, err := blockHexLine(tokens[i].text, ctx, tokens[i].lineNum, tokens[i].col)
+		if err != nil {
+			return nil, 0, err
+		}
+		hexStr.WriteString(line)
 		i++
 	}
 
@@ -1792,9 +1919,11 @@ func parseBlockBytesFromKeyLine(tokens []token, i int, ctx *parseContext, keyInd
 
 	var hexStr strings.Builder
 	for i < len(tokens) && tokens[i].typ == tokenText && tokens[i].indent > keyIndent {
-		line := stripComment(tokens[i].text)
-		line = strings.ReplaceAll(line, " ", "")
-		hexStr.WriteString(strings.ToLower(line))
+		line, err := blockHexLine(tokens[i].text, ctx, tokens[i].lineNum, tokens[i].col)
+		if err != nil {
+			return nil, 0, err
+		}
+		hexStr.WriteString(line)
 		i++
 	}
 
@@ -1810,8 +1939,59 @@ func parseBlockBytesFromKeyLine(tokens []token, i int, ctx *parseContext, keyInd
 	return result, i, nil
 }
 
+// stripInlineComment strips an inline comment from a value. A comment after
+// a value takes two spaces before its "#"; one space is refused.
+func stripInlineComment(s string, ctx *parseContext, lineNum, col int) (string, error) {
+	stripped := stripComment(s)
+	if len(stripped) < len(s) {
+		hash := len(stripped) + strings.IndexByte(s[len(stripped):], '#')
+		if err := checkCommentSpacing(s, hash, ctx, lineNum, col); err != nil {
+			return "", err
+		}
+	}
+	return stripped, nil
+}
+
+// checkCommentSpacing refuses a comment, at byte hash of s, that has one
+// space before it rather than two.
+func checkCommentSpacing(s string, hash int, ctx *parseContext, lineNum, col int) error {
+	if hash >= 1 && s[hash-1] == ' ' && (hash < 2 || s[hash-2] != ' ') {
+		return fmt.Errorf("Expected two spaces before a comment%s", locSuffix(ctx, lineNum, col+utf8.RuneCountInString(s[:hash])))
+	}
+	return nil
+}
+
+// blockHexLine reads one line of block bytes: hex, then an optional comment
+// after two spaces, or a comment alone. It returns the hex without its
+// spaces, refusing uppercase digits.
+func blockHexLine(text string, ctx *parseContext, lineNum, col int) (string, error) {
+	if strings.HasPrefix(text, "#") {
+		return "", nil
+	}
+	body := text
+	if hash := strings.IndexByte(text, '#'); hash >= 0 {
+		if err := checkCommentSpacing(text, hash, ctx, lineNum, col); err != nil {
+			return "", err
+		}
+		if strings.HasSuffix(text[:hash], " ") {
+			body = strings.TrimRight(text[:hash], " ")
+		}
+	}
+	for j, c := range body {
+		if isUppercaseHex(c) {
+			return "", fmt.Errorf("Uppercase hex digit (use lowercase)%s", locSuffix(ctx, lineNum, col+j))
+		}
+	}
+	return strings.ReplaceAll(body, " ", ""), nil
+}
+
 // stripComment removes a # comment from a line (not inside quotes).
 func stripComment(line string) string {
+	masked, _ := maskTags(line)
+	return line[:len(stripCommentRaw(masked))]
+}
+
+func stripCommentRaw(line string) string {
 	inDouble := false
 	inSingle := false
 	escape := false
@@ -1879,6 +2059,36 @@ func parseMultilineArray(tokens []token, i int, ctx *parseContext, minIndent int
 // parseArrayItem parses a single array item.
 func parseArrayItem(tokens []token, i, listIndent int, ctx *parseContext) (any, int, error) {
 	next := tokens[i]
+
+	// A tagged block: the item's content follows the tags
+	if next.typ == tokenText && strings.HasPrefix(next.text, "(") {
+		tags, rest, err := parsePrefix(next.text, ctx, next.lineNum, next.col)
+		if err != nil {
+			return nil, 0, err
+		}
+		if rest == "" {
+			j := skipBreaks(tokens, i+1)
+			if j >= len(tokens) || tokens[j].typ == tokenStop || tokens[j].indent <= listIndent {
+				return nil, 0, prefixWithoutBlock(ctx, next.lineNum, next.col)
+			}
+			value, k, err := parseArrayItem(tokens, j, listIndent, ctx)
+			if err != nil {
+				return nil, 0, err
+			}
+			return wrapPrefix(value, tags), k, nil
+		}
+		if !prefixTakes(rest) {
+			return nil, 0, prefixWithoutBlock(ctx, next.lineNum, next.col)
+		}
+		retokened := append([]token(nil), tokens...)
+		retokened[i].col += len(next.text) - len(rest)
+		retokened[i].text = rest
+		value, k, err := parseArrayItem(retokened, i, listIndent, ctx)
+		if err != nil {
+			return nil, 0, err
+		}
+		return wrapPrefix(value, tags), k, nil
+	}
 
 	// Nested array: empty text followed by list start
 	if next.typ == tokenText && next.text == "" && i+1 < len(tokens) &&
@@ -1957,7 +2167,10 @@ func parseArrayItemValue(tokens []token, i, listIndent int, ctx *parseContext) (
 
 	// If value is an object, check for additional properties at the same level
 	if obj, isObj := value.(map[string]any); isObj {
-		j = mergeAdditionalObjectProperties(tokens, j, listIndent, obj, ctx)
+		j, err = mergeAdditionalObjectProperties(tokens, i, j, listIndent, obj, ctx)
+		if err != nil {
+			return nil, 0, err
+		}
 		value = obj
 	}
 
@@ -1975,7 +2188,13 @@ func parseArrayItemValue(tokens []token, i, listIndent int, ctx *parseContext) (
 
 // mergeAdditionalObjectProperties merges additional properties into an object.
 // Properties at indent > listIndent are part of the same array item object.
-func mergeAdditionalObjectProperties(tokens []token, j, listIndent int, obj map[string]any, ctx *parseContext) int {
+// A key that the object already has is refused.
+func mergeAdditionalObjectProperties(tokens []token, i, j, listIndent int, obj map[string]any, ctx *parseContext) (int, error) {
+	// The object so far was read from the item's first line
+	seen := seenKeys{}
+	for k := range obj {
+		seen[k] = [2]int{tokens[i].lineNum, tokens[i].col}
+	}
 	for j < len(tokens) {
 		j = skipBreaks(tokens, j)
 		if j >= len(tokens) {
@@ -1990,6 +2209,9 @@ func mergeAdditionalObjectProperties(tokens []token, j, listIndent int, obj map[
 			}
 			if propObj, ok := propVal.(map[string]any); ok {
 				for k, v := range propObj {
+					if err := seen.claim(k, ctx, t.lineNum, t.col); err != nil {
+						return 0, err
+					}
 					obj[k] = v
 				}
 			}
@@ -1998,7 +2220,7 @@ func mergeAdditionalObjectProperties(tokens []token, j, listIndent int, obj map[
 			break
 		}
 	}
-	return j
+	return j, nil
 }
 
 // collectNestedListGroup collects nested list items into a group.
@@ -2049,6 +2271,9 @@ func parseKeyValuePair(tokens []token, i, colonIdx int, ctx *parseContext) (any,
 	t := tokens[i]
 	s := t.text
 
+	if err := checkColonSpaces(s, colonIdx, t, ctx); err != nil {
+		return nil, 0, err
+	}
 	keyRaw := strings.TrimSpace(s[:colonIdx])
 	key := parseKeyName(keyRaw)
 	valuePart := strings.TrimSpace(s[colonIdx+1:])
@@ -2064,6 +2289,45 @@ func parseKeyValuePair(tokens []token, i, colonIdx int, ctx *parseContext) (any,
 	// A missing key, nothing before the colon, is no key; the empty key "" is
 	// a key.
 
+	// A tagged block: read the line without its tags, then tag the value
+	if strings.HasPrefix(valuePart, "(") && keyRaw != "" {
+		tags, rest, err := parsePrefix(valuePart, ctx, t.lineNum, valueCol)
+		if err != nil {
+			return nil, 0, err
+		}
+		if !prefixTakes(rest) {
+			return nil, 0, prefixWithoutBlock(ctx, t.lineNum, valueCol)
+		}
+		// The block must be indented under the key, or be a list at its
+		// column: a sibling item or property after `- a: (t)` is not its block
+		if rest == "" {
+			j := skipBreaksAndStops(tokens, i+1)
+			keyCol := keyColumn(tokens, i)
+			if j >= len(tokens) || tokens[j].indent < keyCol ||
+				(tokens[j].indent == keyCol && tokens[j].typ != tokenStart) {
+				return nil, 0, prefixWithoutBlock(ctx, t.lineNum, valueCol)
+			}
+		}
+		retokened := append([]token(nil), tokens...)
+		if rest == "" {
+			retokened[i].text = s[:colonIdx] + ":"
+		} else {
+			retokened[i].text = s[:colonIdx] + ": " + rest
+		}
+		value, next, err := parseKeyValuePair(retokened, i, colonIdx, ctx)
+		if err != nil {
+			return nil, 0, err
+		}
+		if obj, ok := value.(map[string]any); ok {
+			payload := obj[key]
+			if payload == nil {
+				return nil, 0, prefixWithoutBlock(ctx, t.lineNum, valueCol)
+			}
+			obj[key] = wrapPrefix(payload, tags)
+		}
+		return value, next, nil
+	}
+
 	// Empty value part means nested content follows
 	if valuePart == "" && keyRaw != "" {
 		return parseObjectOrNamedArray(tokens, i, key, ctx)
@@ -2076,6 +2340,9 @@ func parseKeyValuePair(tokens []token, i, colonIdx int, ctx *parseContext) (any,
 			return nil, 0, err
 		}
 		return map[string]any{key: body}, j, nil
+	}
+	if keyRaw != "" && strings.HasPrefix(valuePart, "`") {
+		return nil, 0, fmt.Errorf("Expected newline after block leader in property")
 	}
 
 	// Block bytes
@@ -2121,7 +2388,24 @@ func isBlockBytesStart(valuePart string) bool {
 }
 
 // findColonOutsideQuotes finds the first colon not inside quotes.
+// checkColonSpaces refuses a space before a property's colon, or more than
+// one after it, as the root object does.
+func checkColonSpaces(s string, colonIdx int, t token, ctx *parseContext) error {
+	if colonIdx > 0 && s[colonIdx-1] == ' ' {
+		return fmt.Errorf("Unexpected space before \":\"%s", locSuffix(ctx, t.lineNum, t.col+colonIdx-1))
+	}
+	if strings.HasPrefix(s[colonIdx+1:], "  ") {
+		return fmt.Errorf("Unexpected space after \":\"%s", locSuffix(ctx, t.lineNum, t.col+colonIdx+2))
+	}
+	return nil
+}
+
 func findColonOutsideQuotes(s string) int {
+	masked, _ := maskTags(s)
+	return findColonOutsideQuotesRaw(masked)
+}
+
+func findColonOutsideQuotesRaw(s string) int {
 	inDouble := false
 	inSingle := false
 	escaped := false
@@ -2129,7 +2413,7 @@ func findColonOutsideQuotes(s string) int {
 	for i, c := range s {
 		if escaped {
 			escaped = false
-		} else if c == '\\' && inDouble {
+		} else if c == '\\' && (inDouble || inSingle) {
 			escaped = true
 		} else if c == '"' && !inSingle {
 			inDouble = !inDouble
@@ -2159,34 +2443,13 @@ func parseKeyName(s string) string {
 
 	// Single-quoted key
 	if strings.HasPrefix(s, "'") && strings.HasSuffix(s, "'") && len(s) >= 2 {
+		if key, err := parseSingleQuotedString(s, &parseContext{}, 0, 0); err == nil {
+			return key
+		}
 		return s[1 : len(s)-1]
 	}
 
 	return s
-}
-
-// isPropertyBlockLeaderOnly checks if a value part is just a block leader (backtick or >)
-// optionally followed by spaces and/or a comment.
-func isPropertyBlockLeaderOnly(valuePart string, leader rune) bool {
-	if len(valuePart) == 0 {
-		return false
-	}
-	if rune(valuePart[0]) != leader {
-		return false
-	}
-	if len(valuePart) == 1 {
-		return true
-	}
-	// Skip spaces after leader
-	i := 1
-	for i < len(valuePart) && valuePart[i] == ' ' {
-		i++
-	}
-	if i >= len(valuePart) {
-		return true
-	}
-	// Only a comment is allowed after spaces
-	return valuePart[i] == '#'
 }
 
 // validateUnquotedKey validates that an unquoted key contains only valid characters.
@@ -2198,6 +2461,11 @@ func validateUnquotedKey(s string, ctx *parseContext, lineNum, col int) error {
 	if (strings.HasPrefix(s, "\"") && strings.HasSuffix(s, "\"")) ||
 		(strings.HasPrefix(s, "'") && strings.HasSuffix(s, "'")) {
 		return nil
+	}
+
+	// A reference or bytes is a value, never a key: the colon is stray
+	if strings.HasPrefix(s, "<") && strings.HasSuffix(s, ">") {
+		return fmt.Errorf("Unexpected character \":\"%s", locSuffix(ctx, lineNum, col+len(s)))
 	}
 
 	// Unquoted key: validate each character
@@ -2219,6 +2487,9 @@ func validateUnquotedKey(s string, ctx *parseContext, lineNum, col int) error {
 
 // parseObjectOrNamedArray parses content after "key:" (no inline value).
 func parseObjectOrNamedArray(tokens []token, i int, key string, ctx *parseContext) (any, int, error) {
+	keyToken := tokens[i]
+	keyCol := keyColumn(tokens, i)
+	colonIdx := findColonOutsideQuotes(keyToken.text)
 	i++
 
 	// Skip to next content
@@ -2230,10 +2501,16 @@ func parseObjectOrNamedArray(tokens []token, i int, key string, ctx *parseContex
 	}
 
 	if i >= len(tokens) {
-		return map[string]any{key: nil}, i, nil
+		return nil, 0, fmt.Errorf("Expected value after property%s", locSuffix(ctx, keyToken.lineNum, keyToken.col+colonIdx+1))
 	}
 
 	first := tokens[i]
+
+	// A block array may stand at the key's column. Every other block value
+	// must be indented deeper, so a sibling item or property is no value.
+	if first.indent < keyCol || (first.indent == keyCol && first.typ != tokenStart) {
+		return nil, 0, fmt.Errorf("Expected value after property%s", locSuffix(ctx, keyToken.lineNum, keyToken.col+colonIdx+1))
+	}
 
 	// Named array - pass baseIndent as minIndent so array stops at object's level
 	if first.typ == tokenStart && first.text == "- " {
@@ -2265,12 +2542,13 @@ func parseObjectOrNamedArray(tokens []token, i int, key string, ctx *parseContex
 	if len(obj) > 0 {
 		return map[string]any{key: obj}, next, nil
 	}
-	return map[string]any{key: nil}, next, nil
+	return nil, 0, fmt.Errorf("Expected value after property%s", locSuffix(ctx, keyToken.lineNum, keyToken.col+colonIdx+1))
 }
 
 // parseNestedObjectContent parses the content of a nested object.
 func parseNestedObjectContent(tokens []token, i, baseIndent int, ctx *parseContext) (map[string]any, int, error) {
 	obj := make(map[string]any)
+	seen := seenKeys{}
 
 	for i < len(tokens) {
 		t := tokens[i]
@@ -2301,6 +2579,9 @@ func parseNestedObjectContent(tokens []token, i, baseIndent int, ctx *parseConte
 				break
 			}
 
+			if err := checkColonSpaces(t.text, colonIdx, t, ctx); err != nil {
+				return nil, 0, err
+			}
 			kRaw := strings.TrimSpace(t.text[:colonIdx])
 			k := parseKeyName(kRaw)
 			vPart := strings.TrimSpace(t.text[colonIdx+1:])
@@ -2308,6 +2589,9 @@ func parseNestedObjectContent(tokens []token, i, baseIndent int, ctx *parseConte
 			if kRaw == "" {
 				i++
 				continue
+			}
+			if err := seen.claim(k, ctx, t.lineNum, t.col); err != nil {
+				return nil, 0, err
 			}
 
 			value, nextI, err := parseObjectPropertyValue(tokens, i, t, k, vPart, baseIndent, ctx)
@@ -2326,18 +2610,41 @@ func parseNestedObjectContent(tokens []token, i, baseIndent int, ctx *parseConte
 
 // parseObjectPropertyValue parses the value of an object property.
 func parseObjectPropertyValue(tokens []token, i int, t token, key, vPart string, baseIndent int, ctx *parseContext) (any, int, error) {
+	// A tagged block
+	if strings.HasPrefix(vPart, "(") {
+		col := t.col + len(t.text) - len(vPart)
+		tags, rest, err := parsePrefix(vPart, ctx, t.lineNum, col)
+		if err != nil {
+			return nil, 0, err
+		}
+		if !prefixTakes(rest) {
+			return nil, 0, prefixWithoutBlock(ctx, t.lineNum, col)
+		}
+		value, next, err := parseObjectPropertyValue(tokens, i, t, key, rest, baseIndent, ctx)
+		if err != nil {
+			return nil, 0, err
+		}
+		if rest == "" && value == nil {
+			return nil, 0, prefixWithoutBlock(ctx, t.lineNum, col)
+		}
+		return wrapPrefix(value, tags), next, nil
+	}
+
 	// Empty object
 	if vPart == "{}" {
 		return map[string]any{}, i + 1, nil
 	}
 
 	// Block string in property context: backtick alone on line
-	if strings.TrimSpace(vPart) == "`" {
+	if vPart == "`" {
 		body, next, err := parseBlockStringWithIndent(tokens, i, "", true, keyColumn(tokens, i))
 		if err != nil {
 			return nil, 0, err
 		}
 		return body, next, nil
+	}
+	if strings.HasPrefix(vPart, "`") {
+		return nil, 0, fmt.Errorf("Expected newline after block leader in property")
 	}
 
 	// Block bytes in property context: > alone on line (or with comment)
@@ -2416,6 +2723,7 @@ func skipToNextKey(tokens []token, i, baseIndent int) int {
 // parseRootObject parses an object at the document root level.
 func parseRootObject(tokens []token, i int, ctx *parseContext) (any, int, error) {
 	obj := make(map[string]any)
+	seen := seenKeys{}
 
 	for i < len(tokens) {
 		t := tokens[i]
@@ -2425,9 +2733,14 @@ func parseRootObject(tokens []token, i int, ctx *parseContext) (any, int, error)
 			continue
 		}
 
-		if t.typ != tokenText || t.indent != 0 {
+		if t.typ != tokenText {
 			i++
 			continue
+		}
+
+		// Reject unexpected indented content at root level
+		if t.indent != 0 {
+			return nil, 0, fmt.Errorf("Unexpected indent%s", locSuffix(ctx, t.lineNum, 0))
 		}
 
 		colonIdx := findColonOutsideQuotes(t.text)
@@ -2467,6 +2780,9 @@ func parseRootObject(tokens []token, i int, ctx *parseContext) (any, int, error)
 		// Calculate column of value part (colon + 1 for space + 1 for 1-based)
 		vCol := t.col + colonIdx + 2
 
+		if err := seen.claim(k, ctx, t.lineNum, t.col); err != nil {
+			return nil, 0, err
+		}
 		value, nextI, err := parseRootObjectProperty(tokens, i, t, k, vPart, vCol, ctx)
 		if err != nil {
 			return nil, 0, err
@@ -2480,6 +2796,23 @@ func parseRootObject(tokens []token, i int, ctx *parseContext) (any, int, error)
 
 // parseRootObjectProperty parses a single property in a root object.
 func parseRootObjectProperty(tokens []token, i int, t token, key, vPart string, vCol int, ctx *parseContext) (any, int, error) {
+	// A tagged block
+	if strings.HasPrefix(vPart, "(") {
+		tags, rest, err := parsePrefix(vPart, ctx, t.lineNum, vCol)
+		if err != nil {
+			return nil, 0, err
+		}
+		if !prefixTakes(rest) {
+			return nil, 0, prefixWithoutBlock(ctx, t.lineNum, vCol)
+		}
+		restCol := vCol + len(vPart) - len(rest)
+		value, next, err := parseRootObjectProperty(tokens, i, t, key, rest, restCol, ctx)
+		if err != nil {
+			return nil, 0, err
+		}
+		return wrapPrefix(value, tags), next, nil
+	}
+
 	// Block bytes
 	if isBlockBytesStart(vPart) {
 		bytes, j, err := parseBlockBytesFromKeyLine(tokens, i, ctx, 0, vPart)
@@ -2496,8 +2829,8 @@ func parseRootObjectProperty(tokens []token, i int, t token, key, vPart string, 
 
 	// Block string
 	if strings.HasPrefix(vPart, "`") {
-		// In property context, backtick must be alone (or followed only by spaces/comment)
-		if !isPropertyBlockLeaderOnly(vPart, '`') {
+		// In property context, the backtick stands alone
+		if vPart != "`" {
 			return nil, 0, fmt.Errorf("Expected newline after block leader in property")
 		}
 		return parseRootBlockString(tokens, i+1)
@@ -2687,8 +3020,33 @@ func parseNestedInlineBullet(text string, ctx *parseContext, lineNum, col int) (
 // parseScalar parses a scalar value from a string.
 func parseScalar(s string, ctx *parseContext, lineNum, col int) (any, error) {
 	// Strip inline comments first
-	s = stripComment(s)
+	s, err := stripInlineComment(s, ctx, lineNum, col)
+	if err != nil {
+		return nil, err
+	}
 
+	if _, p := maskTags(s); p >= 0 {
+		if p == 0 {
+			return nil, prefixWithoutBlock(ctx, lineNum, col)
+		}
+		atomEnd := len(strings.TrimRight(s[:p], " "))
+		tags, n, err := parseSuffix(s[atomEnd:], ctx, lineNum, col+atomEnd)
+		if err != nil {
+			return nil, err
+		}
+		if atomEnd+n != len(s) {
+			return nil, fmt.Errorf("Unexpected character \"%c\"%s", s[atomEnd+n], locSuffix(ctx, lineNum, col+atomEnd+n))
+		}
+		value, err := parseScalarAtom(s[:atomEnd], ctx, lineNum, col)
+		if err != nil {
+			return nil, err
+		}
+		return wrapTags(value, tags), nil
+	}
+	return parseScalarAtom(s, ctx, lineNum, col)
+}
+
+func parseScalarAtom(s string, ctx *parseContext, lineNum, col int) (any, error) {
 	// Keywords
 	if v, ok := parseKeyword(s); ok {
 		return v, nil
@@ -2701,24 +3059,47 @@ func parseScalar(s string, ctx *parseContext, lineNum, col int) (any, error) {
 		return num, nil
 	}
 
-	// Double-quoted string
-	if strings.HasPrefix(s, "\"") && strings.HasSuffix(s, "\"") {
+	// Double-quoted string: closed early, with more after it, or never closed
+	if strings.HasPrefix(s, "\"") {
+		if len(s) < 2 || !strings.HasSuffix(s, "\"") {
+			k := 1
+			for k < len(s) && s[k] != '"' {
+				if s[k] == '\\' {
+					k++
+				}
+				k++
+			}
+			if k < len(s) {
+				return nil, fmt.Errorf("Unexpected character \"\"\"%s", locSuffix(ctx, lineNum, col))
+			}
+		}
 		return parseQuotedString(s, ctx, lineNum, col)
 	}
 
 	// Single-quoted string
-	if strings.HasPrefix(s, "'") && strings.HasSuffix(s, "'") {
-		return s[1 : len(s)-1], nil
+	if strings.HasPrefix(s, "'") {
+		return parseSingleQuotedString(s, ctx, lineNum, col)
 	}
 
-	// Inline array
+	// Inline array, closed on its line
 	if strings.HasPrefix(s, "[") {
+		if !strings.HasSuffix(s, "]") {
+			return nil, fmt.Errorf("Unexpected newline in inline array%s", locSuffix(ctx, lineNum, col))
+		}
 		return parseInlineArrayStrict(s, ctx, lineNum, col)
 	}
 
-	// Inline object
+	// Inline object, closed on its line
 	if strings.HasPrefix(s, "{") {
+		if !strings.Contains(s, "}") {
+			return nil, fmt.Errorf("Unexpected newline in inline object%s", locSuffix(ctx, lineNum, col))
+		}
 		return parseInlineObjectStrict(s, ctx, lineNum, col)
+	}
+
+	// A reference
+	if isReferenceStart(s) {
+		return parseWholeReference(s, ctx, lineNum, col)
 	}
 
 	// Inline bytes
@@ -2733,4 +3114,368 @@ func parseScalar(s string, ctx *parseContext, lineNum, col int) (any, error) {
 	}
 
 	return nil, fmt.Errorf("Unexpected empty value%s", locSuffix(ctx, lineNum, col))
+}
+
+// ============================================================================
+// Tagged Values
+// ============================================================================
+
+// Tagged is a tagged value: a payload with a tag, written "payload (tag)"
+// after an inline value or "(tag)" before a block. Two tagged values are
+// equal when their tags and payloads are; a tagged value never equals its
+// payload.
+type Tagged struct {
+	Tag     string
+	Payload any
+}
+
+// maskTags replaces the text inside each tag's parentheses and each
+// reference's angle brackets (outside quotes) with "x", byte for byte, so
+// that the scanners for quotes, brackets, colons and comments see no
+// punctuation a tag or reference holds. It also returns the offset
+// of the first "(" outside quotes, brackets and braces, or -1.
+func maskTags(s string) (string, int) {
+	out := []byte(s)
+	first := -1
+	var quote byte
+	depth := 0
+	for i := 0; i < len(s); i++ {
+		b := s[i]
+		if quote != 0 {
+			if b == '\\' {
+				i++
+			} else if b == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch b {
+		case '"', '\'':
+			quote = b
+		case '<':
+			// A reference's text is no syntax
+			if isReferenceStart(s[i:]) {
+				if end := strings.IndexByte(s[i:], '>'); end >= 0 {
+					for k := i + 1; k < i+end; k++ {
+						out[k] = 'x'
+					}
+					i += end
+				}
+			}
+		case '[', '{':
+			depth++
+		case ']', '}':
+			depth--
+		case '(':
+			if depth == 0 && first < 0 {
+				first = i
+			}
+			i++
+			for i < len(s) && s[i] != ')' {
+				n := 1
+				if s[i] == '\\' {
+					n = 2
+				}
+				for k := i; k < i+n && k < len(s); k++ {
+					out[k] = 'x'
+				}
+				i += n
+			}
+		}
+	}
+	// Only whole characters were replaced: a tag's or reference's text runs
+	// from one ASCII delimiter to another.
+	return string(out), first
+}
+
+// parseTag parses one tag at the start of s, which begins with "(". It
+// returns the tag and the number of bytes consumed, the closing ")"
+// included. A tag is escaped as a double-quoted string is, but with \) in
+// the place of \".
+func parseTag(s string, ctx *parseContext, lineNum, col int) (string, int, error) {
+	var out strings.Builder
+	i := 1
+	for i < len(s) {
+		c := s[i]
+		switch c {
+		case ')':
+			return out.String(), i + 1, nil
+		case '\t':
+			return "", 0, fmt.Errorf("Tab not allowed (use spaces)%s", locSuffix(ctx, lineNum, col+i))
+		case '\\':
+			if i+1 >= len(s) {
+				return "", 0, fmt.Errorf("Bad escaped character%s", locSuffix(ctx, lineNum, col+i+1))
+			}
+			switch e := s[i+1]; e {
+			case ')', '\\', '/':
+				out.WriteByte(e)
+			case 'b':
+				out.WriteByte('\b')
+			case 'f':
+				out.WriteByte('\f')
+			case 'n':
+				out.WriteByte('\n')
+			case 'r':
+				out.WriteByte('\r')
+			case 't':
+				out.WriteByte('\t')
+			case 'u':
+				badU := fmt.Errorf("Bad Unicode escape%s", locSuffix(ctx, lineNum, col+i+2))
+				if i+2 >= len(s) || s[i+2] != '{' {
+					return "", 0, fmt.Errorf("Bad escaped character%s", locSuffix(ctx, lineNum, col+i+1))
+				}
+				j := i + 3
+				for j < len(s) && s[j] != '}' {
+					if !isHexDigit(rune(s[j])) || j-(i+3) == 6 {
+						return "", 0, badU
+					}
+					j++
+				}
+				if j >= len(s) || j == i+3 {
+					return "", 0, badU
+				}
+				code, _ := strconv.ParseUint(s[i+3:j], 16, 32)
+				if code >= 0xD800 && code <= 0xDFFF {
+					return "", 0, fmt.Errorf("Illegal surrogate%s", locSuffix(ctx, lineNum, col+i+2))
+				}
+				if code > 0x10FFFF {
+					return "", 0, fmt.Errorf("Unicode code point out of range%s", locSuffix(ctx, lineNum, col+i+2))
+				}
+				out.WriteRune(rune(code))
+				i = j + 1
+				continue
+			default:
+				return "", 0, fmt.Errorf("Bad escaped character%s", locSuffix(ctx, lineNum, col+i+1))
+			}
+			i += 2
+			continue
+		default:
+			out.WriteByte(c)
+		}
+		i++
+	}
+	return "", 0, fmt.Errorf("Unterminated string%s", locSuffix(ctx, lineNum, col))
+}
+
+// parseSuffix parses a run of tags after a value: each one space, then a
+// tag. It returns the tags, innermost first, and the number of bytes
+// consumed. A tag fused to its value or after two spaces is refused.
+func parseSuffix(s string, ctx *parseContext, lineNum, col int) ([]string, int, error) {
+	var tags []string
+	pos := 0
+	for {
+		rest := s[pos:]
+		spaces := len(rest) - len(strings.TrimLeft(rest, " "))
+		if !strings.HasPrefix(rest[spaces:], "(") {
+			break
+		}
+		if spaces == 0 {
+			return nil, 0, fmt.Errorf("Expected one space before a tag%s", locSuffix(ctx, lineNum, col+pos))
+		}
+		if spaces != 1 {
+			return nil, 0, fmt.Errorf("Unexpected space before \"(\"%s", locSuffix(ctx, lineNum, col+pos))
+		}
+		tag, n, err := parseTag(rest[1:], ctx, lineNum, col+pos+1)
+		if err != nil {
+			return nil, 0, err
+		}
+		tags = append(tags, tag)
+		pos += 1 + n
+	}
+	return tags, pos, nil
+}
+
+// parsePrefix parses a run of tags before a block: tags separated by one
+// space. It returns the tags, outermost first, and what follows the last
+// one (after its space, or a comment, which is the empty string).
+func parsePrefix(s string, ctx *parseContext, lineNum, col int) ([]string, string, error) {
+	first, n, err := parseTag(s, ctx, lineNum, col)
+	if err != nil {
+		return nil, "", err
+	}
+	more, m, err := parseSuffix(s[n:], ctx, lineNum, col+n)
+	if err != nil {
+		return nil, "", err
+	}
+	tags := append([]string{first}, more...)
+	rest := s[n+m:]
+	if rest == "" || strings.HasPrefix(rest, "  #") {
+		return tags, "", nil
+	}
+	if strings.HasPrefix(rest, " ") && !strings.HasPrefix(rest, "  ") {
+		return tags, rest[1:], nil
+	}
+	return nil, "", fmt.Errorf("Unexpected space after \")\"%s", locSuffix(ctx, lineNum, col+n+m))
+}
+
+// wrapTags wraps a payload in tags, innermost first.
+func wrapTags(value any, tags []string) any {
+	for _, tag := range tags {
+		value = Tagged{Tag: tag, Payload: value}
+	}
+	return value
+}
+
+// wrapPrefix wraps a payload in a prefix's tags, outermost first.
+func wrapPrefix(value any, tags []string) any {
+	for k := len(tags) - 1; k >= 0; k-- {
+		value = Tagged{Tag: tags[k], Payload: value}
+	}
+	return value
+}
+
+// prefixTakes reports whether rest, what follows a prefix, is a block the
+// prefix may introduce on its own line.
+func prefixTakes(rest string) bool {
+	return rest == "" || strings.HasPrefix(rest, "`") || strings.HasPrefix(rest, ">")
+}
+
+// prefixWithoutBlock is the error for a prefix that introduces no block.
+func prefixWithoutBlock(ctx *parseContext, lineNum, col int) error {
+	return fmt.Errorf("A tag before a value needs a block below it; write the tag after an inline value%s", locSuffix(ctx, lineNum, col))
+}
+
+// ============================================================================
+// References
+// ============================================================================
+
+// Reference is a reference, written "<scheme:...>": a URI or IRI, held as
+// written. It designates, and is never dereferenced. Two references are
+// equal when their texts are, character for character; a reference never
+// equals a string.
+//
+// A Reference is made only by NewReference or MustReference, which refuse
+// text that is not a reference's by the parser's own rule, or by the
+// parser itself.
+type Reference struct {
+	uri string
+}
+
+// NewReference returns a reference to uri, or an error if uri is not a
+// reference's text: a lowercase scheme, a colon, URI or IRI characters and
+// well-formed percent-encodings, with nothing after.
+func NewReference(uri string) (Reference, error) {
+	if err := checkReferenceText(uri); err != nil {
+		return Reference{}, err
+	}
+	return Reference{uri}, nil
+}
+
+// MustReference is like NewReference but panics if uri is not a
+// reference's text. It is what yay -t go writes.
+func MustReference(uri string) Reference {
+	r, err := NewReference(uri)
+	if err != nil {
+		panic(err)
+	}
+	return r
+}
+
+// URI returns the reference's text.
+func (r Reference) URI() string {
+	return r.uri
+}
+
+// String returns the reference's text.
+func (r Reference) String() string {
+	return r.uri
+}
+
+// checkReferenceText refuses a string that is not a reference's text, by
+// the parser's own rule.
+func checkReferenceText(uri string) error {
+	why := "A reference needs a scheme"
+	text := "<" + uri + ">"
+	if isReferenceStart(text) {
+		_, n, err := parseReference(text, nil, 0, 0)
+		switch {
+		case err != nil:
+			why = err.Error()
+			if why == "Unmatched angle bracket" {
+				why = "Unexpected line break in reference"
+			}
+		case n != len(text):
+			why = `Unexpected character ">" in reference`
+		default:
+			return nil
+		}
+	}
+	return fmt.Errorf("Not a reference: %s (%s)", strconv.Quote(uri), why)
+}
+
+// schemeLen returns the length of the scheme, colon included, if s (the
+// text after "<") begins [A-Za-z][A-Za-z0-9+.-]*":", or 0. Uppercase
+// letters are matched so that the reader can name an uppercase scheme
+// rather than call it bad hex.
+func schemeLen(s string) int {
+	if s == "" || !(s[0] >= 'a' && s[0] <= 'z' || s[0] >= 'A' && s[0] <= 'Z') {
+		return 0
+	}
+	for i := 1; i < len(s); i++ {
+		b := s[i]
+		if b == ':' {
+			return i + 1
+		}
+		if !(isAlphanumeric(b) || b == '+' || b == '-' || b == '.') {
+			return 0
+		}
+	}
+	return 0
+}
+
+// isReferenceStart reports whether s begins with "<" and a scheme, so is a
+// reference rather than bytes.
+func isReferenceStart(s string) bool {
+	return strings.HasPrefix(s, "<") && schemeLen(s[1:]) > 0
+}
+
+// isURIChar reports whether r may appear in a reference (RFC 3986 and RFC
+// 3987), "%" aside, which must begin a percent-encoding.
+func isURIChar(r rune) bool {
+	if r < 0x80 {
+		return isAlphanumeric(byte(r)) || strings.ContainsRune("-._~:/?#[]@!$&'()*+,;=", r)
+	}
+	return r >= 0xA0 && !unicode.IsControl(r) && !unicode.IsSpace(r) && r != 0xFFFE && r != 0xFFFF
+}
+
+// parseReference reads a reference at the start of s, which
+// isReferenceStart accepted, to the first ">", which always closes it. It
+// returns the reference and the bytes consumed, the ">" included.
+func parseReference(s string, ctx *parseContext, lineNum, col int) (Reference, int, error) {
+	n := schemeLen(s[1:]) - 1
+	if scheme := s[1 : 1+n]; strings.ToLower(scheme) != scheme {
+		return Reference{}, 0, fmt.Errorf("Uppercase scheme \"%s\" in reference (use lowercase)%s", scheme, locSuffix(ctx, lineNum, col))
+	}
+	for j, r := range s[1+n:] {
+		at := 1 + n + j
+		switch {
+		case r == '>':
+			return Reference{s[1:at]}, at + 1, nil
+		case r == '%':
+			if !(at+2 < len(s) && isHexDigit(rune(s[at+1])) && isHexDigit(rune(s[at+2]))) {
+				return Reference{}, 0, fmt.Errorf("Bad percent-encoding in reference (use %% and two hex digits)%s", locSuffix(ctx, lineNum, col+at))
+			}
+		case r == '\n' || r == '\r':
+			return Reference{}, 0, fmt.Errorf("Unmatched angle bracket%s", locSuffix(ctx, lineNum, col))
+		case r == ' ':
+			return Reference{}, 0, fmt.Errorf("Unexpected space in reference%s", locSuffix(ctx, lineNum, col+at))
+		case r == '\t':
+			return Reference{}, 0, fmt.Errorf("Tab not allowed in reference%s", locSuffix(ctx, lineNum, col+at))
+		case !isURIChar(r):
+			return Reference{}, 0, fmt.Errorf("Unexpected character \"%c\" in reference%s", r, locSuffix(ctx, lineNum, col+at))
+		}
+	}
+	return Reference{}, 0, fmt.Errorf("Unmatched angle bracket%s", locSuffix(ctx, lineNum, col))
+}
+
+// parseWholeReference reads a reference that must be all of s.
+func parseWholeReference(s string, ctx *parseContext, lineNum, col int) (Reference, error) {
+	ref, n, err := parseReference(s, ctx, lineNum, col)
+	if err != nil {
+		return Reference{}, err
+	}
+	if rest := s[n:]; rest != "" {
+		return Reference{}, fmt.Errorf("Unexpected character \"%c\"%s", rest[0], locSuffix(ctx, lineNum, col+n))
+	}
+	return ref, nil
 }

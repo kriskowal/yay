@@ -52,6 +52,36 @@ Serializes a Python value to a YAY string.
 
 Serializes a Python value to a file in YAY format.
 
+### `Tagged(tag, payload)`
+
+A tagged value, `'X-1' (com.example/sku)` or a block below `key: (tag)`:
+a frozen dataclass with the tag, a string, and the payload, any value.
+Tagged values are equal when their tags and payloads are; a tagged value
+never equals its payload. YAY gives no tag a meaning. `dumps` writes a tag
+after its value with one space, innermost first, and before its payload on
+the line above exactly when the payload is written as a block.
+
+```python
+yay.loads("count: 10 (s)\n")
+# {'count': Tagged(tag='s', payload=10)}
+```
+
+### `Reference(uri)`
+
+A reference, `<https://example.com/>`: a frozen dataclass holding a URI or
+IRI as written. After `<`, a scheme and a colon make a reference, read to
+the next `>`; anything else is bytes. References are equal when their texts
+are, and a reference never equals a string. A tag follows a reference as it
+follows any inline value, so `<ocapn://a.tcp> (Counter)` is a `Tagged` over
+a `Reference`. `dumps` writes a reference as held, and refuses one whose
+text YAY could not read back (no scheme, an uppercase scheme, a space, `>`
+or a bad percent-encoding) with `ValueError`.
+
+```python
+yay.loads("home: <https://kriskowal.com/>\n")
+# {'home': Reference(uri='https://kriskowal.com/')}
+```
+
 ## Type Mapping
 
 | YAY Type | Python Type | Notes |
@@ -64,6 +94,8 @@ Serializes a Python value to a file in YAY format.
 | array | `list` | |
 | object | `dict` | |
 | bytes | `bytes` | |
+| tagged | `Tagged` | `Tagged(tag, payload)`, a frozen dataclass |
+| reference | `Reference` | `Reference(uri)`, a frozen dataclass |
 
 # YAY Format
 
@@ -771,8 +803,8 @@ bytes.fromhex("b0b5c0ff")
 
 [bytearray-block-hex-and-comment.yay](https://github.com/kriskowal/yay/blob/main/test/yay/bytearray-block-hex-and-comment.yay)
 ```yay
-> b0b5 # first chunk
-  c0ff # second chunk
+> b0b5  # first chunk
+  c0ff  # second chunk
 ```
 
 [bytearray-block-hex-and-comment.py](https://github.com/kriskowal/yay/blob/main/test/py/bytearray-block-hex-and-comment.py)
@@ -877,6 +909,10 @@ python -m pytest test_yay.py
 The test runner uses fixture files from `../test/`.
 Files with `.yay` extension contain YAY input.
 Files with `.py` extension contain expected Python output.
+The tagged-value cases are in the shared corpus, named `tagged-*`, and
+`test_tagged.py` checks that YAY refuses the ones in `../test/meh/`.
+The reference cases are in the shared corpus, named `reference-*`, and
+`test_references.py` checks that YAY refuses the ones in `../test/meh/`.
 
 ## References
 

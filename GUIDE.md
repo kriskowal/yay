@@ -22,6 +22,11 @@ diff formatted.yay reformatted.yay  # No differences
 The `test/meh/` fixtures with `.yay` extension test this.
 The expected `.yay` file is both the expected output and a valid input that
 should reproduce itself.
+A `test/meh/` case with a `.error` file in place of its `.yay` file is one
+that MEH refuses: `<name>.<variant>.meh` must fail with exactly the message
+in `<name>.error`.
+MEH is lenient about spacing, never about meaning: it refuses a duplicate key
+as YAY does.
 
 ### Formatted Form
 
@@ -62,6 +67,8 @@ What must be rejected:
 - Invalid Unicode escapes
 - BOM markers
 - Malformed structures
+- A key that its object already has, however either is quoted; the error
+  names the key and the first one's line and column
 
 ### Comment Preservation
 

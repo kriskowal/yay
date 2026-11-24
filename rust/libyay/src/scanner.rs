@@ -161,15 +161,19 @@ fn scan_lines(source: &str, ctx: &ParseContext) -> Result<ScanResult> {
 }
 
 /// Whether a line's content (after any list leader) opens a block string:
-/// a property `key: \``, or a bare `\`` / `\` text` at root or as a list item.
+/// a property `key: \`` or `key: (tag) \``, or a bare `\`` / `\` text`, tags
+/// before it or not, at root or as a list item.
 fn opens_block_string(content: &str) -> bool {
-    is_bare_block_opener(content) || content.ends_with(": `")
+    is_bare_block_opener(content)
+        || content.ends_with(": `")
+        || crate::parser::is_tagged_property_opener(content)
 }
 
 /// Whether a line's content is a bare `\`` or `\` text` opener rather than a
-/// property.
+/// property, tags before it or not.
 fn is_bare_block_opener(content: &str) -> bool {
-    content == "`" || content.starts_with("` ")
+    let bare = |s: &str| s == "`" || s.starts_with("` ");
+    bare(content) || crate::parser::after_prefix(content).is_some_and(bare)
 }
 
 /// Count the number of leading spaces in a line.
