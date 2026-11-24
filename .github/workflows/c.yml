@@ -6,14 +6,12 @@ on:
     paths:
       - 'c/**'
       - 'test/**'
-      - 'doc/design/tagged-values-g/cases/**'
       - '.github/workflows/c.yml'
   pull_request:
     branches: [main]
     paths:
       - 'c/**'
       - 'test/**'
-      - 'doc/design/tagged-values-g/cases/**'
       - '.github/workflows/c.yml'
 
 permissions:
