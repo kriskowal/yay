@@ -1,29 +1,44 @@
-//! Tagged values, against the cases of the design
-//! (doc/design/tagged-values-g/cases/): each .yay parses to its .json, with
-//! a tagged value as {"#tag": tag, "payload": payload} and bytes as "*hex",
-//! and each .nay is refused; the MEH formatter normalizes each .yay and
-//! .meh case to YAY that reads as the same value.
+//! Tagged values, over the corpus's tagged cases: the MEH formatter
+//! normalizes each test/yay/tagged-*.yay and test/meh/tagged-*.meh to YAY
+//! that reads as the same value as its YAY twin, YAY refuses each
+//! test/meh/tagged-*.meh, and each test/yay/tagged-*.yay survives the writer.
+//! The corpus test reads the tagged cases in test/yay and test/nay against
+//! their expected values and messages with the rest of the corpus.
 
-use libyay::{encode, format_yay, parse, parse_json, Format, Value};
+use libyay::{encode, format_yay, parse, Format, Value};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
-fn cases_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../doc/design/tagged-values-g/cases")
-}
-
-fn cases(ext: &str) -> Vec<PathBuf> {
-    let mut paths: Vec<PathBuf> = fs::read_dir(cases_dir())
-        .expect("the design's cases")
+/// The corpus's tagged cases in test/<kind> ending in .<ext>.
+fn cases(kind: &str, ext: &str) -> Vec<PathBuf> {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../test")
+        .join(kind);
+    let mut paths: Vec<PathBuf> = fs::read_dir(&dir)
+        .expect("the corpus")
         .map(|e| e.unwrap().path())
-        .filter(|p| p.extension().map_or(false, |e| e == ext))
+        .filter(|p| {
+            let name = p.file_name().unwrap().to_string_lossy();
+            name.starts_with("tagged-") && name.ends_with(&format!(".{}", ext))
+        })
         .collect();
     paths.sort();
     paths
 }
 
-/// The value as the cases' JSON spells it.
+/// The YAY document whose value a case reads as: itself for a .yay, and
+/// test/meh/<name>.yay for test/meh/<name>.loose.meh.
+fn twin(path: &std::path::Path) -> PathBuf {
+    let name = path.file_name().unwrap().to_string_lossy();
+    match name.strip_suffix(".loose.meh") {
+        Some(stem) => path.with_file_name(format!("{}.yay", stem)),
+        None => path.to_path_buf(),
+    }
+}
+
+/// The value with tags and bytes spelled out and NaN as a string, so that
+/// two readings compare equal when they mean the same.
 fn desugar(value: Value) -> Value {
     match value {
         Value::Tagged(tag, payload) => {
@@ -51,19 +66,15 @@ fn desugar(value: Value) -> Value {
     }
 }
 
-fn expected(path: &std::path::Path) -> Value {
-    let json = fs::read_to_string(path.with_extension("json")).unwrap();
-    let json = json.replace("-Infinity", "\"-Infinity\"");
-    desugar(parse_json(&json).unwrap())
-}
-
 #[test]
 fn test_tagged_cases_through_meh() {
     let mut failures = Vec::new();
-    let mut paths = cases("yay");
-    paths.extend(cases("meh"));
+    let mut paths = cases("yay", "yay");
+    paths.extend(cases("meh", "meh"));
+    assert!(paths.len() >= 30, "the corpus's tagged cases");
     for path in &paths {
         let src = fs::read_to_string(path).unwrap();
+        let expected = desugar(parse(&fs::read_to_string(twin(path)).unwrap()).unwrap());
         let formatted = match format_yay(&src) {
             Ok(f) => f,
             Err(e) => {
@@ -72,7 +83,7 @@ fn test_tagged_cases_through_meh() {
             }
         };
         match parse(&formatted) {
-            Ok(v) if desugar(v.clone()) == expected(path) => {}
+            Ok(v) if desugar(v.clone()) == expected => {}
             other => failures.push(format!(
                 "{}: formatted\n{}\nread {:?}",
                 path.display(),
@@ -108,31 +119,11 @@ fn test_meh_normalizes_tag_spacing() {
 }
 
 #[test]
-fn test_tagged_cases_accepted() {
-    let mut failures = Vec::new();
-    let paths = cases("yay");
-    assert!(!paths.is_empty());
-    for path in &paths {
-        let src = fs::read_to_string(path).unwrap();
-        let json = fs::read_to_string(path.with_extension("json")).unwrap();
-        let json = json.replace("-Infinity", "\"-Infinity\"");
-        let expected = parse_json(&json).unwrap();
-        match parse(&src) {
-            Ok(v) if desugar(v.clone()) == desugar(expected.clone()) => {}
-            Ok(v) => failures.push(format!("{}: got {:?}", path.display(), v)),
-            Err(e) => failures.push(format!("{}: refused: {}", path.display(), e)),
-        }
-    }
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
-}
-
-#[test]
-fn test_tagged_cases_refused() {
-    let mut failures = Vec::new();
+fn test_tagged_meh_cases_refused() {
     // MEH's leniency is not YAY's
-    let mut paths = cases("nay");
-    paths.extend(cases("meh"));
-    assert!(!paths.is_empty());
+    let mut failures = Vec::new();
+    let paths = cases("meh", "meh");
+    assert!(paths.len() >= 3, "the corpus's MEH tagged cases");
     for path in &paths {
         let src = fs::read_to_string(path).unwrap();
         if let Ok(v) = parse(&src) {
@@ -145,7 +136,9 @@ fn test_tagged_cases_refused() {
 #[test]
 fn test_tagged_cases_write_and_read_back() {
     let mut failures = Vec::new();
-    for path in &cases("yay") {
+    let paths = cases("yay", "yay");
+    assert!(paths.len() >= 25, "the corpus's tagged cases");
+    for path in &paths {
         let value = parse(&fs::read_to_string(path).unwrap()).unwrap();
         let written = encode(&value, Format::Yay);
         match parse(&written) {
@@ -196,7 +189,7 @@ fn test_tagged_writer_normal_form() {
 #[test]
 fn test_yson_tagged_round_trip() {
     use libyay::parse_yson;
-    for path in &cases("yay") {
+    for path in &cases("yay", "yay") {
         let value = parse(&fs::read_to_string(path).unwrap()).unwrap();
         let yson = encode(&value, Format::Yson);
         let back = parse_yson(&yson).unwrap();
