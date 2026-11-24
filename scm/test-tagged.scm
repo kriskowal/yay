@@ -1,15 +1,15 @@
 ;;; Tagged value tests for Scheme (Guile)
 ;;; Usage: guile --no-auto-compile test-tagged.scm
 ;;;
-;;; Reads the design's cases in ../doc/design/tagged-values-g/cases/: each
-;;; .yay parses to its .json, with a tagged value as {"#tag": tag, "payload":
-;;; value} and bytes as "*hex"; each .nay and .meh is refused as YAY.
+;;; MEH's leniency is not YAY's, so the corpus's MEH tagged cases,
+;;; ../test/meh/tagged-*.meh, are refused as YAY. The corpus tagged cases in
+;;; test/yay and test/nay are read with the rest of the corpus.
 
 (use-modules (ice-9 ftw) (ice-9 textual-ports))
 
 (load "yay-parser.scm")
 
-(define cases-dir "../doc/design/tagged-values-g/cases")
+(define meh-dir "../test/meh")
 (define passed 0)
 (define failed 0)
 
@@ -30,115 +30,18 @@
     (lambda () (parse-yay source) #f)
     (lambda args #t)))
 
-;; A small JSON reader for the expected values, desugaring tags and bytes
-(define (json->value s)
-  (define i 0)
-  (define (peek) (string-ref s i))
-  (define (space!)
-    (when (and (< i (string-length s)) (char-whitespace? (peek)))
-      (set! i (+ i 1))
-      (space!)))
-  (define (json-string)
-    (set! i (+ i 1))
-    (let loop ((acc '()))
-      (let ((c (peek)))
-        (set! i (+ i 1))
-        (cond
-         ((char=? c #\") (list->string (reverse acc)))
-         ((char=? c #\\)
-          (let ((e (peek)))
-            (set! i (+ i 1))
-            (case e
-              ((#\n) (loop (cons #\newline acc)))
-              ((#\t) (loop (cons #\tab acc)))
-              ((#\u)
-               (let ((cp (string->number (substring s i (+ i 4)) 16)))
-                 (set! i (+ i 4))
-                 (loop (cons (integer->char cp) acc))))
-              (else (loop (cons e acc))))))
-         (else (loop (cons c acc)))))))
-  (define (value)
-    (space!)
-    (let ((c (peek)))
-      (cond
-       ((char=? c #\{)
-        (set! i (+ i 1))
-        (let loop ((pairs '()))
-          (space!)
-          (if (char=? (peek) #\})
-              (begin
-                (set! i (+ i 1))
-                (let ((pairs (reverse pairs)))
-                  (if (and (= (length pairs) 2)
-                           (assoc "#tag" pairs)
-                           (assoc "payload" pairs))
-                      (make-tagged (cdr (assoc "#tag" pairs))
-                                   (cdr (assoc "payload" pairs)))
-                      pairs)))
-              (let ((key (json-string)))
-                (space!)
-                (set! i (+ i 1))
-                (let ((v (value)))
-                  (space!)
-                  (when (char=? (peek) #\,) (set! i (+ i 1)))
-                  (loop (cons (cons key v) pairs)))))))
-       ((char=? c #\[)
-        (set! i (+ i 1))
-        (let loop ((items '()))
-          (space!)
-          (if (char=? (peek) #\])
-              (begin (set! i (+ i 1)) (list->vector (reverse items)))
-              (let ((v (value)))
-                (space!)
-                (when (char=? (peek) #\,) (set! i (+ i 1)))
-                (loop (cons v items))))))
-       ((char=? c #\")
-        (let ((str (json-string)))
-          (cond
-           ((string-prefix? "*" str) (parse-hex-bytes (substring str 1)))
-           ;; The cases' JSON spells NaN as a string
-           ((string=? str "NaN") +nan.0)
-           (else str))))
-       (else
-        (let loop ((words '(("null" . null) ("true" . #t) ("false" . #f)
-                            ("-Infinity" . -inf.0) ("Infinity" . +inf.0))))
-          (cond
-           ((null? words)
-            (let num ((j i))
-              (if (and (< j (string-length s))
-                       (string-index "+-0123456789.eE" (string-ref s j)))
-                  (num (+ j 1))
-                  (let ((text (substring s i j)))
-                    (set! i j)
-                    (if (or (string-index text #\.) (string-index text #\e))
-                        (exact->inexact (string->number text))
-                        (string->number text))))))
-           ((string-prefix? (caar words) (substring s i))
-            (set! i (+ i (string-length (caar words))))
-            (cdar words))
-           (else (loop (cdr words)))))))))
-  (value))
-
 (define (has-ext? name ext) (string-suffix? ext name))
 
-(define (test-cases)
-  (let ((names (scandir cases-dir)))
+(define (test-meh-cases)
+  (let ((names (filter (lambda (name)
+                         (and (string-prefix? "tagged-" name)
+                              (has-ext? name ".meh")))
+                       (scandir meh-dir))))
+    (check (>= (length names) 3) "MEH tagged cases read")
     (for-each
      (lambda (name)
-       (let ((path (string-append cases-dir "/" name)))
-         (cond
-          ((has-ext? name ".yay")
-           (let* ((json-path (string-append (substring path 0 (- (string-length path) 4)) ".json"))
-                  (expected (json->value (read-file json-path)))
-                  (actual (catch #t
-                            (lambda () (parse-yay (read-file path)))
-                            (lambda args (format #f "error: ~a" args)))))
-             (check (yay-equal? actual expected)
-                    (string-append name ": " (yay->scheme-string actual)
-                                   " want " (yay->scheme-string expected)))))
-          ((or (has-ext? name ".nay") (has-ext? name ".meh"))
-           (check (refused? (read-file path))
-                  (string-append name ": accepted, should be refused"))))))
+       (check (refused? (read-file (string-append meh-dir "/" name)))
+              (string-append name ": accepted, should be refused")))
      names)))
 
 (define (test-model)
@@ -170,7 +73,7 @@
 
 (test-model)
 (test-escapes-and-nesting)
-(test-cases)
+(test-meh-cases)
 (display "tagged: ")
 (display passed)
 (display " passed, ")

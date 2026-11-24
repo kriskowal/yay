@@ -6,14 +6,12 @@ on:
     paths:
       - 'scm/**'
       - 'test/**'
-      - 'doc/design/tagged-values-g/cases/**'
       - '.github/workflows/guile.yml'
   pull_request:
     branches: [main]
     paths:
       - 'scm/**'
       - 'test/**'
-      - 'doc/design/tagged-values-g/cases/**'
       - '.github/workflows/guile.yml'
 
 permissions:
