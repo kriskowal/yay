@@ -909,8 +909,8 @@ python -m pytest test_yay.py
 The test runner uses fixture files from `../test/`.
 Files with `.yay` extension contain YAY input.
 Files with `.py` extension contain expected Python output.
-`test_tagged.py` reads the tagged-value cases of the design, in
-`../doc/design/tagged-values-g/cases/`, until they join the shared corpus.
+The tagged-value cases are in the shared corpus, named `tagged-*`, and
+`test_tagged.py` checks that YAY refuses the ones in `../test/meh/`.
 The reference cases are in the shared corpus, named `reference-*`, and
 `test_references.py` checks that YAY refuses the ones in `../test/meh/`.
 

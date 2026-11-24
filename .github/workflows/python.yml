@@ -6,14 +6,12 @@ on:
     paths:
       - 'python/**'
       - 'test/**'
-      - 'doc/design/tagged-values-g/cases/**'
       - '.github/workflows/python.yml'
   pull_request:
     branches: [main]
     paths:
       - 'python/**'
       - 'test/**'
-      - 'doc/design/tagged-values-g/cases/**'
       - '.github/workflows/python.yml'
 
 permissions:

@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
 """
-Tagged values, against the cases of the design
-(doc/design/tagged-values-g/cases/): each .yay parses to its .json, with a
-tagged value as {"#tag": tag, "payload": payload} and bytes as "*hex", and
-each .nay and .meh is refused, MEH's leniency not being YAY's.
+Tagged values: MEH's leniency is not YAY's, so the corpus's MEH tagged cases
+are refused as YAY. Then the model, parsing and writing. The corpus tagged
+cases in test/yay and test/nay are read with the rest of the corpus by
+test_yay.py.
 """
 
-import json
-import math
 import os
 import sys
 import unittest
@@ -16,63 +14,21 @@ sys.path.insert(0, os.path.dirname(__file__))
 import libyay as yay
 from libyay import Tagged
 
-CASES = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "..",
-    "doc",
-    "design",
-    "tagged-values-g",
-    "cases",
-)
+MEH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "test", "meh")
 
 
-def cases(ext: str) -> list[str]:
-    return sorted(f for f in os.listdir(CASES) if f.endswith("." + ext))
-
-
-def read(name: str) -> str:
-    with open(os.path.join(CASES, name), encoding="utf-8") as fp:
-        return fp.read()
-
-
-def desugar(value):
-    """The value as the cases' JSON spells it."""
-    if isinstance(value, Tagged):
-        return {"#tag": value.tag, "payload": desugar(value.payload)}
-    if isinstance(value, bytes):
-        return "*" + value.hex()
-    if isinstance(value, list):
-        return [desugar(v) for v in value]
-    if isinstance(value, dict):
-        return {k: desugar(v) for k, v in value.items()}
-    # The prototype's JSON spells these as strings or bare words
-    if isinstance(value, float) and math.isnan(value):
-        return "NaN"
-    if isinstance(value, float) and math.isinf(value):
-        return "Infinity" if value > 0 else "-Infinity"
-    return value
-
-
-class AcceptedCases(unittest.TestCase):
-    def test_cases(self):
-        names = cases("yay")
-        self.assertTrue(names)
+class Meh(unittest.TestCase):
+    def test_refused(self):
+        names = sorted(
+            f for f in os.listdir(MEH) if f.startswith("tagged-") and f.endswith(".meh")
+        )
+        self.assertGreaterEqual(len(names), 3)
         for name in names:
             with self.subTest(name):
-                expected = json.loads(
-                    read(name[:-4] + ".json").replace("-Infinity", '"-Infinity"')
-                )
-                self.assertEqual(desugar(yay.loads(read(name))), expected)
-
-
-class RefusedCases(unittest.TestCase):
-    def test_cases(self):
-        names = cases("nay") + cases("meh")
-        self.assertTrue(names)
-        for name in names:
-            with self.subTest(name):
+                with open(os.path.join(MEH, name), encoding="utf-8") as fp:
+                    src = fp.read()
                 with self.assertRaises(yay.YayError):
-                    yay.loads(read(name))
+                    yay.loads(src)
 
 
 class Model(unittest.TestCase):
