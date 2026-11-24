@@ -9,6 +9,14 @@ Runs the option G prototype (desugar.py) over the YAY corpus and G's cases.
 3. Each cases/*.yay parses, through the prototype and the Python port, to
    its cases/*.json, as YAY and as MEH; each cases/*.meh does so as MEH and
    is refused as YAY; each cases/*.nay is refused as YAY.
+
+This is the design's evidence, and it holds only on the design's tree: a
+corpus and a Python port without tagged values. The cases have since moved
+into the corpus (test/yay, test/meh and test/nay, each named tagged-*, with
+each port's expected value) and cases/ is gone, so run this from a checkout
+of the design's commit, the one that added cases/:
+
+    git log --diff-filter=A --format=%H -- doc/design/tagged-values-g/cases | tail -1
 """
 
 import glob
@@ -22,6 +30,12 @@ sys.path.insert(0, os.path.join(root, "python"))
 sys.path.insert(0, here)
 import libyay as yay
 from desugar import desugar, GSyntaxError
+
+if not os.path.isdir(os.path.join(here, "cases")):
+    sys.exit(
+        "check.py: cases/ moved into the corpus; run this from a checkout of "
+        "the design's commit (see the docstring)"
+    )
 
 
 def plain(v):

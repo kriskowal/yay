@@ -106,9 +106,24 @@ newlines, which hid `unicode-invalid-c0-cr.nay`'s carriage return; this one
 reads them byte for byte, and counts a refused document that becomes valid
 as a failure.
 
+The cases have since moved into the corpus, and `tagged-values-g/cases/`
+is gone. `check.py` holds only on the design's tree, a corpus and a Python
+port without tagged values, so run it from a checkout of the design's
+commit, the one that added `cases/`:
+
+```sh
+rev=$(git log --diff-filter=A --format=%H -- doc/design/tagged-values-g/cases | tail -1)
+git worktree add /tmp/tagged-values-g-design "$rev"
+cd /tmp/tagged-values-g-design
+python3 -I doc/design/tagged-values-g/check.py
+```
+
 ## The cases
 
-Accepted, each with the value in its `.json`:
+Each case is in the corpus, named `tagged-<case>`.
+
+Accepted, `test/yay/tagged-<case>.yay`, each with its value in every
+port's `test/<lang>/` (the design's `.json` became those values):
 
 | Case | Shows |
 |---|---|
@@ -134,7 +149,8 @@ Accepted, each with the value in its `.json`:
 | block-root-object, block-root-array, block-root-colon-in-tag | a tagged root block at column 0 |
 | misindented-sibling-unchanged | `enabled: true` then `retries: 3` at the same indent |
 
-Accepted as MEH, refused as YAY:
+Accepted as MEH, refused as YAY, `test/meh/tagged-<case>.loose.meh`
+without the `meh-`, read as MEH to the value of `test/meh/tagged-<case>.yay`:
 
 | Case | Shows |
 |---|---|
@@ -142,7 +158,7 @@ Accepted as MEH, refused as YAY:
 | meh-spacing | `1  (t)`, `2(a)(b)`, three spaces and a comment |
 | meh-block-tags | `- (a)  (b)` over a block |
 
-Refused:
+Refused, `test/nay/tagged-<case>.nay`, each with its message in a `.error`:
 
 | Case | Why |
 |---|---|

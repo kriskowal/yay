@@ -255,10 +255,13 @@ tag of its own beyond Endo's matchers.
 
 ## Test plan
 
-- The prototype's cases in [`tagged-values-g/cases/`](tagged-values-g/cases/)
+- The prototype's cases in `tagged-values-g/cases/`
   move into `test/yay`, `test/meh` and
   `test/nay` with the reference port, each with its expected value. 2.0.0's
   corpus is unchanged.
+  Done; each is in the corpus as `tagged-*`, `tagged-values-g/cases/` was
+  removed, and the prototype runs from the design's commit
+  ([tagged-values-g.md](tagged-values-g.md) § The check against the corpus).
 - Writer cases: `-f meh -t yay` of `'x'(t)` is `'x' (t)`; of `1  (a)(b)`,
   `1 (a) (b)`; a tag with `)` or `\` is escaped; `--check -t yay` names the
   line of each unformatted one.
